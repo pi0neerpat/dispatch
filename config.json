@@ -1,0 +1,23 @@
+{
+  "repos": [
+    {
+      "name": "marketing",
+      "path": "../marketing-dept-scribular",
+      "taskFile": "todo.md",
+      "activityFile": "activity-log.md"
+    },
+    {
+      "name": "website",
+      "path": "../scribular-saas-project",
+      "taskFile": "todo.md",
+      "activityFile": "activity-log.md"
+    },
+    {
+      "name": "electron",
+      "path": "../notes-assistant-electron",
+      "taskFile": "todo.md",
+      "activityFile": "activity-log.md"
+    }
+  ],
+  "hubRoot": "/Volumes/My Shared Files/scribular/hub"
+}
