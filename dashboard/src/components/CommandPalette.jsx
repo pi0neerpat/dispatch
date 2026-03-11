@@ -22,11 +22,13 @@ export default function CommandPalette({
 }) {
   const [query, setQuery] = useState('')
   const [index, setIndex] = useState(0)
+  const [confirmKillId, setConfirmKillId] = useState(null)
 
   useEffect(() => {
     if (!open) {
       setQuery('')
       setIndex(0)
+      setConfirmKillId(null)
     }
   }, [open])
 
@@ -39,7 +41,10 @@ export default function CommandPalette({
         label: `Start worker in ${selectedRepo}`,
         subtitle: 'Launch a blank worker terminal',
         icon: Play,
-        run: () => onStartWorker?.(selectedRepo),
+        run: () => {
+          onStartWorker?.(selectedRepo)
+          return true
+        },
       })
     }
 
@@ -49,7 +54,10 @@ export default function CommandPalette({
         label: `Switch to ${repo.name}`,
         subtitle: `${repo.tasks.openCount} open tasks`,
         icon: FolderOpen,
-        run: () => onSelectResult?.({ kind: 'repo', targetId: repo.name, repo: repo.name }),
+        run: () => {
+          onSelectResult?.({ kind: 'repo', targetId: repo.name, repo: repo.name })
+          return true
+        },
       })
     }
 
@@ -60,20 +68,38 @@ export default function CommandPalette({
           label: `Open worker: ${info.taskText || 'Manual worker'}`,
           subtitle: `Session ${sessionId}`,
           icon: TerminalSquare,
-          run: () => onSelectResult?.({ kind: 'agent', targetId: sessionId, repo: info.repoName }),
+          run: () => {
+            onSelectResult?.({ kind: 'agent', targetId: sessionId, repo: info.repoName })
+            return true
+          },
         })
+        const killKey = `kill:${sessionId}`
         base.push({
           key: `kill:${sessionId}`,
-          label: `Kill worker: ${info.taskText || 'Manual worker'}`,
+          label: confirmKillId === killKey
+            ? `Confirm kill: ${info.taskText || 'Manual worker'}`
+            : `Kill worker: ${info.taskText || 'Manual worker'}`,
           subtitle: `Session ${sessionId}`,
           icon: Skull,
-          run: () => onKillSession?.(sessionId),
+          run: () => {
+            if (confirmKillId === killKey) {
+              onKillSession?.(sessionId)
+              setConfirmKillId(null)
+              return true
+            } else {
+              setConfirmKillId(killKey)
+              setTimeout(() => {
+                setConfirmKillId(prev => (prev === killKey ? null : prev))
+              }, 3000)
+              return false
+            }
+          },
         })
       }
     }
 
     return base
-  }, [repos, selectedRepo, activeWorkers, onStartWorker, onSelectResult, onKillSession])
+  }, [repos, selectedRepo, activeWorkers, onStartWorker, onSelectResult, onKillSession, confirmKillId])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -85,7 +111,10 @@ export default function CommandPalette({
         label: item.label,
         subtitle: item.subtitle,
         icon: kindIcon(item.kind),
-        run: () => onSelectResult?.(item),
+        run: () => {
+          onSelectResult?.(item)
+          return true
+        },
       }))
 
     return [...commandMatches, ...searchMatches].slice(0, 18)
@@ -117,8 +146,8 @@ export default function CommandPalette({
       }
       if (e.key === 'Enter' && filtered[index]) {
         e.preventDefault()
-        filtered[index].run?.()
-        onClose?.()
+        const shouldClose = filtered[index].run?.()
+        if (shouldClose !== false) onClose?.()
       }
     }
 
@@ -155,8 +184,8 @@ export default function CommandPalette({
                   key={item.key}
                   onMouseEnter={() => setIndex(i)}
                   onClick={() => {
-                    item.run?.()
-                    onClose?.()
+                    const shouldClose = item.run?.()
+                    if (shouldClose !== false) onClose?.()
                   }}
                   className={cn(
                     'w-full text-left flex items-center gap-2.5 px-3 py-2 rounded-md transition-colors',

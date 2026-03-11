@@ -13,7 +13,7 @@ export function useSearch(query, overview, swarm, activeWorkers) {
     const repos = overview?.repos || []
     const agents = swarm?.agents || []
 
-    for (const repo of repos) {
+    for (const [repoIndex, repo] of repos.entries()) {
       if (safeIncludes(repo.name, q)) {
         results.push({
           key: `repo:${repo.name}`,
@@ -25,13 +25,13 @@ export function useSearch(query, overview, swarm, activeWorkers) {
         })
       }
 
-      for (const section of repo.tasks.sections || []) {
-        for (const task of section.tasks || []) {
+      for (const [sectionIndex, section] of (repo.tasks.sections || []).entries()) {
+        for (const [taskIndex, task] of (section.tasks || []).entries()) {
           if (task.done) continue
           if (!safeIncludes(task.text, q)) continue
           const title = task.text.split('\n').find(Boolean)?.trim() || task.text
           results.push({
-            key: `task:${repo.name}:${title}`,
+            key: `task:${repo.name}:${repoIndex}:${sectionIndex}:${taskIndex}`,
             kind: 'task',
             label: title,
             subtitle: `Task in ${repo.name}`,

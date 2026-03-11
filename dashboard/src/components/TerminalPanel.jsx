@@ -21,9 +21,10 @@ function AgentHeader({ taskInfo }) {
     }
 
     let cancelled = false
+    let firstRun = true
 
     async function fetchDetail() {
-      if (!cancelled && !detail) setLoading(true)
+      if (!cancelled && firstRun) setLoading(true)
       try {
         const res = await fetch(`/api/swarm/${swarmFileId}`)
         if (!res.ok) throw new Error('failed')
@@ -32,6 +33,7 @@ function AgentHeader({ taskInfo }) {
       } catch {
         if (!cancelled) setDetail(null)
       } finally {
+        firstRun = false
         if (!cancelled) setLoading(false)
       }
     }

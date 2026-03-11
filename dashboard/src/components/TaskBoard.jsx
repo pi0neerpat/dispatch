@@ -422,7 +422,7 @@ export default function TaskBoard({
               {activeRepoWorkers.map(worker => (
                 <button
                   key={`${worker.id}-${worker.swarmId || 'local'}`}
-                  onClick={() => onSelectWorker?.(worker.id)}
+                  onClick={() => onSelectWorker?.({ id: worker.id, isSession: worker.isSession })}
                   className={cn(
                     'inline-flex items-center gap-1.5 max-w-[340px] px-2.5 py-1.5 rounded-full text-[11px] border transition-colors animate-slide-in',
                     worker.status === 'needs_validation'
@@ -557,7 +557,7 @@ export default function TaskBoard({
                               <div className="shrink-0 flex items-center gap-1">
                                 {isBeingWorked ? (
                                   <button
-                                    onClick={() => onSelectWorker?.(workerSessionId)}
+                                    onClick={() => onSelectWorker?.({ id: workerSessionId, isSession: true })}
                                     className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium text-status-active bg-status-active-bg hover:brightness-110 transition-all"
                                     title="Open worker terminal"
                                   >

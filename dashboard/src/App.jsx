@@ -138,6 +138,23 @@ export default function App() {
     }
   }, [swarm.data])
 
+  const openWorker = useCallback((workerId, preferredTab = 'terminal') => {
+    const hasSession = agentTerminals.has(workerId)
+    setSelection({ type: 'swarm', id: workerId })
+
+    if (hasSession) {
+      setActiveTab('terminal')
+      return
+    }
+
+    const agent = swarm.data?.agents?.find(a => a.id === workerId)
+    if (agent?.validation === 'needs_validation') {
+      setActiveTab('review')
+    } else {
+      setActiveTab(preferredTab)
+    }
+  }, [agentTerminals, swarm.data])
+
   async function handleStartTask(taskText, repoName) {
     const sessionId = 'session-' + Date.now()
     let swarmFile = null
@@ -208,12 +225,11 @@ export default function App() {
       setSelection({ type: 'repo', id: item.targetId || item.repo })
       setActiveTab('tasks')
     } else if (item.kind === 'agent') {
-      setSelection({ type: 'swarm', id: item.targetId })
-      setActiveTab('terminal')
+      openWorker(item.targetId, 'review')
     }
     setSearchQuery('')
     setCommandPaletteOpen(false)
-  }, [])
+  }, [openWorker])
 
   useEffect(() => {
     function onKeyDown(e) {
@@ -262,14 +278,11 @@ export default function App() {
           activeWorkers={agentTerminals}
           swarmAgents={swarm.data?.agents || []}
           swarmFileToSession={swarmFileToSession}
-          onSelectWorker={(id) => {
-            setSelection({ type: 'swarm', id })
-            setActiveTab('terminal')
-          }}
+          onSelectWorker={({ id, isSession }) => openWorker(id, isSession ? 'terminal' : 'review')}
         />
       ),
     }
-  }, [selectionType, selection?.id, activeTerminalSessionId, agentTerminals, reviewAgentId, swarm.refresh, swarm.data, overview.refresh, overview.data, skipPermissions, handleUpdateSessionId, handlePromptSent, handleContextUsage, handleKillSession, swarmFileToSession])
+  }, [selectionType, selection?.id, activeTerminalSessionId, agentTerminals, reviewAgentId, swarm.refresh, swarm.data, overview.refresh, overview.data, skipPermissions, handleUpdateSessionId, handlePromptSent, handleContextUsage, handleKillSession, swarmFileToSession, openWorker])
 
   return (
     <div className="h-screen flex flex-col bg-background">
@@ -296,6 +309,8 @@ export default function App() {
           selection={selection}
           onSelect={handleSelect}
           activeWorkers={agentTerminals}
+          swarmFileToSession={swarmFileToSession}
+          onOpenWorker={openWorker}
         />
 
         <CenterTabs
