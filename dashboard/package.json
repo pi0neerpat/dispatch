@@ -1,0 +1,37 @@
+{
+  "name": "scribular-hub-dashboard",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "packageManager": "yarn@4.9.1",
+  "scripts": {
+    "postinstall": "cd node_modules/node-pty && npx node-gyp rebuild 2>/dev/null || true",
+    "dev": "concurrently \"node --watch server.js\" \"vite\"",
+    "dev:server": "node --watch server.js",
+    "dev:client": "vite",
+    "build": "vite build",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/addon-web-links": "^0.11.0",
+    "@xterm/xterm": "^5.5.0",
+    "clsx": "2.1.1",
+    "cors": "^2.8.5",
+    "express": "^4.21.0",
+    "lucide-react": "0.487.0",
+    "node-pty": "^1.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-markdown": "^10.1.0",
+    "tailwind-merge": "3.2.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "4.1.12",
+    "@vitejs/plugin-react": "4.7.0",
+    "concurrently": "^9.0.0",
+    "tailwindcss": "4.1.12",
+    "vite": "6.3.5"
+  }
+}

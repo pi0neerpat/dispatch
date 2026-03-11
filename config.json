@@ -17,6 +17,12 @@
       "path": "../notes-assistant-electron",
       "taskFile": "todo.md",
       "activityFile": "activity-log.md"
+    },
+    {
+      "name": "hub",
+      "path": ".",
+      "taskFile": "todo.md",
+      "activityFile": "activity-log.md"
     }
   ],
   "hubRoot": "/Volumes/My Shared Files/scribular/hub"
