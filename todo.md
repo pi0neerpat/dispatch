@@ -6,7 +6,7 @@
 - [x] Add decision log timeline view
 - [ ] - Add a session usage meter in the top showing progress bar and percentage for current claude code session usage.  Heres what is shown on my claude dashboard: Current session  Resets in 2 hr 3 min  61% used
 - [x] Organize worker bees under each respective repo they serve, rather than in one place
-- [ ] Allow starting a new worker manually in a repo using a "Start worker" button immediately below each repo. This essentially starts a new worker, enters the /swarm and waits for the user to complete the message
+- [x] Allow starting a new worker manually in a repo using a "Start worker" button immediately below each repo. This essentially starts a new worker, enters the /swarm and waits for the user to complete the message
 - [ ] Add the following to the hub.config for each repo: start script, test script, cleanup script.
 - [x] Cannot scroll in terminal view, it always brings me back to the top. Likely some issue with claude interactive mode and our setup.
 - [x] once started, a todo item check box should become an indicator that the task is in progress, and not allow me to edit it, change its status or start a new session. I should instead be presented with a way to open the bee currently performing that task

@@ -35,8 +35,8 @@ config.json ─── loadConfig() ───┐
 
 ## Key Files
 
-- **config.json** -- Repo definitions (names, relative paths, task/activity file names). Has `hubRoot` for absolute resolution.
-- **parsers.js** -- CommonJS module. Read functions: `parseTaskFile`, `parseActivityLog`, `getGitInfo`, `parseSwarmFile`, `parseSwarmDir`, `loadConfig`. Write functions: `writeTaskDone`, `writeTaskAdd`, `writeTaskMove`, `writeSwarmValidation`, `writeSwarmKill`, `writeSwarmStatus`, `createCheckpoint`, `revertCheckpoint`, `dismissCheckpoint`, `listCheckpoints`. Zero external dependencies.
+- **config.json** -- Repo definitions (names, relative paths, task/activity file names). `hubRoot` (display path) and `monthlyBudget` (optional) are user-specific; set `hubRoot` to your local hub path (e.g. `.` for current dir). Server falls back to `HUB_DIR` when `hubRoot` is unset.
+- **parsers.js** -- CommonJS module. Read functions: `parseTaskFile`, `parseActivityLog`, `getGitInfo`, `parseSwarmFile`, `parseSwarmDir`, `loadConfig`. Write functions: `writeTaskDone`, `writeTaskDoneByText`, `writeTaskAdd`, `writeTaskEdit`, `writeTaskMove`, `writeSwarmValidation`, `writeSwarmKill`, `writeSwarmStatus`, `createCheckpoint`, `revertCheckpoint`, `dismissCheckpoint`, `listCheckpoints`. Zero external dependencies.
 - **cli.js** -- Agent-friendly CLI. All output is JSON to stdout, errors as JSON to stderr. Commands: `status`, `tasks [--repo=name]`, `swarm [id]`, `repos`, `activity [--limit=N]`, `config`.
 - **terminal.js** -- Human-friendly ANSI terminal dashboard. Read-only display, no interactivity. Uses box-drawing characters.
 - **todo.md** -- Hub's own task tracker (markdown checkboxes).
@@ -47,8 +47,9 @@ config.json ─── loadConfig() ───┐
 
 Separate Node.js project with its own `package.json` (ESM, `"type": "module"`).
 
-- **server.js** -- Express backend on port 3001. Imports `../parsers.js` via `createRequire`. Serves REST API (`/api/overview`, `/api/swarm`, `/api/swarm/:id`, `/api/config`, `/api/tasks/*`, `/api/sessions`) and WebSocket terminal server (`/ws/terminal`) with persistent PTY sessions. Serves built SPA from `dist/`.
-- **src/** -- React SPA with Tailwind CSS v4. Components: `HeaderBar`, `Sidebar`, `CenterTabs`, `TaskBoard`, `TerminalPanel`, `ResultsPanel`, `RightPanel`, `SwarmDetail`, `SwarmPanel`, `RepoStatus`, `ActivityTimeline`. Hooks: `usePolling`, `useTerminal`. See `docs/dashboard-architecture.md` for full component tree and data flow.
+- **server.js** -- Express backend on port 3001. Imports `../parsers.js` via `createRequire`. REST API for tasks, swarm, sessions, schedules, checkpoints, and events. WebSocket terminal server (`/ws/terminal`) with persistent PTY sessions. Serves built SPA from `dist/`.
+- **eventPipeline.js** -- Captures terminal output into structured NDJSON events. Line classification, agent detection, event search, session summaries.
+- **src/** -- React SPA with Tailwind CSS v4. Navigation: `ActivityBar` (icon tabs) → views (`StatusView`, `JobsView`, `AllTasksView`, `DispatchView`, `SchedulesView`) with `JobDetailView` drill-down. Hooks: `usePolling`, `useTerminal`, `useSearch`. See `docs/dashboard-architecture.md` for full component tree and data flow.
 - **vite.config.js** -- Proxies `/api` and `/ws` to `localhost:3001` during dev.
 
 ### Clauffice (`clauffice/`)
@@ -70,13 +71,13 @@ node cli.js swarm 2026-03-11-some-task
 # Terminal dashboard (no install needed)
 node terminal.js
 
-# Web dashboard (requires npm install in dashboard/)
-cd dashboard && npm install
-npm run dev          # Vite dev server + Express API (concurrently)
-npm run dev:server   # Express API only (port 3001)
-npm run dev:client   # Vite only (proxies /api to 3001)
-npm run build        # Production build to dashboard/dist/
-npm start            # Serve built SPA + API from port 3001
+# Web dashboard (requires yarn install in dashboard/)
+cd dashboard && yarn install
+yarn dev             # Vite dev server + Express API (concurrently)
+yarn dev:server      # Express API only (port 3001)
+yarn dev:client      # Vite only (proxies /api to 3001)
+yarn build           # Production build to dashboard/dist/
+yarn start           # Serve built SPA + API from port 3001
 ```
 
 ## Conventions

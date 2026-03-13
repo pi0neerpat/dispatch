@@ -1,27 +1,25 @@
-import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
-import { ListTodo, TerminalSquare, ClipboardCheck } from 'lucide-react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import { usePolling } from './lib/usePolling'
 import { useSearch } from './lib/useSearch'
 import HeaderBar from './components/HeaderBar'
-import Sidebar from './components/Sidebar'
-import CenterTabs from './components/CenterTabs'
-import TerminalPanel from './components/TerminalPanel'
-import ResultsPanel from './components/ResultsPanel'
-import TaskBoard from './components/TaskBoard'
-import RightPanel from './components/RightPanel'
+import ActivityBar from './components/ActivityBar'
+import StatusView from './components/StatusView'
+import JobsView from './components/JobsView'
+import JobDetailView from './components/JobDetailView'
+import AllTasksView from './components/AllTasksView'
+import DispatchView from './components/DispatchView'
+import SchedulesView from './components/SchedulesView'
 import CommandPalette from './components/CommandPalette'
-
-const REPO_TABS = [{ id: 'tasks', label: 'Tasks', icon: ListTodo }]
-const SWARM_TABS = [
-  { id: 'terminal', label: 'Terminal', icon: TerminalSquare },
-  { id: 'review', label: 'Review', icon: ClipboardCheck },
-]
+import Toast from './components/Toast'
 
 export default function App() {
   const overview = usePolling('/api/overview', 10000)
   const swarm = usePolling('/api/swarm', 5000)
-  const [selection, setSelection] = useState(null)
-  const [activeTab, setActiveTab] = useState('tasks')
+
+  // Navigation state
+  const [activeNav, setActiveNav] = useState('tasks')
+  const [drillDownJobId, setDrillDownJobId] = useState(null)
+
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [agentTerminals, setAgentTerminals] = useState(() => {
@@ -83,9 +81,14 @@ export default function App() {
   }, [])
 
   const [skipPermissions, setSkipPermissions] = useState(true)
-  const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false)
   const [contextUsage, setContextUsage] = useState(null)
   const [contextResetInfo, setContextResetInfo] = useState(null)
+  const [toast, setToast] = useState(null)
+  const [dispatchPreFill, setDispatchPreFill] = useState(null)
+
+  const showToast = useCallback((message, type = 'info') => {
+    setToast({ message, type })
+  }, [])
 
   const handleContextUsage = useCallback((sessionId, pct, resetMinutes) => {
     setContextUsage(pct)
@@ -93,28 +96,6 @@ export default function App() {
       setContextResetInfo({ resetsAt: Date.now() + resetMinutes * 60 * 1000 })
     }
   }, [])
-
-  useEffect(() => {
-    setContextUsage(null)
-    setContextResetInfo(null)
-  }, [selection?.id])
-
-  const prevSelectionType = useRef(null)
-  const selectionType = selection?.type || null
-  const tabs = selectionType === 'swarm' ? SWARM_TABS : REPO_TABS
-
-  useEffect(() => {
-    if (prevSelectionType.current !== selectionType) {
-      prevSelectionType.current = selectionType
-      setActiveTab(tabs[0].id)
-    }
-  }, [selectionType, tabs])
-
-  useEffect(() => {
-    if (!selection && overview.data?.repos?.length > 0) {
-      setSelection({ type: 'repo', id: overview.data.repos[0].name })
-    }
-  }, [overview.data, selection])
 
   const lastRefresh = overview.lastRefresh || swarm.lastRefresh
   const error = overview.error || swarm.error
@@ -128,34 +109,24 @@ export default function App() {
     return map
   }, [agentTerminals])
 
-  const handleSelect = useCallback((sel) => {
-    setSelection(sel)
-    if (sel?.type === 'swarm') {
-      const agent = swarm.data?.agents?.find(a => a.id === sel.id)
-      if (agent?.validation === 'needs_validation') {
-        setActiveTab('review')
-      }
-    }
-  }, [swarm.data])
+  // Compute active terminal for context usage tracking
+  const activeTerminalSessionId = drillDownJobId && agentTerminals.has(drillDownJobId)
+    ? drillDownJobId
+    : drillDownJobId ? (swarmFileToSession[drillDownJobId] || null) : null
 
-  const openWorker = useCallback((workerId, preferredTab = 'terminal') => {
-    const hasSession = agentTerminals.has(workerId)
-    setSelection({ type: 'swarm', id: workerId })
+  useEffect(() => {
+    setContextUsage(null)
+    setContextResetInfo(null)
+  }, [activeTerminalSessionId])
 
-    if (hasSession) {
-      setActiveTab('terminal')
-      return
-    }
+  // Navigation handler — resets drill-down
+  const handleNavChange = useCallback((nav) => {
+    setActiveNav(nav)
+    setDrillDownJobId(null)
+  }, [])
 
-    const agent = swarm.data?.agents?.find(a => a.id === workerId)
-    if (agent?.validation === 'needs_validation') {
-      setActiveTab('review')
-    } else {
-      setActiveTab(preferredTab)
-    }
-  }, [agentTerminals, swarm.data])
-
-  async function handleStartTask(taskText, repoName) {
+  // Start task → create session and navigate to Jobs drill-down
+  async function handleStartTask(taskText, repoName, dispatchOpts = {}) {
     const sessionId = 'session-' + Date.now()
     let swarmFile = null
 
@@ -163,7 +134,15 @@ export default function App() {
       const res = await fetch('/api/swarm/init', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ repo: repoName, taskText, sessionId }),
+        body: JSON.stringify({
+          repo: repoName,
+          taskText,
+          sessionId,
+          model: dispatchOpts.model || undefined,
+          maxTurns: dispatchOpts.maxTurns || undefined,
+          autoMerge: dispatchOpts.autoMerge || undefined,
+          baseBranch: dispatchOpts.baseBranch || undefined,
+        }),
       })
       if (res.ok) {
         swarmFile = await res.json()
@@ -172,11 +151,18 @@ export default function App() {
 
     setAgentTerminals(prev => {
       const next = new Map(prev)
-      next.set(sessionId, { taskText, repoName, swarmFile, created: Date.now() })
+      next.set(sessionId, {
+        taskText,
+        repoName,
+        swarmFile,
+        created: Date.now(),
+        model: dispatchOpts.model || null,
+        maxTurns: dispatchOpts.maxTurns || null,
+      })
       return next
     })
-    setSelection({ type: 'swarm', id: sessionId })
-    setActiveTab('terminal')
+    setActiveNav('jobs')
+    setDrillDownJobId(sessionId)
   }
 
   function handleStartWorker(repoName) {
@@ -186,8 +172,8 @@ export default function App() {
       next.set(sessionId, { taskText: '', repoName, swarmFile: null, created: Date.now() })
       return next
     })
-    setSelection({ type: 'swarm', id: sessionId })
-    setActiveTab('terminal')
+    setActiveNav('jobs')
+    setDrillDownJobId(sessionId)
   }
 
   const handleKillSession = useCallback((id) => {
@@ -201,36 +187,52 @@ export default function App() {
       return next
     })
 
-    if (selection?.type === 'swarm' && selection.id === id) {
-      const fallbackRepo = info?.repoName || overview.data?.repos?.[0]?.name
-      if (fallbackRepo) setSelection({ type: 'repo', id: fallbackRepo })
+    if (drillDownJobId === id) {
+      setDrillDownJobId(null)
     }
-  }, [agentTerminals, selection, overview.data])
+  }, [agentTerminals, drillDownJobId])
 
-  const activeTerminalSessionId = selection?.type === 'swarm'
-    ? (agentTerminals.has(selection.id) ? selection.id : swarmFileToSession[selection.id] || null)
-    : null
+  // Navigate to dispatch with pre-filled values (from task "Start" button)
+  const handleNavigateToDispatch = useCallback((repo, prompt) => {
+    setDispatchPreFill({ repo, prompt })
+    setActiveNav('dispatch')
+  }, [])
 
-  const swarmFileId = activeTerminalSessionId
-    ? agentTerminals.get(activeTerminalSessionId)?.swarmFile?.fileName?.replace(/\.md$/, '') || null
-    : null
+  // Called after successful dispatch
+  const handleDispatchComplete = useCallback(() => {
+    setActiveNav('tasks')
+    setDispatchPreFill(null)
+    showToast('Worker dispatched', 'success')
+  }, [showToast])
 
-  const reviewAgentId = swarmFileId || (selection?.type === 'swarm' ? selection.id : null)
+  // Dispatch handler
+  async function handleDispatch({ repo, taskText, baseBranch, model, maxTurns, autoMerge }) {
+    await handleStartTask(taskText, repo, { baseBranch, model, maxTurns, autoMerge })
+  }
 
+  // Search
   const searchResults = useSearch(searchQuery, overview.data, swarm.data, agentTerminals)
 
   const handleSearchSelect = useCallback((item) => {
     if (!item) return
     if (item.kind === 'repo' || item.kind === 'task') {
-      setSelection({ type: 'repo', id: item.targetId || item.repo })
-      setActiveTab('tasks')
+      setActiveNav('tasks')
+      setDrillDownJobId(null)
     } else if (item.kind === 'agent') {
-      openWorker(item.targetId, 'review')
+      setActiveNav('jobs')
+      setDrillDownJobId(item.targetId)
     }
     setSearchQuery('')
     setCommandPaletteOpen(false)
-  }, [openWorker])
+  }, [])
 
+  // Worker selection from task board — navigate to jobs drill-down
+  const handleSelectWorker = useCallback(({ id, isSession }) => {
+    setActiveNav('jobs')
+    setDrillDownJobId(id)
+  }, [])
+
+  // Keyboard shortcut for command palette
   useEffect(() => {
     function onKeyDown(e) {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
@@ -243,46 +245,9 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
 
-  const contentMap = useMemo(() => {
-    if (selectionType === 'swarm') {
-      return {
-        terminal: (
-          <TerminalPanel
-            sessions={agentTerminals}
-            activeSessionId={activeTerminalSessionId}
-            skipPermissions={skipPermissions}
-            onKillSession={handleKillSession}
-            onUpdateSessionId={handleUpdateSessionId}
-            onPromptSent={handlePromptSent}
-            onContextUsage={handleContextUsage}
-          />
-        ),
-        review: (
-          <ResultsPanel
-            agentId={reviewAgentId}
-            onSwarmRefresh={swarm.refresh}
-            onOverviewRefresh={overview.refresh}
-          />
-        ),
-      }
-    }
-
-    return {
-      tasks: (
-        <TaskBoard
-          overview={overview.data}
-          onOverviewRefresh={overview.refresh}
-          selectedRepo={selection?.type === 'repo' ? selection.id : null}
-          onStartTask={handleStartTask}
-          onStartWorker={handleStartWorker}
-          activeWorkers={agentTerminals}
-          swarmAgents={swarm.data?.agents || []}
-          swarmFileToSession={swarmFileToSession}
-          onSelectWorker={({ id, isSession }) => openWorker(id, isSession ? 'terminal' : 'review')}
-        />
-      ),
-    }
-  }, [selectionType, selection?.id, activeTerminalSessionId, agentTerminals, reviewAgentId, swarm.refresh, swarm.data, overview.refresh, overview.data, skipPermissions, handleUpdateSessionId, handlePromptSent, handleContextUsage, handleKillSession, swarmFileToSession, openWorker])
+  // Job count for badge
+  const jobCount = agentTerminals.size + (swarm.data?.summary?.active || 0)
+  const reviewCount = swarm.data?.summary?.needsValidation || 0
 
   return (
     <div className="h-screen flex flex-col bg-background">
@@ -303,43 +268,105 @@ export default function App() {
       />
 
       <div className="flex-1 min-h-0 flex">
-        <Sidebar
-          overview={overview.data}
-          swarm={swarm.data}
-          selection={selection}
-          onSelect={handleSelect}
-          activeWorkers={agentTerminals}
-          swarmFileToSession={swarmFileToSession}
-          onOpenWorker={openWorker}
+        <ActivityBar
+          activeNav={activeNav}
+          onNavChange={handleNavChange}
+          jobCount={jobCount}
+          reviewCount={reviewCount}
         />
 
-        <CenterTabs
-          tabs={tabs}
-          activeTab={activeTab}
-          onTabChange={setActiveTab}
-          contentMap={contentMap}
-        />
+        <main className="flex-1 min-w-0 min-h-0 flex flex-col relative">
+          {/* Always-mounted TerminalPanel for xterm.js state preservation */}
+          <div
+            className="absolute inset-0 z-10"
+            style={{ display: drillDownJobId ? 'block' : 'none' }}
+          >
+            <JobDetailView
+              jobId={drillDownJobId}
+              onBack={() => setDrillDownJobId(null)}
+              agentTerminals={agentTerminals}
+              swarmFileToSession={swarmFileToSession}
+              swarm={swarm.data}
+              skipPermissions={skipPermissions}
+              onKillSession={handleKillSession}
+              onUpdateSessionId={handleUpdateSessionId}
+              onPromptSent={handlePromptSent}
+              onContextUsage={handleContextUsage}
+              onSwarmRefresh={swarm.refresh}
+              onOverviewRefresh={overview.refresh}
+              onStartTask={handleStartTask}
+              showToast={showToast}
+            />
+          </div>
 
-        <RightPanel
-          selection={selection}
-          swarm={swarm.data}
-          collapsed={rightPanelCollapsed}
-          onToggleCollapse={() => setRightPanelCollapsed(v => !v)}
-          swarmFileId={swarmFileId}
-        />
+          <div
+            className="flex-1 min-h-0 overflow-y-auto px-6 py-5"
+            style={{ display: drillDownJobId ? 'none' : 'block' }}
+          >
+            {activeNav === 'status' && (
+              <StatusView
+                overview={overview.data}
+                swarm={swarm.data}
+                error={error}
+                lastRefresh={lastRefresh}
+              />
+            )}
+            {activeNav === 'jobs' && (
+              <JobsView
+                swarm={swarm.data}
+                agentTerminals={agentTerminals}
+                swarmFileToSession={swarmFileToSession}
+                onSelectJob={(id) => setDrillDownJobId(id)}
+              />
+            )}
+            {activeNav === 'tasks' && (
+              <AllTasksView
+                overview={overview.data}
+                onOverviewRefresh={overview.refresh}
+                onNavigateToDispatch={handleNavigateToDispatch}
+                swarm={swarm.data}
+                agentTerminals={agentTerminals}
+                swarmFileToSession={swarmFileToSession}
+              />
+            )}
+            {activeNav === 'dispatch' && (
+              <DispatchView
+                overview={overview.data}
+                onDispatch={handleDispatch}
+                initialRepo={dispatchPreFill?.repo || null}
+                initialPrompt={dispatchPreFill?.prompt || null}
+                onDispatchComplete={handleDispatchComplete}
+              />
+            )}
+            {activeNav === 'schedules' && (
+              <SchedulesView
+                overview={overview.data}
+              />
+            )}
+          </div>
+        </main>
       </div>
 
       <CommandPalette
         open={commandPaletteOpen}
         onClose={() => setCommandPaletteOpen(false)}
         repos={overview.data?.repos || []}
-        selectedRepo={selection?.type === 'repo' ? selection.id : null}
+        activeNav={activeNav}
         searchResults={searchResults}
         onSelectResult={handleSearchSelect}
         activeWorkers={agentTerminals}
         onStartWorker={handleStartWorker}
         onKillSession={handleKillSession}
+        onNavChange={handleNavChange}
       />
+
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onDismiss={() => setToast(null)}
+        />
+      )}
     </div>
   )
 }

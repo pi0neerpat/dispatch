@@ -74,7 +74,8 @@ export function useTerminal({ onConnected, onIncomingData, repo, sessionId, onSe
         return
       }
       terminalRef.current?.write(data)
-      // Check if mouse tracking mode changed (apps like Claude Code toggle this)
+      // Note: terminal.modes.mouseTrackingMode is an internal xterm.js API, not officially documented.
+      // May break on xterm version updates. Pinned to @xterm/xterm ^5.5.0.
       const mode = terminalRef.current?.modes?.mouseTrackingMode
       setIsMouseTracking(mode != null && mode !== 'none')
       onIncomingDataRef.current?.(data)
@@ -85,6 +86,7 @@ export function useTerminal({ onConnected, onIncomingData, repo, sessionId, onSe
     }
 
     ws.onerror = () => {
+      // During intentional reattach, the superseded socket can surface proxy noise (ECONNRESET).
       setIsConnected(false)
     }
   }, [])

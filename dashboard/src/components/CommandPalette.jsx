@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Command, Search, Play, FolderOpen, TerminalSquare, Skull } from 'lucide-react'
+import { Command, Search, Play, FolderOpen, TerminalSquare, Skull, ListTodo, Activity, Send, CalendarClock } from 'lucide-react'
 import { cn } from '../lib/utils'
 
 function kindIcon(kind) {
@@ -13,12 +13,13 @@ export default function CommandPalette({
   open,
   onClose,
   repos,
-  selectedRepo,
+  activeNav,
   searchResults,
   onSelectResult,
   activeWorkers,
   onStartWorker,
   onKillSession,
+  onNavChange,
 }) {
   const [query, setQuery] = useState('')
   const [index, setIndex] = useState(0)
@@ -35,19 +36,44 @@ export default function CommandPalette({
   const commands = useMemo(() => {
     const base = []
 
-    if (selectedRepo) {
-      base.push({
-        key: `start:${selectedRepo}`,
-        label: `Start worker in ${selectedRepo}`,
-        subtitle: 'Launch a blank worker terminal',
-        icon: Play,
-        run: () => {
-          onStartWorker?.(selectedRepo)
-          return true
-        },
-      })
-    }
+    // Navigation commands
+    base.push({
+      key: 'nav:status',
+      label: 'Go to Status',
+      subtitle: 'System overview and agent stats',
+      icon: Activity,
+      run: () => { onNavChange?.('status'); return true },
+    })
+    base.push({
+      key: 'nav:jobs',
+      label: 'Go to Jobs',
+      subtitle: 'View all workers and agents',
+      icon: TerminalSquare,
+      run: () => { onNavChange?.('jobs'); return true },
+    })
+    base.push({
+      key: 'nav:tasks',
+      label: 'Go to Tasks',
+      subtitle: 'View all repo tasks',
+      icon: ListTodo,
+      run: () => { onNavChange?.('tasks'); return true },
+    })
+    base.push({
+      key: 'nav:dispatch',
+      label: 'Go to Dispatch',
+      subtitle: 'Dispatch a new worker',
+      icon: Send,
+      run: () => { onNavChange?.('dispatch'); return true },
+    })
+    base.push({
+      key: 'nav:schedules',
+      label: 'Go to Schedules',
+      subtitle: 'Manage recurring dispatches',
+      icon: CalendarClock,
+      run: () => { onNavChange?.('schedules'); return true },
+    })
 
+    // Repo switching → navigate to tasks
     for (const repo of repos || []) {
       base.push({
         key: `switch:${repo.name}`,
@@ -59,6 +85,22 @@ export default function CommandPalette({
           return true
         },
       })
+    }
+
+    // Start worker in first repo as quick action
+    if (repos?.length > 0) {
+      for (const repo of repos) {
+        base.push({
+          key: `start:${repo.name}`,
+          label: `Start worker in ${repo.name}`,
+          subtitle: 'Launch a blank worker terminal',
+          icon: Play,
+          run: () => {
+            onStartWorker?.(repo.name)
+            return true
+          },
+        })
+      }
     }
 
     if (activeWorkers) {
@@ -75,7 +117,7 @@ export default function CommandPalette({
         })
         const killKey = `kill:${sessionId}`
         base.push({
-          key: `kill:${sessionId}`,
+          key: killKey,
           label: confirmKillId === killKey
             ? `Confirm kill: ${info.taskText || 'Manual worker'}`
             : `Kill worker: ${info.taskText || 'Manual worker'}`,
@@ -99,7 +141,7 @@ export default function CommandPalette({
     }
 
     return base
-  }, [repos, selectedRepo, activeWorkers, onStartWorker, onSelectResult, onKillSession, confirmKillId])
+  }, [repos, activeWorkers, onStartWorker, onSelectResult, onKillSession, onNavChange, confirmKillId])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()

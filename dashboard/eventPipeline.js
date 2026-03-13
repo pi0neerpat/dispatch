@@ -1,6 +1,11 @@
 import fs from 'fs'
 import path from 'path'
 
+const ACTION_COALESCE_WINDOW_MS = 400
+const DEDUPE_WINDOW_MS = 500
+const MAX_EVENT_TEXT_CHARS = 700
+const MAX_EVENT_RAW_CHARS = 1000
+
 function stripAnsiForParse(str) {
   return (str || '')
     .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
@@ -85,6 +90,53 @@ function parseWithAdapter(chunk, state, adapterKind) {
   }
 }
 
+function clip(str, maxLen) {
+  const s = String(str || '')
+  if (s.length <= maxLen) return s
+  const suffix = '...[truncated]'
+  const keep = Math.max(0, maxLen - suffix.length)
+  return `${s.slice(0, keep)}${suffix}`
+}
+
+function normalizeActionText(text) {
+  return String(text || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function normalizeRawText(text) {
+  return String(text || '')
+    .replace(/[^\S\r\n]+/g, ' ')
+    .trim()
+}
+
+function isLikelyActionNoise(text) {
+  const t = String(text || '').trim()
+  if (!t) return true
+  if (/^[\u2500-\u257f\s]+$/.test(t)) return true
+  if (/^\[\?\d+[hl]$/.test(t)) return true
+  if (/^[^\w]{1,4}$/.test(t)) return true
+  if (t.length <= 2 && !/[0-9]/.test(t)) return true
+  return false
+}
+
+function shouldCoalesceAction(prevText, nextText) {
+  if (!prevText || !nextText) return false
+  const prevUser = /^USER>/.test(prevText)
+  const nextUser = /^USER>/.test(nextText)
+  if (prevUser !== nextUser) return false
+  return true
+}
+
+function joinActionText(prev, next) {
+  if (!prev) return next
+  if (!next) return prev
+  if (/[({[/]$/.test(prev)) return `${prev}${next}`
+  if (/^[,.;:!?)}\]]/.test(next)) return `${prev}${next}`
+  if (prev.endsWith(' ') || next.startsWith(' ')) return `${prev}${next}`
+  return `${prev} ${next}`
+}
+
 export function parseChunkWithAdapters(chunk, state = {}) {
   const seededKind = state.agentKind && state.agentKind !== 'generic'
     ? state.agentKind
@@ -125,6 +177,7 @@ export function createSessionEventStore({ sessionId, repo, baseDir, ringSize = 1
       filesTouched: [],
       toolCalls: 0,
     },
+    lastPersisted: null,
     snapshotPath,
   }
 }
@@ -133,21 +186,36 @@ export function appendChunkToEventStore(store, chunk) {
   const parsed = parseChunkWithAdapters(chunk, store.parserState)
   store.parserState = parsed.nextState
 
-  const now = new Date().toISOString()
+  const nowMs = Date.now()
   const added = []
 
-  for (const evt of parsed.events) {
+  function persistEvent(evt, eventTsMs) {
+    const clippedText = clip(evt.text || '', MAX_EVENT_TEXT_CHARS)
+    const clippedRaw = clip(evt.raw || evt.text || '', MAX_EVENT_RAW_CHARS)
+    if (!clippedText.trim()) return
+
+    const last = store.lastPersisted
+    if (
+      last &&
+      last.kind === (evt.kind || 'system') &&
+      last.level === (evt.level || 'info') &&
+      last.text === clippedText &&
+      eventTsMs - last.tsMs <= DEDUPE_WINDOW_MS
+    ) {
+      return
+    }
+
     const id = `${store.sessionId}:${store.nextId++}`
     const full = {
       id,
       sessionId: store.sessionId,
       repo: store.repo,
-      ts: now,
+      ts: new Date(eventTsMs).toISOString(),
       agentKind: evt.agentKind || 'generic',
       kind: evt.kind || 'system',
       level: evt.level || 'info',
-      text: evt.text || '',
-      raw: evt.raw || evt.text || '',
+      text: clippedText,
+      raw: clippedRaw,
       spanId: null,
       parentSpanId: null,
       meta: evt.meta || {},
@@ -155,6 +223,12 @@ export function appendChunkToEventStore(store, chunk) {
 
     store.events.push(full)
     added.push(full)
+    store.lastPersisted = {
+      tsMs: eventTsMs,
+      kind: full.kind,
+      level: full.level,
+      text: full.text,
+    }
 
     if (full.kind === 'progress' || /step|progress|status/i.test(full.text)) {
       store.summary.lastStep = full.text
@@ -178,6 +252,72 @@ export function appendChunkToEventStore(store, chunk) {
       }
     }
   }
+
+  let pendingAction = null
+
+  function flushPendingAction() {
+    if (!pendingAction) return
+    persistEvent({
+      agentKind: pendingAction.agentKind,
+      kind: 'action',
+      level: 'info',
+      text: pendingAction.text,
+      raw: pendingAction.raw,
+      meta: pendingAction.meta,
+    }, pendingAction.tsMs)
+    pendingAction = null
+  }
+
+  for (const evt of parsed.events) {
+    const eventTsMs = nowMs
+    const kind = evt.kind || 'system'
+    if (kind !== 'action') {
+      flushPendingAction()
+      persistEvent({
+        ...evt,
+        text: String(evt.text || '').trim(),
+        raw: String(evt.raw || evt.text || '').trim(),
+      }, eventTsMs)
+      continue
+    }
+
+    const text = normalizeActionText(evt.text)
+    const raw = normalizeRawText(evt.raw || evt.text)
+    if (!text || isLikelyActionNoise(text)) {
+      continue
+    }
+
+    if (!pendingAction) {
+      pendingAction = {
+        agentKind: evt.agentKind || 'generic',
+        text,
+        raw,
+        meta: evt.meta || {},
+        tsMs: eventTsMs,
+        lastTsMs: eventTsMs,
+      }
+      continue
+    }
+
+    const withinWindow = (eventTsMs - pendingAction.lastTsMs) <= ACTION_COALESCE_WINDOW_MS
+    if (withinWindow && shouldCoalesceAction(pendingAction.text, text)) {
+      pendingAction.text = joinActionText(pendingAction.text, text)
+      pendingAction.raw = joinActionText(pendingAction.raw, raw)
+      pendingAction.lastTsMs = eventTsMs
+    } else {
+      flushPendingAction()
+      pendingAction = {
+        agentKind: evt.agentKind || 'generic',
+        text,
+        raw,
+        meta: evt.meta || {},
+        tsMs: eventTsMs,
+        lastTsMs: eventTsMs,
+      }
+    }
+  }
+
+  flushPendingAction()
 
   if (store.events.length > store.ringSize) {
     store.events = store.events.slice(-store.ringSize)

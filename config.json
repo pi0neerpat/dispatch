@@ -25,5 +25,5 @@
       "activityFile": "activity-log.md"
     }
   ],
-  "hubRoot": "/Volumes/My Shared Files/scribular/hub"
+  "hubRoot": "."
 }

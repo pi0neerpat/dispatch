@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo } from 'react'
-import { CheckCircle, XCircle, Loader, Clock, Square, Activity, ListChecks, FileCode2, Wrench, Lightbulb } from 'lucide-react'
+import { CheckCircle, XCircle, Loader, Clock, Square, Activity, ListChecks, FileCode2, Wrench, Lightbulb, GitMerge, Scissors, Network, Trash2, Send } from 'lucide-react'
 import Markdown from 'react-markdown'
 import { cn, timeAgo } from '../lib/utils'
 import { statusConfig, validationConfig } from '../lib/statusConfig'
-import { repoIdentityColors } from '../lib/constants'
+import { repoIdentityColors, MODEL_OPTIONS, FOLLOWUP_TEMPLATES } from '../lib/constants'
 import { mdComponents } from './mdComponents'
 
 function parseStructuredResults(raw) {
@@ -121,7 +121,327 @@ function ResultsSummary({ text }) {
   )
 }
 
-export default function ResultsPanel({ agentId, onSwarmRefresh, onOverviewRefresh }) {
+function AgentActions({ detail, agentId, onSwarmRefresh, onOverviewRefresh, onStartTask, onBack, showToast, showFeedbackMsg }) {
+  const [merging, setMerging] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [showSplitInput, setShowSplitInput] = useState(false)
+  const [showSubtaskInput, setShowSubtaskInput] = useState(false)
+  const [splitText, setSplitText] = useState('')
+  const [subtaskText, setSubtaskText] = useState('')
+  const [dispatching, setDispatching] = useState(false)
+
+  async function handleMerge() {
+    setMerging(true)
+    try {
+      const res = await fetch(`/api/swarm/${agentId}/merge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Merge failed')
+      showFeedbackMsg(`Merged ${data.merged} → ${data.into}`)
+      showToast?.(`Branch merged into ${data.into}`, 'success')
+    } catch (err) {
+      showFeedbackMsg(err.message, true)
+    } finally {
+      setMerging(false)
+    }
+  }
+
+  async function handleAddTask(text, label) {
+    if (!text.trim() || !detail?.repo) return
+    try {
+      const res = await fetch('/api/tasks/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repo: detail.repo, text: text.trim() }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || 'Failed to add task')
+      }
+      showFeedbackMsg(`${label} added to ${detail.repo}`)
+      onOverviewRefresh?.()
+      return true
+    } catch (err) {
+      showFeedbackMsg(err.message, true)
+      return false
+    }
+  }
+
+  async function handleSplitSubmit() {
+    const lines = splitText.split('\n').map(l => l.trim()).filter(Boolean)
+    if (lines.length === 0) return
+    let added = 0
+    for (const line of lines) {
+      const ok = await handleAddTask(line, 'Subtask')
+      if (ok) added++
+    }
+    if (added > 0) {
+      showToast?.(`${added} subtask${added > 1 ? 's' : ''} created`, 'success')
+      setSplitText('')
+      setShowSplitInput(false)
+    }
+  }
+
+  async function handleSubtaskSubmit() {
+    const ok = await handleAddTask(subtaskText, 'Subtask')
+    if (ok) {
+      showToast?.('Subtask added', 'success')
+      setSubtaskText('')
+      setShowSubtaskInput(false)
+    }
+  }
+
+  async function handleDelete() {
+    if (!confirmDelete) {
+      setConfirmDelete(true)
+      setTimeout(() => setConfirmDelete(false), 3000)
+      return
+    }
+    setDeleting(true)
+    try {
+      const res = await fetch(`/api/swarm/${agentId}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || 'Delete failed')
+      }
+      showToast?.('Job deleted', 'info')
+      onSwarmRefresh?.()
+      onBack?.()
+    } catch (err) {
+      showFeedbackMsg(err.message, true)
+    } finally {
+      setDeleting(false)
+      setConfirmDelete(false)
+    }
+  }
+
+  async function handleFollowUpDispatch(prompt, model, autoMerge) {
+    if (!detail?.repo) return
+    setDispatching(true)
+    try {
+      await onStartTask?.(prompt, detail.repo, { model, autoMerge })
+    } catch (err) {
+      showFeedbackMsg(err.message || 'Dispatch failed', true)
+    } finally {
+      setDispatching(false)
+    }
+  }
+
+  return (
+    <div className="mt-6 pt-5 border-t border-border space-y-4">
+      <div>
+        <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">Agent Actions</p>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={handleMerge}
+            disabled={merging}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-medium border border-border text-muted-foreground hover:text-foreground hover:bg-card-hover transition-colors disabled:opacity-50"
+          >
+            {merging ? <Loader size={12} className="animate-spin" /> : <GitMerge size={12} />}
+            Merge
+          </button>
+          <button
+            onClick={() => { setShowSplitInput(v => !v); setShowSubtaskInput(false) }}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-medium border transition-colors',
+              showSplitInput
+                ? 'border-primary/30 bg-primary/10 text-foreground'
+                : 'border-border text-muted-foreground hover:text-foreground hover:bg-card-hover'
+            )}
+          >
+            <Scissors size={12} /> Split
+          </button>
+          <button
+            onClick={() => { setShowSubtaskInput(v => !v); setShowSplitInput(false) }}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-medium border transition-colors',
+              showSubtaskInput
+                ? 'border-primary/30 bg-primary/10 text-foreground'
+                : 'border-border text-muted-foreground hover:text-foreground hover:bg-card-hover'
+            )}
+          >
+            <Network size={12} /> Subtask
+          </button>
+          <button
+            onClick={handleDelete}
+            disabled={deleting}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-medium transition-colors',
+              confirmDelete
+                ? 'bg-status-failed-bg text-status-failed border border-status-failed-border'
+                : 'border border-status-failed-border/50 text-status-failed/60 hover:text-status-failed hover:bg-status-failed-bg'
+            )}
+          >
+            {deleting ? <Loader size={12} className="animate-spin" /> : <Trash2 size={12} />}
+            {confirmDelete ? 'Confirm?' : 'Delete'}
+          </button>
+        </div>
+
+        {/* Split input — multiple tasks, one per line */}
+        {showSplitInput && (
+          <div className="mt-2 space-y-2 animate-slide-in">
+            <textarea
+              value={splitText}
+              onChange={(e) => setSplitText(e.target.value)}
+              placeholder="Enter subtasks, one per line..."
+              rows={3}
+              className="w-full px-2.5 py-2 rounded-md border border-border bg-card text-[12px] text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/30 resize-y"
+            />
+            <button
+              onClick={handleSplitSubmit}
+              disabled={!splitText.trim()}
+              className="h-7 px-3 rounded-md text-[11px] font-medium bg-primary text-primary-foreground disabled:opacity-40"
+            >
+              Add {splitText.split('\n').filter(l => l.trim()).length || 0} subtask(s)
+            </button>
+          </div>
+        )}
+
+        {/* Subtask input — single task */}
+        {showSubtaskInput && (
+          <div className="mt-2 flex items-center gap-2 animate-slide-in">
+            <input
+              value={subtaskText}
+              onChange={(e) => setSubtaskText(e.target.value)}
+              placeholder="Subtask description..."
+              className="flex-1 h-8 rounded-md border border-border bg-card px-2.5 text-[12px] text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/30"
+              onKeyDown={(e) => { if (e.key === 'Enter') handleSubtaskSubmit() }}
+            />
+            <button
+              onClick={handleSubtaskSubmit}
+              disabled={!subtaskText.trim()}
+              className="h-8 px-3 rounded-md text-[11px] font-medium bg-primary text-primary-foreground disabled:opacity-40"
+            >
+              Add
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Follow-up dispatch — visible when completed/review */}
+      {(detail.validation === 'needs_validation' || detail.status === 'completed') && (
+        <FollowUpChat
+          repoName={detail.repo}
+          detail={detail}
+          onDispatch={handleFollowUpDispatch}
+          dispatching={dispatching}
+        />
+      )}
+    </div>
+  )
+}
+
+function FollowUpChat({ repoName, detail, onDispatch, dispatching }) {
+  const [chatModel, setChatModel] = useState(MODEL_OPTIONS[0].value)
+  const [chatAutoMerge, setChatAutoMerge] = useState(false)
+  const [chatPrompt, setChatPrompt] = useState('')
+  const [activeTemplate, setActiveTemplate] = useState(null)
+
+  async function handleDispatch() {
+    if (!chatPrompt.trim()) return
+    await onDispatch?.(chatPrompt.trim(), chatModel, chatAutoMerge)
+    setChatPrompt('')
+    setActiveTemplate(null)
+  }
+
+  return (
+    <div>
+      <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">Follow-up</p>
+      <div className="space-y-3">
+        <div className="flex items-center gap-3">
+          <select
+            value={chatModel}
+            onChange={(e) => setChatModel(e.target.value)}
+            className="h-8 px-2 rounded-md border border-border bg-card text-[11px] text-foreground focus:outline-none focus:border-primary/30"
+          >
+            {MODEL_OPTIONS.map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+
+          <button
+            type="button"
+            onClick={() => setChatAutoMerge(v => !v)}
+            className={cn(
+              'w-7 h-[16px] rounded-full border transition-all relative shrink-0',
+              chatAutoMerge
+                ? 'bg-primary/20 border-primary/40'
+                : 'bg-card border-border'
+            )}
+          >
+            <span
+              className={cn(
+                'absolute top-[2px] w-2.5 h-2.5 rounded-full transition-all',
+                chatAutoMerge
+                  ? 'left-[13px] bg-primary'
+                  : 'left-[2px] bg-muted-foreground/40'
+              )}
+            />
+          </button>
+          <span className="text-[11px] text-foreground/70">Auto-merge</span>
+        </div>
+
+        {detail && (
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {FOLLOWUP_TEMPLATES.map(tpl => (
+              <button
+                key={tpl.id}
+                type="button"
+                onClick={() => {
+                  setChatPrompt(tpl.prompt(detail))
+                  setActiveTemplate(tpl.id)
+                }}
+                className={cn(
+                  'text-[10px] px-2 py-0.5 rounded-full border font-medium transition-all',
+                  activeTemplate === tpl.id
+                    ? 'bg-primary/12 border-primary/35 text-foreground'
+                    : 'bg-card border-border text-muted-foreground/60 hover:text-muted-foreground hover:border-border'
+                )}
+              >
+                {tpl.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="flex items-start gap-2">
+          <textarea
+            value={chatPrompt}
+            onChange={(e) => {
+              setChatPrompt(e.target.value)
+              setActiveTemplate(null)
+            }}
+            placeholder="Send follow-up instructions to a new worker..."
+            rows={2}
+            className={cn(
+              'flex-1 px-2.5 py-2 rounded-md border border-border bg-card',
+              'text-[12px] text-foreground placeholder:text-muted-foreground/40 leading-relaxed',
+              'focus:outline-none focus:border-primary/30 resize-y'
+            )}
+          />
+          <button
+            onClick={handleDispatch}
+            disabled={!chatPrompt.trim() || dispatching}
+            className={cn(
+              'h-9 px-3 rounded-md text-[12px] font-medium flex items-center gap-1.5 shrink-0',
+              'bg-primary text-primary-foreground hover:brightness-110',
+              'disabled:opacity-40 disabled:cursor-not-allowed'
+            )}
+          >
+            {dispatching ? <Loader size={12} className="animate-spin" /> : <Send size={12} />}
+            Dispatch
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export default function ResultsPanel({ agentId, onSwarmRefresh, onOverviewRefresh, onStartTask, onBack, showToast }) {
   const [detail, setDetail] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -240,13 +560,14 @@ export default function ResultsPanel({ agentId, onSwarmRefresh, onOverviewRefres
   }
 
   async function handleMarkDone() {
-    if (!detail?.taskName || !detail?.repo) return
+    const text = detail?.originalTask || detail?.taskName
+    if (!text || !detail?.repo) return
     setMarkingDone(true)
     try {
       const res = await fetch('/api/tasks/done-by-text', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ repo: detail.repo, text: detail.taskName }),
+        body: JSON.stringify({ repo: detail.repo, text }),
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
@@ -277,7 +598,7 @@ export default function ResultsPanel({ agentId, onSwarmRefresh, onOverviewRefres
     return (
       <div className="flex items-center justify-center py-20">
         <div className="flex items-center gap-3 text-muted-foreground">
-          <Loader size={18} className="animate-spin" />
+          <Loader size={18} className="animate-spin-slow" />
           <span className="text-sm">Loading agent details...</span>
         </div>
       </div>
@@ -355,7 +676,7 @@ export default function ResultsPanel({ agentId, onSwarmRefresh, onOverviewRefres
             )}
             disabled={killing}
           >
-            {killing ? <Loader size={12} className="animate-spin" /> : confirmKill ? 'Confirm Stop?' : <span className="flex items-center gap-1.5"><Square size={12} /> Stop</span>}
+            {killing ? <Loader size={12} className="animate-spin-slow" /> : confirmKill ? 'Confirm Stop?' : <span className="flex items-center gap-1.5"><Square size={12} /> Stop</span>}
           </button>
         )}
       </div>
@@ -424,7 +745,7 @@ export default function ResultsPanel({ agentId, onSwarmRefresh, onOverviewRefres
                 )}
                 title="Mark matching task as done in todo"
               >
-                {markingDone ? <Loader size={13} className="animate-spin" /> : <ListChecks size={13} />}
+                {markingDone ? <Loader size={13} className="animate-spin-slow" /> : <ListChecks size={13} />}
                 Mark Task Done
               </button>
             )}
@@ -449,6 +770,17 @@ export default function ResultsPanel({ agentId, onSwarmRefresh, onOverviewRefres
           )}
         </div>
       )}
+
+      <AgentActions
+        detail={detail}
+        agentId={agentId}
+        onSwarmRefresh={onSwarmRefresh}
+        onOverviewRefresh={onOverviewRefresh}
+        onStartTask={onStartTask}
+        onBack={onBack}
+        showToast={showToast}
+        showFeedbackMsg={showFeedbackMsg}
+      />
     </div>
   )
 }

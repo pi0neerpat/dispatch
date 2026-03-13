@@ -9,32 +9,42 @@ Code map for the web dashboard: Express backend + React SPA.
 ```
 dashboard/
 ├── server.js              # Express API + WebSocket terminal server (ESM)
+├── eventPipeline.js       # Terminal output → structured events (NDJSON)
+├── eventPipeline.test.mjs # Event pipeline tests
 ├── package.json           # Dependencies (Yarn 4, nodeLinker: node-modules)
 ├── .yarnrc.yml            # Yarn config
 ├── vite.config.js         # Vite build config (React + Tailwind + API proxy)
 ├── index.html             # SPA shell
 └── src/
     ├── main.jsx           # Entry point — mounts <App /> with StrictMode
-    ├── App.jsx            # Root component — state, routing, data fetching
+    ├── App.jsx            # Root component — state, navigation, data fetching
     ├── components/
-    │   ├── HeaderBar.jsx      # Top bar: title, agent badges, permissions toggle
-    │   ├── Sidebar.jsx        # Left nav: repo list + worker bee list
-    │   ├── CenterTabs.jsx     # Tab container (generic)
-    │   ├── TaskBoard.jsx      # Task list with done/add/move/start actions
-    │   ├── TerminalPanel.jsx  # Terminal instances (one per worker)
-    │   ├── ResultsPanel.jsx   # Review tab: agent results + validate/reject
-    │   ├── RightPanel.jsx     # Right sidebar: progress timeline or activity feed
-    │   ├── mdComponents.jsx   # Shared react-markdown component overrides
-    │   ├── SwarmDetail.jsx    # Full-page agent detail (legacy)
-    │   ├── SwarmPanel.jsx     # Grid of agent cards (standalone view)
-    │   ├── ActivityTimeline.jsx # Standalone activity timeline
-    │   └── RepoStatus.jsx     # Repo cards with progress rings + checkpoints
+    │   ├── ActivityBar.jsx      # Left nav: icon tabs + worker badges
+    │   ├── ActivityFeed.jsx     # Activity timeline with relative dates
+    │   ├── AllTasksView.jsx     # Task lists grouped by repo with status derivation
+    │   ├── CommandPalette.jsx   # Global search/command palette (Cmd+K)
+    │   ├── DispatchView.jsx     # Worker dispatch form (repo, model, turns, merge)
+    │   ├── HeaderBar.jsx        # Top bar: title, search, refresh, context usage
+    │   ├── JobDetailView.jsx    # Drill-down: terminal + review tabs for one job
+    │   ├── JobsView.jsx         # Worker list grouped by status
+    │   ├── ProgressTimeline.jsx # Agent progress entries with timestamps
+    │   ├── RepoStatus.jsx       # Repo cards with progress rings + checkpoints
+    │   ├── ResultsPanel.jsx     # Review tab: agent results + validate/reject/merge
+    │   ├── SchedulesView.jsx    # CRUD for cron-based scheduled dispatches
+    │   ├── StatusView.jsx       # Dashboard overview: repo stats + activity feed
+    │   ├── SwarmDetail.jsx      # Full agent detail view
+    │   ├── SwarmPanel.jsx       # Grid of agent cards
+    │   ├── TerminalPanel.jsx    # xterm.js terminal instances (one per worker)
+    │   ├── Toast.jsx            # Toast notification component
+    │   └── mdComponents.jsx     # Shared react-markdown component overrides
     ├── lib/
-    │   ├── constants.js      # repoIdentityColors (single source of truth)
+    │   ├── constants.js      # repoIdentityColors, modelOptions
     │   ├── statusConfig.js   # statusConfig, validationConfig for swarm states
     │   ├── usePolling.js     # Hook: poll API endpoint at interval
+    │   ├── useSearch.js      # Hook: indexes repos, tasks, agents for search
     │   ├── useTerminal.js    # Hook: xterm.js + WebSocket PTY connection
-    │   └── utils.js          # cn() class merger + timeAgo() formatter
+    │   ├── utils.js          # cn() class merger + timeAgo() formatter
+    │   └── workerUtils.js    # buildWorkerNavItems() — unifies sessions + agents
     └── styles/
         ├── tailwind.css       # Tailwind v4 import + source config
         └── theme.css          # CSS custom properties (colors, fonts, animations)
@@ -58,7 +68,7 @@ dashboard/
 | `@xterm/addon-fit` | ^0.10 | useTerminal.js | Auto-resize terminal to container |
 | `@xterm/addon-web-links` | ^0.11 | useTerminal.js | Clickable URLs in terminal |
 | `lucide-react` | 0.487 | components/ | Icon library (tree-shakeable) |
-| `react-markdown` | ^10.1 | ResultsPanel, SwarmDetail, SwarmPanel | Render markdown in results/validation |
+| `react-markdown` | ^10.1 | ResultsPanel, SwarmDetail | Render markdown in results/validation |
 | `clsx` | 2.1 | utils.js | Conditional class name joining |
 | `tailwind-merge` | 3.2 | utils.js | Merge conflicting Tailwind classes |
 
@@ -81,35 +91,44 @@ ESM module. Bridges to `parsers.js` (CommonJS) via `createRequire`.
 
 #### Read Endpoints
 
-| Endpoint | Handler | parsers.js Functions Used |
-|----------|---------|--------------------------|
-| `GET /api/config` | Inline | `loadConfig` |
-| `GET /api/overview` | Inline | `parseTaskFile`, `parseActivityLog`, `getGitInfo`, `listCheckpoints` |
-| `GET /api/swarm` | Inline | `parseSwarmDir` |
-| `GET /api/swarm/:id` | Inline | `parseSwarmFile` |
-| `GET /api/activity` | Inline | `parseActivityLog` |
-| `GET /api/sessions` | Inline | Reads from `ptySessions` Map |
+| Endpoint | parsers.js Functions Used |
+|----------|--------------------------|
+| `GET /api/config` | `loadConfig` |
+| `GET /api/overview` | `parseTaskFile`, `parseActivityLog`, `getGitInfo`, `listCheckpoints` |
+| `GET /api/swarm` | `parseSwarmDir` |
+| `GET /api/swarm/:id` | `parseSwarmFile` |
+| `GET /api/activity` | `parseActivityLog` |
+| `GET /api/sessions` | Reads from `ptySessions` Map |
+| `GET /api/sessions/:id/events` | `eventPipeline.getSessionEvents` (paginated, filterable by kind) |
+| `GET /api/sessions/:id/summary` | `eventPipeline.getSessionSummary` |
+| `GET /api/repos/:name/checkpoints` | `listCheckpoints` |
+| `GET /api/schedules` | Reads `schedules.json` |
+| `GET /api/events/search` | `eventPipeline.searchEvents` |
 
 #### Write Endpoints
 
 | Endpoint | parsers.js Function | What It Does |
 |----------|---------------------|--------------|
 | `POST /api/swarm/init` | None (direct `fs.writeFileSync`) | Creates swarm file from task text |
-| `POST /api/tasks/done` | `writeTaskDone` | Mark open task as done |
+| `POST /api/tasks/done` | `writeTaskDone` | Mark open task as done by index |
+| `POST /api/tasks/done-by-text` | `writeTaskDoneByText` | Mark open task as done by text match |
+| `POST /api/tasks/edit` | `writeTaskEdit` | Edit task text |
 | `POST /api/tasks/add` | `writeTaskAdd` | Add new task to todo.md |
 | `POST /api/tasks/move` | `writeTaskMove` | Move task between repos |
 | `POST /api/swarm/:id/validate` | `writeSwarmValidation` | Set validation to "validated" |
 | `POST /api/swarm/:id/reject` | `writeSwarmValidation` | Set validation to "rejected" |
 | `POST /api/swarm/:id/kill` | `writeSwarmKill` | Mark agent as killed |
-
-#### Checkpoint Endpoints
-
-| Endpoint | parsers.js Function |
-|----------|---------------------|
+| `POST /api/swarm/:id/merge` | None (git operations) | Merge agent branch into target |
+| `DELETE /api/swarm/:id` | None (fs unlink) | Delete swarm file |
 | `POST /api/repos/:name/checkpoint` | `createCheckpoint` |
-| `GET /api/repos/:name/checkpoints` | `listCheckpoints` |
 | `POST /api/repos/:name/checkpoint/:id/revert` | `revertCheckpoint` |
 | `DELETE /api/repos/:name/checkpoint/:id` | `dismissCheckpoint` |
+| `POST /api/schedules` | None (JSON file) | Create schedule |
+| `PUT /api/schedules/:id` | None (JSON file) | Update schedule |
+| `DELETE /api/schedules/:id` | None (JSON file) | Delete schedule |
+| `POST /api/schedules/:id/toggle` | None (JSON file) | Toggle schedule enabled/disabled |
+| `DELETE /api/sessions/:id` | None (kills PTY) | Kill PTY session |
+| `POST /api/sessions/:id/chat` | `eventPipeline.answerFromEvents` | Ask questions about session history |
 
 ### WebSocket Terminal Server
 
@@ -126,61 +145,96 @@ Path: `/ws/terminal`
 
 **Session persistence:** PTY sessions survive WebSocket disconnects. The `ptySessions` Map holds `{ shell, repo, cwd, scrollback, alive, swarmFilePath }`. On reconnect, scrollback is replayed. On shell exit, if the session has a `swarmFilePath` with `in_progress` status, it's auto-updated to `completed`.
 
+**Event capture:** Terminal output is fed to `eventPipeline` for line classification and structured event storage.
+
+---
+
+## Event Pipeline (eventPipeline.js)
+
+Captures and structures terminal session output into queryable events.
+
+### What It Does
+
+1. **Line classification** — Categorizes terminal output lines as: error, warning, progress, tool, file, thought, action
+2. **Agent detection** — Identifies session agent kind (claude, codex, generic)
+3. **Event persistence** — Writes NDJSON files to `.hub-runtime/events/<sessionId>.ndjson`
+4. **Coalescing** — Deduplicates and merges related output lines
+5. **Summary tracking** — Maintains per-session stats: last step, errors, files touched, tool calls
+6. **Search** — Full-text search across session event history
+7. **QA** — `answerFromEvents()` answers questions using session context
+
+### Key Functions
+
+| Function | Purpose |
+|----------|---------|
+| `ingestLine(sessionId, line)` | Classify and store a line of terminal output |
+| `getSessionEvents(sessionId, opts)` | Retrieve events with cursor-based pagination |
+| `getSessionSummary(sessionId)` | Stats: last step, error count, files touched |
+| `searchEvents(query)` | Full-text search across all sessions |
+| `answerFromEvents(sessionId, question)` | Answer questions from session context |
+
 ---
 
 ## React Component Tree
 
 ```
-App (root state: selection, agentTerminals, skipPermissions)
-├── HeaderBar (overview, swarm, permissions toggle)
-├── Sidebar (repo list, worker bee list, selection handler)
-├── CenterTabs (tab bar + content)
-│   ├── [repo view] TaskBoard (tasks per repo, add/done/move/start)
-│   ├── [swarm view] TerminalPanel → TerminalInstance (per session)
-│   └── [swarm view] ResultsPanel (agent detail + validate/reject)
-└── RightPanel (collapsible)
-    ├── [repo view] ActivityFeed (recent cross-repo activity)
-    └── [swarm view] ProgressTimeline (agent progress entries)
+App (root state: activeNav, drillDownJobId, agentTerminals, skipPermissions)
+├── HeaderBar (title, search trigger, refresh, context usage)
+├── CommandPalette (global search — repos, tasks, agents)
+├── ActivityBar (left icon nav: Status, Jobs, Tasks, Dispatch, Schedules)
+├── Main content area (switches on activeNav):
+│   ├── StatusView (overview: repo cards, activity feed)
+│   ├── JobsView (workers grouped by status: Active, Needs Review, Completed, Failed)
+│   ├── AllTasksView (tasks grouped by repo with status derivation)
+│   ├── DispatchView (form: repo, task, model, turns, merge options)
+│   └── SchedulesView (CRUD for cron-based scheduled dispatches)
+├── JobDetailView (drill-down overlay when drillDownJobId is set)
+│   ├── TerminalPanel → TerminalInstance (live terminal)
+│   └── ResultsPanel (agent results + validate/reject/merge)
+└── Toast (notifications)
 ```
+
+### Navigation Model
+
+The app uses a flat navigation with optional drill-down:
+
+- `activeNav` state controls which view is shown: `status`, `jobs`, `tasks`, `dispatch`, `schedules`
+- `drillDownJobId` opens `JobDetailView` as an overlay on top of the current view
+- Selecting a job sets both `drillDownJobId` and `activeNav='jobs'`
+- Back button clears `drillDownJobId`
 
 ### Component Responsibilities
 
-| Component | Data Source | Write Actions | Key Props |
-|-----------|------------|---------------|-----------|
-| **App** | `usePolling('/api/overview')`, `usePolling('/api/swarm')`, localStorage | Manages `agentTerminals` Map, session persistence | — |
-| **HeaderBar** | Props from App | Toggle `skipPermissions` | `overview`, `swarm`, `skipPermissions` |
-| **Sidebar** | Props from App | Selection changes | `overview`, `swarm`, `selection`, `activeWorkers` |
-| **CenterTabs** | Generic | Tab switching | `tabs`, `activeTab`, `contentMap` |
-| **TaskBoard** | Props (`overview`) | `POST /api/tasks/done`, `POST /api/tasks/add`, `POST /api/tasks/move` | `overview`, `selectedRepo`, `onStartTask` |
-| **TerminalPanel** | `agentTerminals` Map | Kill session, update session ID, prompt sent | `sessions`, `activeSessionId`, `skipPermissions` |
-| **ResultsPanel** | `GET /api/swarm/:id` (on mount) | `POST /api/swarm/:id/validate`, `/reject`, `/kill` | `agentId` |
-| **RightPanel** | `GET /api/swarm/:id` (polling) or `GET /api/activity` | — | `selection`, `swarmFileId` |
+| Component | Data Source | Write Actions |
+|-----------|------------|---------------|
+| **App** | `usePolling('/api/overview')`, `usePolling('/api/swarm')`, localStorage | Manages `agentTerminals` Map, session persistence |
+| **ActivityBar** | Props from App | Navigation changes, badge counts for jobs/review |
+| **StatusView** | Props (`overview`, `swarm`) | — |
+| **JobsView** | Props (`swarm`, `agentTerminals`) | Select job for drill-down |
+| **AllTasksView** | Props (`overview`) | `POST /api/tasks/done`, `/add`, `/edit`, `/move`, start task |
+| **DispatchView** | Props (repos from overview) | Creates swarm + terminal session |
+| **SchedulesView** | Own fetch to `/api/schedules` | CRUD via `/api/schedules` endpoints |
+| **JobDetailView** | `GET /api/swarm/:id` | Tab between terminal and review |
+| **TerminalPanel** | `agentTerminals` Map | Kill session, update session ID |
+| **ResultsPanel** | `GET /api/swarm/:id` | `POST /api/swarm/:id/validate`, `/reject`, `/kill`, `/merge` |
+| **CommandPalette** | `useSearch` (indexes repos, tasks, agents) | Navigation to results |
 
-### Shared Patterns Across Components
+### Shared Patterns
 
 **Repo identity colors** — Single source of truth in `lib/constants.js`:
 ```js
 import { repoIdentityColors } from '../lib/constants'
+// { marketing: '#e0b44a', website: '#818cf8', electron: '#34d399', hub: '#7dd3fc' }
 ```
-Used by Sidebar, TaskBoard, RightPanel, ResultsPanel, RepoStatus, ActivityTimeline. Update colors in one place.
+
+**Worker list building** — `lib/workerUtils.js` provides `buildWorkerNavItems()` which unifies active PTY sessions with swarm agents and validation states. Used by ActivityBar, JobsView, and App for badge counts.
 
 **Status config** — In `lib/statusConfig.js`:
-```js
-import { statusConfig, validationConfig } from '../lib/statusConfig'
-```
-Maps status strings (`in_progress`, `completed`, `failed`, `killed`, `needs_validation`) to `{ icon, color, bg, label, dotColor }`. Imported by RightPanel, ResultsPanel, SwarmDetail, SwarmPanel, Sidebar.
+Maps status strings (`in_progress`, `completed`, `failed`, `killed`, `needs_validation`) to `{ icon, color, bg, label, dotColor }`.
 
-**Markdown rendering** — Shared `mdComponents` in `components/mdComponents.jsx`:
-```js
-import { mdComponents } from './mdComponents'
-```
-Used by ResultsPanel, SwarmDetail, SwarmPanel for consistent react-markdown styling.
+**Markdown rendering** — Shared `mdComponents` in `components/mdComponents.jsx` for consistent react-markdown styling.
 
-**Confirmation pattern** — Kill and revert actions use a 2-click confirm with 3-second timeout:
-```js
-if (confirmKill) { /* execute */ }
-else { setConfirmKill(true); setTimeout(() => setConfirmKill(false), 3000) }
-```
+**Confirmation pattern** — Kill, revert, and merge actions use a 2-click confirm with 3-second timeout.
 
 ---
 
@@ -193,7 +247,6 @@ const { data, loading, error, lastRefresh, refresh } = usePolling('/api/overview
 ```
 
 - Fetches URL on mount and every `intervalMs` ms
-- Returns parsed JSON as `data`
 - `refresh()` triggers an immediate re-fetch
 - Uses `AbortController` for cleanup
 - All API data flows through this hook (overview at 10s, swarm at 5s)
@@ -210,41 +263,41 @@ const { termRef, isConnected, sendCommand, sendRaw, reconnect } = useTerminal({ 
 - `sendRaw(data)` — sends raw bytes
 - `reconnect({ reattach })` — reconnects; if `reattach: true`, skips `onConnected` callback
 - Handles container resize via `ResizeObserver` → `FitAddon`
-- Passes `session`, `repo`, `swarmFile` as WebSocket query params
+
+### useSearch(overview, swarm)
+
+- Builds a searchable index of repos, tasks, and agents
+- Powers the `CommandPalette` global search
+- Returns filtered results matching a query string
 
 ---
 
 ## ID Mapping: Sessions vs Swarm Files
 
-A key architectural detail: the dashboard uses **two ID spaces** for swarm agents.
+The dashboard uses **two ID spaces** for swarm agents.
 
 | ID Type | Format | Where Used |
 |---------|--------|------------|
-| Client session ID | `session-1710000000` | `agentTerminals` Map keys, `selection.id` |
-| Swarm file ID | `2026-03-11-slug` | API endpoints (`/api/swarm/:id`), sidebar agent list |
+| Client session ID | `session-1710000000` | `agentTerminals` Map keys, `drillDownJobId` |
+| Swarm file ID | `2026-03-11-slug` | API endpoints (`/api/swarm/:id`), swarm data |
 
-The `agentTerminals` Map bridges these: each entry stores `{ swarmFile: { fileName, relativePath, absolutePath } }`. App.jsx derives `swarmFileId` by stripping `.md` from `fileName`:
-
-```js
-const swarmFileId = agentTerminals.get(selection.id)?.swarmFile?.fileName?.replace(/\.md$/, '')
-```
-
-This `swarmFileId` is passed to `RightPanel` (for `ProgressTimeline`) and used as `reviewAgentId` (for `ResultsPanel`). Without this mapping, the progress timeline and review tab would try to fetch `/api/swarm/session-1710000000` which doesn't exist.
+The `agentTerminals` Map bridges these: each entry stores `{ swarmFile: { fileName, relativePath, absolutePath } }`. App.jsx derives `swarmFileId` by stripping `.md` from `fileName`.
 
 ---
 
 ## Terminal Session Lifecycle
 
-1. User clicks "Start" on a task in TaskBoard
+1. User fills out DispatchView form (repo, task, model, turns) and clicks "Dispatch"
 2. `App.handleStartTask` → `POST /api/swarm/init` (creates swarm file) → adds to `agentTerminals` Map
-3. `TerminalPanel` renders a `TerminalInstance` for the session
-4. `useTerminal` opens WebSocket to `/ws/terminal?repo=name&swarmFile=path`
-5. Server spawns PTY (`/bin/zsh --login`) in repo directory, returns `\x01SESSION:id`
-6. `onConnected` fires → sends `claude --dangerously-skip-permissions` command
-7. Terminal output watcher detects Claude's `❯` prompt → sends `/swarm <task text>`
-8. `onPromptSent` callback persists `promptSent: true` in `agentTerminals` (survives tab switch/refresh)
-9. When PTY shell exits, server checks swarm file — if `in_progress`, marks as `completed`
-10. Client's `/api/swarm` polling picks up the status change within 5 seconds
+3. Navigation switches to Jobs view with drill-down to the new job
+4. `JobDetailView` renders `TerminalPanel` with a `TerminalInstance`
+5. `useTerminal` opens WebSocket to `/ws/terminal?repo=name&swarmFile=path`
+6. Server spawns PTY (`/bin/zsh --login`) in repo directory, returns `\x01SESSION:id`
+7. `onConnected` fires → sends `claude --dangerously-skip-permissions` command
+8. Terminal output watcher detects Claude's `❯` prompt → sends `/swarm <task text>`
+9. Terminal output is captured by `eventPipeline.ingestLine()` for structured event storage
+10. When PTY shell exits, server checks swarm file — if `in_progress`, marks as `completed`
+11. Client's `/api/swarm` polling picks up the status change within 5 seconds
 
 ---
 

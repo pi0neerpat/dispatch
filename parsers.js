@@ -9,11 +9,19 @@ const { execSync } = require('child_process');
 
 function parseTaskFile(filePath) {
   const sections = [];
+  const allTasks = [];
   let currentSection = null;
+  let currentTimeframe = 'present';
   let openCount = 0, doneCount = 0;
   try {
     const lines = fs.readFileSync(filePath, 'utf8').split('\n');
     for (const line of lines) {
+      // Detect top-level timeframe headers: # Past, # Present, # Future
+      const timeframeMatch = line.match(/^#\s+(Past|Present|Future)\s*$/i);
+      if (timeframeMatch) {
+        currentTimeframe = timeframeMatch[1].toLowerCase();
+        continue;
+      }
       const sectionMatch = line.match(/^##\s+(.+)/);
       if (sectionMatch) {
         currentSection = { name: sectionMatch[1].replace(/\s*\(.*\)$/, ''), tasks: [] };
@@ -27,6 +35,7 @@ function parseTaskFile(filePath) {
           .replace(/\s*—\s*\*\*DONE.*\*\*/, '')
           .replace(/\s*\(.*?\)\s*$/, '')
           .replace(/\*\*/g, '');
+        const sectionName = currentSection?.name || '';
         if (done) {
           doneCount++;
           if (currentSection) currentSection.tasks.push({ text, done: true });
@@ -34,10 +43,11 @@ function parseTaskFile(filePath) {
           openCount++;
           if (currentSection) currentSection.tasks.push({ text, done: false });
         }
+        allTasks.push({ text, done, section: sectionName, timeframe: currentTimeframe });
       }
     }
   } catch { /* file missing */ }
-  return { sections: sections.filter(s => s.tasks.length > 0), openCount, doneCount };
+  return { sections: sections.filter(s => s.tasks.length > 0), openCount, doneCount, allTasks };
 }
 
 function parseActivityLog(filePath) {
@@ -71,9 +81,14 @@ function getGitInfo(repoPath) {
     const branch = execSync(`git -C "${repoPath}" branch --show-current`, { encoding: 'utf8' }).trim();
     const porcelain = execSync(`git -C "${repoPath}" status --porcelain`, { encoding: 'utf8' }).trim();
     const dirtyCount = porcelain ? porcelain.split('\n').length : 0;
-    return { branch, dirtyCount };
+    let branches = [];
+    try {
+      const raw = execSync(`git -C "${repoPath}" branch --format="%(refname:short)"`, { encoding: 'utf8' }).trim();
+      if (raw) branches = raw.split('\n').filter(Boolean);
+    } catch { /* ignore */ }
+    return { branch, dirtyCount, branches };
   } catch {
-    return { branch: '?', dirtyCount: 0 };
+    return { branch: '?', dirtyCount: 0, branches: [] };
   }
 }
 
@@ -121,6 +136,9 @@ function parseSwarmFile(filePath) {
       const skillsMatch = line.match(/^Skills:\s*(.+)/);
       if (skillsMatch) { skills = skillsMatch[1].split(',').map(s => s.trim()).filter(Boolean); continue; }
 
+      const originalTaskMatch = line.match(/^OriginalTask:\s*(.+)/);
+      if (originalTaskMatch) { originalTask = originalTaskMatch[1].trim(); continue; }
+
       // Section detection
       const sectionMatch = line.match(/^##\s+(.+)/);
       if (sectionMatch) {
@@ -158,6 +176,7 @@ function parseSwarmFile(filePath) {
 
   return {
     id, taskName, started, status, validation, agentId, skills,
+    originalTask,
     lastProgress, progressCount, durationMinutes, resultsSummary,
     progressEntries, results, validationNotes,
   };
@@ -500,7 +519,11 @@ function writeSwarmStatus(filePath, newStatus) {
     failed: 'Failed',
     killed: 'Killed',
   };
-  const displayValue = displayMap[newStatus] || newStatus;
+  const validStatuses = Object.keys(displayMap);
+  if (!validStatuses.includes(newStatus)) {
+    throw new Error(`Invalid status: "${newStatus}". Must be one of: ${validStatuses.join(', ')}`);
+  }
+  const displayValue = displayMap[newStatus];
   lines[statusLineIndex] = `Status: ${displayValue}`;
 
   // When completing, auto-set validation to needs_validation if still 'none'
@@ -656,7 +679,7 @@ function writeTaskDoneByText(filePath, searchText) {
     const m = lines[i].match(/^(\d+\.\s+|[-*]\s+)\[ \]\s+(.+)/);
     if (m) {
       const taskText = m[2].replace(/\*\*/g, '').replace(/\s*\(.*?\)\s*$/, '');
-      if (taskText.toLowerCase().includes(needle) || needle.includes(taskText.toLowerCase())) {
+      if (taskText.toLowerCase().includes(needle)) {
         lines[i] = lines[i].replace('[ ]', '[x]');
         fs.writeFileSync(filePath, lines.join('\n'), 'utf8');
         return { success: true, text: taskText };

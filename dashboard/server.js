@@ -72,7 +72,7 @@ app.get('/api/overview', (req, res) => {
     return {
       name: repo.name,
       git,
-      tasks: { openCount: tasks.openCount, doneCount: tasks.doneCount, sections: tasks.sections },
+      tasks: { openCount: tasks.openCount, doneCount: tasks.doneCount, sections: tasks.sections, allTasks: tasks.allTasks },
       lastActivity: activity.entries[0] || null,
       activity: { stage: activity.stage, entries: activity.entries.slice(0, 3) },
       checkpoints,
@@ -159,7 +159,7 @@ function findRepoConfig(name) {
 }
 
 app.post('/api/swarm/init', (req, res) => {
-  const { repo, taskText, sessionId } = req.body
+  const { repo, taskText, sessionId, model, maxTurns, autoMerge, baseBranch } = req.body
   if (!repo || !taskText) return res.status(400).json({ error: 'repo and taskText required' })
 
   const repoConfig = findRepoConfig(repo)
@@ -187,9 +187,14 @@ app.post('/api/swarm/init', (req, res) => {
       `# Swarm Task: ${taskText}`,
       `Started: ${timestamp}`,
       `Status: In progress`,
+      `OriginalTask: ${taskText}`,
       `Repo: ${repo}`,
     ]
     if (sessionId) lines.push(`Session: ${sessionId}`)
+    if (model) lines.push(`Model: ${model}`)
+    if (maxTurns) lines.push(`MaxTurns: ${maxTurns}`)
+    if (autoMerge) lines.push(`AutoMerge: true`)
+    if (baseBranch) lines.push(`BaseBranch: ${baseBranch}`)
     lines.push('', '## Progress', `- [${timestamp}] Task initiated from dashboard`, '', '## Results', '')
     fs.writeFileSync(filePath, lines.join('\n'), 'utf8')
   }
@@ -332,6 +337,66 @@ app.post('/api/swarm/:id/kill', (req, res) => {
   res.status(404).json({ error: `Swarm agent "${req.params.id}" not found` })
 })
 
+app.delete('/api/swarm/:id', (req, res) => {
+  for (const repo of config.repos) {
+    const swarmDir = path.join(repo.resolvedPath, 'notes', 'swarm')
+    const filePath = path.join(swarmDir, `${req.params.id}.md`)
+    if (fs.existsSync(filePath)) {
+      try {
+        fs.unlinkSync(filePath)
+        // Also remove .kill marker if present
+        const killMarker = filePath + '.kill'
+        if (fs.existsSync(killMarker)) fs.unlinkSync(killMarker)
+        return res.json({ ok: true, id: req.params.id, repo: repo.name })
+      } catch (err) {
+        return res.status(400).json({ error: err.message })
+      }
+    }
+  }
+  res.status(404).json({ error: `Swarm agent "${req.params.id}" not found` })
+})
+
+app.post('/api/swarm/:id/merge', (req, res) => {
+  const { targetBranch } = req.body || {}
+
+  for (const repo of config.repos) {
+    const swarmDir = path.join(repo.resolvedPath, 'notes', 'swarm')
+    const filePath = path.join(swarmDir, `${req.params.id}.md`)
+    if (fs.existsSync(filePath)) {
+      const repoPath = repo.resolvedPath
+      try {
+        const { execSync } = require('child_process')
+        const git = (cmd) => execSync(`git -C "${repoPath}" ${cmd}`, { encoding: 'utf8' }).trim()
+
+        // Get current branch (the agent's working branch)
+        const currentBranch = git('branch --show-current')
+        const base = targetBranch || 'main'
+
+        if (currentBranch === base) {
+          return res.status(400).json({ error: `Already on ${base} — nothing to merge` })
+        }
+
+        // Checkout base, merge agent branch, then go back
+        git(`checkout "${base}"`)
+        try {
+          git(`merge "${currentBranch}" --no-edit`)
+        } catch (mergeErr) {
+          // Abort failed merge, restore state
+          try { git('merge --abort') } catch { /* ignore */ }
+          git(`checkout "${currentBranch}"`)
+          return res.status(409).json({ error: `Merge conflict — could not merge ${currentBranch} into ${base}` })
+        }
+        git(`checkout "${currentBranch}"`)
+
+        return res.json({ ok: true, merged: currentBranch, into: base, repo: repo.name })
+      } catch (err) {
+        return res.status(400).json({ error: err.message })
+      }
+    }
+  }
+  res.status(404).json({ error: `Swarm agent "${req.params.id}" not found` })
+})
+
 // ── Checkpoint endpoints ─────────────────────────────────
 
 app.post('/api/repos/:name/checkpoint', (req, res) => {
@@ -382,6 +447,87 @@ app.delete('/api/repos/:name/checkpoint/:id', (req, res) => {
   } catch (err) {
     res.status(400).json({ error: err.message })
   }
+})
+
+// ── Schedules CRUD ──────────────────────────────────────
+
+const SCHEDULES_FILE = path.join(HUB_DIR, 'schedules.json')
+
+function loadSchedules() {
+  try {
+    if (fs.existsSync(SCHEDULES_FILE)) {
+      return JSON.parse(fs.readFileSync(SCHEDULES_FILE, 'utf8'))
+    }
+  } catch {}
+  return []
+}
+
+function saveSchedules(schedules) {
+  fs.writeFileSync(SCHEDULES_FILE, JSON.stringify(schedules, null, 2), 'utf8')
+}
+
+app.get('/api/schedules', (req, res) => {
+  const schedules = loadSchedules()
+  res.json({ schedules })
+})
+
+app.post('/api/schedules', (req, res) => {
+  const { name, repo, cron, prompt, model } = req.body
+  if (!name || !repo || !cron || !prompt) {
+    return res.status(400).json({ error: 'name, repo, cron, and prompt required' })
+  }
+
+  const schedules = loadSchedules()
+  const schedule = {
+    id: 'sched-' + Date.now(),
+    name,
+    repo,
+    cron,
+    prompt,
+    model: model || 'claude-sonnet-4-5-20250929',
+    enabled: true,
+    created: new Date().toISOString(),
+    lastRun: null,
+    nextRun: null,
+  }
+  schedules.push(schedule)
+  saveSchedules(schedules)
+  res.json(schedule)
+})
+
+app.put('/api/schedules/:id', (req, res) => {
+  const schedules = loadSchedules()
+  const idx = schedules.findIndex(s => s.id === req.params.id)
+  if (idx === -1) return res.status(404).json({ error: 'schedule not found' })
+
+  const { name, repo, cron, prompt, model } = req.body
+  if (name) schedules[idx].name = name
+  if (repo) schedules[idx].repo = repo
+  if (cron) schedules[idx].cron = cron
+  if (prompt) schedules[idx].prompt = prompt
+  if (model) schedules[idx].model = model
+  saveSchedules(schedules)
+  res.json(schedules[idx])
+})
+
+app.delete('/api/schedules/:id', (req, res) => {
+  let schedules = loadSchedules()
+  const idx = schedules.findIndex(s => s.id === req.params.id)
+  if (idx === -1) return res.status(404).json({ error: 'schedule not found' })
+
+  schedules.splice(idx, 1)
+  saveSchedules(schedules)
+  res.json({ ok: true })
+})
+
+app.post('/api/schedules/:id/toggle', (req, res) => {
+  const schedules = loadSchedules()
+  const idx = schedules.findIndex(s => s.id === req.params.id)
+  if (idx === -1) return res.status(404).json({ error: 'schedule not found' })
+
+  schedules[idx].enabled = !schedules[idx].enabled
+  saveSchedules(schedules)
+  res.json(schedules[idx])
 })
 
 // SPA fallback for client-side routing
@@ -617,7 +763,9 @@ wss.on('connection', (ws, req) => {
   if (session) {
     // Reattach — detach previous WebSocket if any
     if (session.ws) {
-      try { session.ws.close() } catch {}
+      // Expected during reattach flow: old client socket is intentionally closed.
+      // Vite dev proxy may log this as ECONNRESET; treat as non-fatal.
+      try { session.ws.close(1000, 'Reattached to new client') } catch {}
     }
     session.ws = ws
     // Update swarm file path if provided (may not have been set on initial creation)

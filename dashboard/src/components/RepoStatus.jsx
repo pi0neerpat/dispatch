@@ -118,7 +118,7 @@ function RepoCard({ repo, index, onRefresh }) {
                 className="p-0.5 rounded hover:bg-background text-muted-foreground hover:text-foreground transition-colors"
                 title="Dismiss checkpoint"
               >
-                {cpLoading ? <Loader2 size={12} className="animate-spin" /> : <X size={12} />}
+                {cpLoading ? <Loader2 size={12} className="animate-spin-slow" /> : <X size={12} />}
               </button>
             </div>
             {confirmRevert ? (
@@ -161,7 +161,7 @@ function RepoCard({ repo, index, onRefresh }) {
               disabled={cpLoading}
               className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
             >
-              {cpLoading ? <Loader2 size={11} className="animate-spin" /> : <Save size={11} />}
+              {cpLoading ? <Loader2 size={11} className="animate-spin-slow" /> : <Save size={11} />}
               <span>Create Checkpoint</span>
             </button>
           </div>

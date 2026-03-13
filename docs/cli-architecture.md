@@ -37,7 +37,9 @@ Every consumer (CLI, terminal, dashboard server) imports from `parsers.js`. This
 | Function | What It Does | File Modified |
 |----------|--------------|---------------|
 | `writeTaskDone(filePath, taskNum)` | Replaces `[ ]` with `[x]` on the Nth open task | `todo.md` |
+| `writeTaskDoneByText(filePath, searchText)` | Finds open task by text match and marks done | `todo.md` |
 | `writeTaskAdd(filePath, text, section)` | Inserts a `- [ ]` line after the last task in a section | `todo.md` |
+| `writeTaskEdit(filePath, taskNum, newText)` | Replaces the text of the Nth open task | `todo.md` |
 | `writeTaskMove(sourceFile, taskNum, destFile, section)` | Removes task from source, adds to destination | Two `todo.md` files |
 | `writeSwarmValidation(filePath, status, notes)` | Sets `Validation:` line, appends `## Validation Notes` | Swarm `.md` file |
 | `writeSwarmKill(filePath)` | Sets `Status: Killed`, writes `.kill` marker file | Swarm `.md` file |

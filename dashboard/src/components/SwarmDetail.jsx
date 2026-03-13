@@ -126,7 +126,7 @@ export default function SwarmDetail({ agentId, onSwarmRefresh, onOverviewRefresh
     return (
       <div className="flex items-center justify-center py-20">
         <div className="flex items-center gap-3 text-muted-foreground/50">
-          <Loader size={18} className="animate-spin" />
+          <Loader size={18} className="animate-spin-slow" />
           <span className="text-sm">Loading agent details...</span>
         </div>
       </div>
@@ -221,7 +221,7 @@ export default function SwarmDetail({ agentId, onSwarmRefresh, onOverviewRefresh
             disabled={killing}
           >
             {killing ? (
-              <Loader size={12} className="animate-spin" />
+              <Loader size={12} className="animate-spin-slow" />
             ) : confirmKill ? (
               'Confirm Stop?'
             ) : (
