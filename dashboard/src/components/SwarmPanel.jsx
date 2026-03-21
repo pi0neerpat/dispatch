@@ -5,7 +5,7 @@ import { cn, timeAgo } from '../lib/utils'
 import { statusConfig, validationConfig } from '../lib/statusConfig'
 import { mdComponents } from './mdComponents'
 
-function AgentCard({ agent, index, onSwarmRefresh }) {
+function AgentCard({ agent, index, onJobsRefresh }) {
   const [expanded, setExpanded] = useState(false)
   const [detail, setDetail] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -24,7 +24,7 @@ function AgentCard({ agent, index, onSwarmRefresh }) {
     if (!expanded && !detail) {
       setLoading(true)
       try {
-        const res = await fetch(`/api/swarm/${agent.id}`)
+        const res = await fetch(`/api/jobs/${agent.id}`)
         if (res.ok) setDetail(await res.json())
       } catch { /* ignore */ }
       setLoading(false)
@@ -40,7 +40,7 @@ function AgentCard({ agent, index, onSwarmRefresh }) {
   async function handleValidate() {
     setActionLoading(true)
     try {
-      const res = await fetch(`/api/swarm/${agent.id}/validate`, {
+      const res = await fetch(`/api/jobs/${agent.id}/validate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
@@ -52,7 +52,7 @@ function AgentCard({ agent, index, onSwarmRefresh }) {
       const result = await res.json()
       setDetail(prev => prev ? { ...prev, validation: result.validation } : prev)
       showFeedback('Validated')
-      onSwarmRefresh?.()
+      onJobsRefresh?.()
     } catch (err) {
       showFeedback(err.message || 'Validate failed', true)
     } finally {
@@ -64,7 +64,7 @@ function AgentCard({ agent, index, onSwarmRefresh }) {
     if (!rejectNotes.trim()) return
     setActionLoading(true)
     try {
-      const res = await fetch(`/api/swarm/${agent.id}/reject`, {
+      const res = await fetch(`/api/jobs/${agent.id}/reject`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ notes: rejectNotes.trim() }),
@@ -78,7 +78,7 @@ function AgentCard({ agent, index, onSwarmRefresh }) {
       setShowRejectInput(false)
       setRejectNotes('')
       showFeedback('Rejected')
-      onSwarmRefresh?.()
+      onJobsRefresh?.()
     } catch (err) {
       showFeedback(err.message || 'Reject failed', true)
     } finally {
@@ -95,9 +95,9 @@ function AgentCard({ agent, index, onSwarmRefresh }) {
     }
     setKilling(true)
     try {
-      const res = await fetch(`/api/swarm/${agent.id}/kill`, { method: 'POST' })
+      const res = await fetch(`/api/jobs/${agent.id}/kill`, { method: 'POST' })
       if (res.ok) {
-        onSwarmRefresh?.()
+        onJobsRefresh?.()
       }
     } catch { /* ignore */ }
     setKilling(false)
@@ -224,7 +224,7 @@ function AgentCard({ agent, index, onSwarmRefresh }) {
                       </span>
                       <div
                         className="hidden group-hover:block absolute left-6 bottom-full mb-1 z-10 max-w-sm px-2.5 py-1.5 rounded-lg border border-card-border-hover shadow-xl text-xs text-foreground whitespace-normal pointer-events-none"
-                        style={{ background: 'var(--background-raised)', boxShadow: '0 4px 24px rgba(0,0,0,0.5)' }}
+                        style={{ background: 'var(--background-raised)', boxShadow: '0 4px 24px rgba(0,0,0,0.3)' }}
                       >
                         {entry}
                       </div>
@@ -334,7 +334,7 @@ function AgentCard({ agent, index, onSwarmRefresh }) {
   )
 }
 
-export default function SwarmPanel({ swarm, onSwarmRefresh }) {
+export default function SwarmPanel({ swarm, onJobsRefresh }) {
   const agents = swarm?.agents || []
   const hasActive = swarm?.summary?.active > 0
   const totalAgents = agents.length
@@ -345,7 +345,7 @@ export default function SwarmPanel({ swarm, onSwarmRefresh }) {
       <div className="flex items-center gap-2 mb-4 px-1">
         <div className="flex items-center gap-2">
           <Cpu size={14} className="text-muted-foreground/60" />
-          <h2 className="text-[13px] font-medium text-muted-foreground/60">Swarm</h2>
+          <h2 className="text-[13px] font-medium text-muted-foreground/60">Jobs</h2>
         </div>
         {hasActive && (
           <span className="relative flex h-1.5 w-1.5">
@@ -365,15 +365,15 @@ export default function SwarmPanel({ swarm, onSwarmRefresh }) {
         {agents.length === 0 ? (
           <div className="py-10 text-center">
             <Cpu size={24} className="mx-auto mb-2 text-muted-foreground/20" />
-            <p className="text-sm text-muted-foreground/40 mb-1">No swarm tasks</p>
+            <p className="text-sm text-muted-foreground/40 mb-1">No jobs yet</p>
             <p className="text-xs text-muted-foreground/25 font-mono" style={{ fontFamily: 'var(--font-mono)' }}>
-              Launch agents with /swarm
+              Start a job from Dispatch
             </p>
           </div>
         ) : (
           <div className="p-3 space-y-2">
             {agents.map((agent, i) => (
-              <AgentCard key={agent.id} agent={agent} index={i} onSwarmRefresh={onSwarmRefresh} />
+              <AgentCard key={agent.id} agent={agent} index={i} onJobsRefresh={onJobsRefresh} />
             ))}
           </div>
         )}

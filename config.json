@@ -4,25 +4,51 @@
       "name": "marketing",
       "path": "../marketing-dept-scribular",
       "taskFile": "todo.md",
-      "activityFile": "activity-log.md"
+      "bugsFile": "bugs.md",
+      "activityFile": "activity-log.md",
+      "startScript": "node index.js",
+      "testScript": null,
+      "cleanupScript": "rm -rf node_modules/.cache"
     },
     {
       "name": "website",
       "path": "../scribular-saas-project",
       "taskFile": "todo.md",
-      "activityFile": "activity-log.md"
+      "bugsFile": "bugs.md",
+      "activityFile": "activity-log.md",
+      "startScript": "npm run dev",
+      "testScript": "npm run test",
+      "cleanupScript": "rm -rf .next"
     },
     {
       "name": "electron",
       "path": "../notes-assistant-electron",
       "taskFile": "todo.md",
-      "activityFile": "activity-log.md"
+      "bugsFile": "bugs.md",
+      "activityFile": "activity-log.md",
+      "startScript": "npm run dev",
+      "testScript": "npm run test",
+      "cleanupScript": "rm -rf dist build"
+    },
+    {
+      "name": "clauffice",
+      "path": "../clauffice",
+      "taskFile": "todo.md",
+      "bugsFile": "bugs.md",
+      "activityFile": "activity-log.md",
+      "startScript": null,
+      "testScript": null,
+      "cleanupScript": null
     },
     {
       "name": "hub",
       "path": ".",
       "taskFile": "todo.md",
-      "activityFile": "activity-log.md"
+      "bugsFile": "bugs.md",
+      "activityFile": "activity-log.md",
+      "startScript": "cd dashboard && yarn dev",
+      "testScript": null,
+      "cleanupScript": "cd dashboard && rm -rf dist node_modules/.vite"
     }
   ],
   "hubRoot": "."

@@ -1,0 +1,14 @@
+[
+  {
+    "id": "sched-1774050088452",
+    "name": "E2E Schedule Test",
+    "repo": "marketing",
+    "cron": "*/30 * * * *",
+    "prompt": "Run an E2E verification ping task",
+    "model": "claude-opus-4-6",
+    "enabled": false,
+    "created": "2026-03-20T23:41:28.452Z",
+    "lastRun": null,
+    "nextRun": null
+  }
+]

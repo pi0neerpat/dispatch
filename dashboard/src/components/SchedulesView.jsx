@@ -8,7 +8,7 @@ function ScheduleForm({ repos, initial, onSave, onCancel, saving }) {
   const [repo, setRepo] = useState(initial?.repo || repos[0]?.name || '')
   const [cron, setCron] = useState(initial?.cron || '0 9 * * 1-5')
   const [prompt, setPrompt] = useState(initial?.prompt || '')
-  const [model, setModel] = useState(initial?.model || 'claude-sonnet-4-5-20250929')
+  const [model, setModel] = useState(initial?.model || 'claude-opus-4-6')
 
   function handleSubmit(e) {
     e.preventDefault()
@@ -182,7 +182,7 @@ export default function SchedulesView({ overview }) {
   }
 
   return (
-    <div className="max-w-3xl">
+    <div>
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-[16px] font-semibold text-foreground">Scheduled Dispatches</h2>

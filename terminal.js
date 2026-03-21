@@ -5,8 +5,7 @@
 // alias hub-term='node "/Volumes/My Shared Files/scribular/hub/terminal.js"'
 
 const path = require('path');
-const fs = require('fs');
-const { parseTaskFile, getGitInfo, loadConfig } = require('./parsers');
+const { parseTaskFile, parseActivityLog, getGitInfo, loadConfig } = require('./parsers');
 
 const HUB_DIR = path.dirname(__filename);
 const config = loadConfig(HUB_DIR);
@@ -22,36 +21,6 @@ const c = {
   green:   s => `\x1b[32m${s}\x1b[39m`,
   reset:   '\x1b[0m',
 };
-
-// Terminal version: formats dates as "Mar 10" for compact display
-function parseActivityLogTerminal(filePath) {
-  let stage = '';
-  const entries = [];
-  try {
-    const lines = fs.readFileSync(filePath, 'utf8').split('\n');
-    for (const line of lines) {
-      const stageMatch = line.match(/\*\*Current stage:\*\*\s*(.+)/);
-      if (stageMatch) { stage = stageMatch[1]; continue; }
-      const dateMatch = line.match(/^## (\d{4}-(\d{2})-(\d{2}))/);
-      if (dateMatch && entries.length < 2) {
-        const months = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-                        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-        const dateLabel = `${months[parseInt(dateMatch[2])]} ${parseInt(dateMatch[3])}`;
-        entries.push({ date: dateLabel, bullet: '' });
-        continue;
-      }
-      if (entries.length > 0 && !entries[entries.length - 1].bullet) {
-        const bulletMatch = line.match(/^- (.+)/);
-        if (bulletMatch) {
-          entries[entries.length - 1].bullet = bulletMatch[1]
-            .replace(/\*\*/g, '')
-            .replace(/\s*\(.*?\)/, '');
-        }
-      }
-    }
-  } catch { /* file missing */ }
-  return { stage, entries };
-}
 
 // ── Layout helpers ────────────────────────────────────────────
 const innerW = COLS - 4;
@@ -92,7 +61,7 @@ function boxSeparator() {
 const repos = config.repos.map(repo => {
   const rp = repo.resolvedPath;
   const tasks = parseTaskFile(path.join(rp, repo.taskFile));
-  const activity = parseActivityLogTerminal(path.join(rp, repo.activityFile));
+  const activity = parseActivityLog(path.join(rp, repo.activityFile), { dateFormat: 'compact', limit: 2 });
   const git = getGitInfo(rp);
   return { ...repo, repoPath: rp, tasks, activity, git };
 });

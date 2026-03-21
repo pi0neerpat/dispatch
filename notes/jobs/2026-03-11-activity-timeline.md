@@ -9,7 +9,7 @@ Validation: Validated
 - Added GET /api/activity endpoint to dashboard/server.js (line 110-127)
 - Created ActivityTimeline.jsx component with timeline UI, repo-colored dots, date grouping
 - Verified route logic syntax and parser output for all 4 repos
-- Confirmed endpoint placement: after GET /api/swarm/:id, before write endpoints
+- Confirmed endpoint placement: after GET /api/jobs/:id, before write endpoints
 
 ## Results
 Two deliverables completed:

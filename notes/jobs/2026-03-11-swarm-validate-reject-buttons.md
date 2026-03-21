@@ -5,7 +5,7 @@ Validation: Validated
 
 ## Progress
 - Read SwarmPanel.jsx, App.jsx, usePolling.js, and server.js endpoints
-- Confirmed backend API: POST /api/swarm/:id/validate and /api/swarm/:id/reject exist
+- Confirmed backend API: POST /api/jobs/:id/validate and /api/jobs/:id/reject exist
 - Confirmed usePolling hook exposes `refresh` function
 - Confirmed API returns { success, id, validation, taskName }
 - Added `onSwarmRefresh` prop to AgentCard and SwarmPanel
@@ -22,8 +22,8 @@ Validation: Validated
 All changes in `dashboard/src/components/SwarmPanel.jsx`:
 
 1. **AgentCard** now accepts `onSwarmRefresh` prop and has 4 new state vars for the action UI
-2. **Validate button** (green, CheckCircle icon) -- POSTs to `/api/swarm/:id/validate`, updates local detail state, calls `onSwarmRefresh()`, shows "Validated" flash
-3. **Reject button** (red, XCircle icon) -- toggles inline text input; Submit POSTs to `/api/swarm/:id/reject` with notes, updates local state, calls `onSwarmRefresh()`, shows "Rejected" flash
+2. **Validate button** (green, CheckCircle icon) -- POSTs to `/api/jobs/:id/validate`, updates local detail state, calls `onSwarmRefresh()`, shows "Validated" flash
+3. **Reject button** (red, XCircle icon) -- toggles inline text input; Submit POSTs to `/api/jobs/:id/reject` with notes, updates local state, calls `onSwarmRefresh()`, shows "Rejected" flash
 4. **Reject notes input** -- inline with Submit/Cancel buttons, supports Enter key, placeholder "Reason for rejection (required)", auto-focused
 5. **Feedback flash** -- state-driven div that auto-clears after 2s, green for success, red for errors
 6. **canAct guard** -- buttons only shown when validation is `needs_validation` or `none` AND detail hasn't already been validated/rejected locally

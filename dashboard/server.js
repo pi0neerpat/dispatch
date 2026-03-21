@@ -17,9 +17,9 @@ const require = createRequire(import.meta.url)
 const pty = require('node-pty')
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const {
-  parseTaskFile, parseActivityLog, getGitInfo, parseSwarmFile, parseSwarmDir, loadConfig,
+  parseTaskFile, parseActivityLog, getGitInfo, parseJobFile, parseJobDir, loadConfig,
   writeTaskDone, writeTaskDoneByText, writeTaskAdd, writeTaskEdit, writeTaskMove,
-  writeSwarmValidation, writeSwarmKill, writeSwarmStatus,
+  writeJobValidation, writeJobKill, writeJobStatus,
   createCheckpoint, revertCheckpoint, dismissCheckpoint, listCheckpoints,
 } = require('../parsers')
 
@@ -36,17 +36,54 @@ function stripAnsi(str) {
     .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '') // Control chars (keep \n \r \t)
 }
 
-let config
 try {
-  config = loadConfig(HUB_DIR)
+  loadConfig(HUB_DIR)
 } catch (err) {
   console.error('Failed to load hub/config.json:', err.message)
   process.exit(1)
 }
 
+const GIT_CACHE_TTL_MS = 8000
+const gitInfoCache = new Map() // repoPath -> { value, expiresAt }
+
+function getConfig() {
+  return loadConfig(HUB_DIR)
+}
+
+function getCachedGitInfo(repoPath) {
+  const now = Date.now()
+  const cached = gitInfoCache.get(repoPath)
+  if (cached && cached.expiresAt > now) return cached.value
+  const value = getGitInfo(repoPath)
+  gitInfoCache.set(repoPath, { value, expiresAt: now + GIT_CACHE_TTL_MS })
+  return value
+}
+
+function invalidateGitInfoCache(repoPath) {
+  if (!repoPath) return
+  gitInfoCache.delete(repoPath)
+}
+
 const app = express()
 app.use(cors())
 app.use(express.json())
+let wss = null
+const JOB_EVENT = '\x01JOBS_CHANGED:'
+const LEGACY_SWARM_EVENT = '\x01SWARM_CHANGED:'
+
+function emitJobsChanged({ repo = null, id = null, reason = null } = {}) {
+  if (!wss) return
+  const payload = JSON.stringify({ repo, id, reason, ts: Date.now() })
+  const msg = `${JOB_EVENT}${payload}`
+  const legacyMsg = `${LEGACY_SWARM_EVENT}${payload}`
+  for (const client of wss.clients) {
+    if (client.readyState !== 1) continue
+    try {
+      client.send(msg)
+      client.send(legacyMsg)
+    } catch { /* ignore disconnected client */ }
+  }
+}
 
 // Serve built SPA in production
 const distDir = path.join(__dirname, 'dist')
@@ -57,22 +94,30 @@ if (fs.existsSync(distDir)) {
 // ── API endpoints ────────────────────────────────────────
 
 app.get('/api/config', (req, res) => {
-  res.json(config)
+  res.json(getConfig())
 })
 
 app.get('/api/overview', (req, res) => {
+  const config = getConfig()
   const repos = config.repos.map(repo => {
     const rp = repo.resolvedPath
     const tasks = parseTaskFile(path.join(rp, repo.taskFile))
     const activity = parseActivityLog(path.join(rp, repo.activityFile))
-    const git = getGitInfo(rp)
+    const git = getCachedGitInfo(rp)
     let checkpoints = []
     try { checkpoints = listCheckpoints(rp) } catch { /* ignore */ }
+
+    // Parse bugs.md if configured (optional — gracefully skip if missing)
+    let bugs = { openCount: 0, doneCount: 0, sections: [], allTasks: [] }
+    if (repo.bugsFile) {
+      bugs = parseTaskFile(path.join(rp, repo.bugsFile))
+    }
 
     return {
       name: repo.name,
       git,
       tasks: { openCount: tasks.openCount, doneCount: tasks.doneCount, sections: tasks.sections, allTasks: tasks.allTasks },
+      bugs: { openCount: bugs.openCount, doneCount: bugs.doneCount, sections: bugs.sections, allTasks: bugs.allTasks },
       lastActivity: activity.entries[0] || null,
       activity: { stage: activity.stage, entries: activity.entries.slice(0, 3) },
       checkpoints,
@@ -86,14 +131,27 @@ app.get('/api/overview', (req, res) => {
   res.json({ hubRoot: config.hubRoot || HUB_DIR, stage, repos, totals: { openTasks: totalOpen, doneTasks: totalDone }, monthlyBudget: config.monthlyBudget || null })
 })
 
-app.get('/api/swarm', (req, res) => {
+function collectJobAgents(config = getConfig()) {
   const allAgents = []
   for (const repo of config.repos) {
-    const swarmDir = path.join(repo.resolvedPath, 'notes', 'swarm')
-    const agents = parseSwarmDir(swarmDir)
-    for (const agent of agents) agent.repo = repo.name
-    allAgents.push(...agents)
+    const jobsDir = path.join(repo.resolvedPath, 'notes', 'jobs')
+    const legacySwarmDir = path.join(repo.resolvedPath, 'notes', 'swarm')
+    const seen = new Set()
+    for (const dirPath of [jobsDir, legacySwarmDir]) {
+      const agents = parseJobDir(dirPath)
+      for (const agent of agents) {
+        if (seen.has(agent.id)) continue
+        seen.add(agent.id)
+        agent.repo = repo.name
+        allAgents.push(agent)
+      }
+    }
   }
+  return allAgents
+}
+
+app.get(['/api/jobs', '/api/swarm'], (req, res) => {
+  const allAgents = collectJobAgents()
 
   let active = 0, completed = 0, failed = 0, needsValidation = 0
   for (const a of allAgents) {
@@ -103,8 +161,7 @@ app.get('/api/swarm', (req, res) => {
     if (a.validation === 'needs_validation') needsValidation++
   }
 
-  res.json({
-    agents: allAgents.map(a => ({
+  const jobs = allAgents.map(a => ({
       id: a.id,
       repo: a.repo,
       taskName: a.taskName,
@@ -115,26 +172,88 @@ app.get('/api/swarm', (req, res) => {
       progressCount: a.progressCount,
       durationMinutes: a.durationMinutes,
       skills: a.skills,
-    })),
+      session: a.session,
+    }))
+  res.json({
+    jobs,
+    agents: jobs,
     summary: { active, completed, failed, needsValidation },
   })
 })
 
-app.get('/api/swarm/:id', (req, res) => {
+function compareAgentsByStart(a, b) {
+  const aTs = a?.started ? Date.parse(a.started) : NaN
+  const bTs = b?.started ? Date.parse(b.started) : NaN
+  const aHas = Number.isFinite(aTs)
+  const bHas = Number.isFinite(bTs)
+  if (aHas && bHas && aTs !== bTs) return aTs - bTs
+  if (aHas !== bHas) return aHas ? -1 : 1
+  return String(a?.id || '').localeCompare(String(b?.id || ''))
+}
+
+function buildCanonicalSessionState() {
+  const config = getConfig()
+  const allAgents = collectJobAgents(config)
+  const agentsBySession = new Map()
+  const jobFileToSession = {}
+
+  for (const agent of allAgents) {
+    if (!agent.session) continue
+    if (!agentsBySession.has(agent.session)) agentsBySession.set(agent.session, [])
+    agentsBySession.get(agent.session).push(agent)
+    jobFileToSession[agent.id] = agent.session
+  }
+
+  const sessions = []
+  for (const [id, s] of ptySessions) {
+    if (!s.alive) continue
+
+    const sessionAgents = (agentsBySession.get(id) || []).slice().sort(compareAgentsByStart)
+    const initAgent = sessionAgents[0] || null
+    const canonicalAgent = sessionAgents.length > 0 ? sessionAgents[sessionAgents.length - 1] : null
+
+    if (canonicalAgent?.id) jobFileToSession[canonicalAgent.id] = id
+    if (initAgent?.id) jobFileToSession[initAgent.id] = id
+    if (s.jobFilePath) jobFileToSession[path.basename(s.jobFilePath, '.md')] = id
+
+    sessions.push({
+      id,
+      repo: canonicalAgent?.repo || initAgent?.repo || s.repo,
+      created: s.created,
+      summary: s.eventStore?.summary || null,
+      eventCount: s.eventStore?.events?.length || 0,
+      jobFileName: canonicalAgent?.id || initAgent?.id || (s.jobFilePath ? path.basename(s.jobFilePath, '.md') : null),
+      initJobId: initAgent?.id || null,
+      jobId: canonicalAgent?.id || initAgent?.id || null,
+      jobIds: sessionAgents.map(a => a.id),
+      status: canonicalAgent?.status || initAgent?.status || 'in_progress',
+      validation: canonicalAgent?.validation || initAgent?.validation || 'none',
+      label: canonicalAgent?.taskName || initAgent?.taskName || 'Manual worker',
+    })
+  }
+
+  return { sessions, jobFileToSession, swarmFileToSession: jobFileToSession }
+}
+
+app.get(['/api/jobs/:id', '/api/swarm/:id'], (req, res) => {
+  const config = getConfig()
   for (const repo of config.repos) {
-    const swarmDir = path.join(repo.resolvedPath, 'notes', 'swarm')
-    const filePath = path.join(swarmDir, `${req.params.id}.md`)
-    if (fs.existsSync(filePath)) {
-      const agent = parseSwarmFile(filePath)
-      agent.repo = repo.name
-      return res.json(agent)
+    for (const dirName of ['jobs', 'swarm']) {
+      const jobsDir = path.join(repo.resolvedPath, 'notes', dirName)
+      const filePath = path.join(jobsDir, `${req.params.id}.md`)
+      if (fs.existsSync(filePath)) {
+        const agent = parseJobFile(filePath)
+        agent.repo = repo.name
+        return res.json(agent)
+      }
     }
   }
-  res.status(404).json({ error: `Swarm agent "${req.params.id}" not found` })
+  res.status(404).json({ error: `Job "${req.params.id}" not found` })
 })
 
 app.get('/api/activity', (req, res) => {
   const limit = Math.max(1, parseInt(req.query.limit, 10) || 10)
+  const config = getConfig()
 
   let allEntries = []
   for (const repo of config.repos) {
@@ -155,11 +274,11 @@ app.get('/api/activity', (req, res) => {
 // ── Write endpoints ──────────────────────────────────────
 
 function findRepoConfig(name) {
-  return config.repos.find(r => r.name === name)
+  return getConfig().repos.find(r => r.name === name)
 }
 
-app.post('/api/swarm/init', (req, res) => {
-  const { repo, taskText, sessionId, model, maxTurns, autoMerge, baseBranch } = req.body
+app.post(['/api/jobs/init', '/api/swarm/init'], (req, res) => {
+  const { repo, taskText, originalTask, sessionId, model, maxTurns, autoMerge, baseBranch } = req.body
   if (!repo || !taskText) return res.status(400).json({ error: 'repo and taskText required' })
 
   const repoConfig = findRepoConfig(repo)
@@ -174,20 +293,20 @@ app.post('/api/swarm/init', (req, res) => {
 
   const date = new Date().toISOString().slice(0, 10)
   const fileName = `${date}-${slug}.md`
-  const swarmDir = path.join(repoConfig.resolvedPath, 'notes', 'swarm')
-  const filePath = path.join(swarmDir, fileName)
+  const jobsDir = path.join(repoConfig.resolvedPath, 'notes', 'jobs')
+  const filePath = path.join(jobsDir, fileName)
 
-  // Ensure notes/swarm/ exists
-  fs.mkdirSync(swarmDir, { recursive: true })
+  // Ensure notes/jobs/ exists
+  fs.mkdirSync(jobsDir, { recursive: true })
 
   // Don't overwrite if it already exists (e.g. duplicate click)
   if (!fs.existsSync(filePath)) {
     const timestamp = new Date().toISOString().replace('T', ' ').slice(0, 19)
     const lines = [
-      `# Swarm Task: ${taskText}`,
+      `# Job Task: ${taskText}`,
       `Started: ${timestamp}`,
       `Status: In progress`,
-      `OriginalTask: ${taskText}`,
+      `OriginalTask: ${originalTask || taskText}`,
       `Repo: ${repo}`,
     ]
     if (sessionId) lines.push(`Session: ${sessionId}`)
@@ -200,7 +319,9 @@ app.post('/api/swarm/init', (req, res) => {
   }
 
   // Return both the relative path (for the prompt) and absolute path
-  const relativePath = `notes/swarm/${fileName}`
+  const relativePath = `notes/jobs/${fileName}`
+  invalidateGitInfoCache(repoConfig.resolvedPath)
+  emitJobsChanged({ repo, id: fileName.replace(/\.md$/, ''), reason: 'init' })
   res.json({ fileName, relativePath, absolutePath: filePath, repo })
 })
 
@@ -213,6 +334,7 @@ app.post('/api/tasks/done', (req, res) => {
 
   try {
     const result = writeTaskDone(path.join(repoConfig.resolvedPath, repoConfig.taskFile), taskNum)
+    invalidateGitInfoCache(repoConfig.resolvedPath)
     res.json({ ...result, repo })
   } catch (err) {
     res.status(400).json({ error: err.message })
@@ -228,6 +350,7 @@ app.post('/api/tasks/done-by-text', (req, res) => {
 
   try {
     const result = writeTaskDoneByText(path.join(repoConfig.resolvedPath, repoConfig.taskFile), text)
+    invalidateGitInfoCache(repoConfig.resolvedPath)
     res.json({ ...result, repo })
   } catch (err) {
     res.status(400).json({ error: err.message })
@@ -243,6 +366,7 @@ app.post('/api/tasks/edit', (req, res) => {
 
   try {
     const result = writeTaskEdit(path.join(repoConfig.resolvedPath, repoConfig.taskFile), taskNum, newText)
+    invalidateGitInfoCache(repoConfig.resolvedPath)
     res.json({ ...result, repo })
   } catch (err) {
     res.status(400).json({ error: err.message })
@@ -258,6 +382,69 @@ app.post('/api/tasks/add', (req, res) => {
 
   try {
     const result = writeTaskAdd(path.join(repoConfig.resolvedPath, repoConfig.taskFile), text, section || null)
+    invalidateGitInfoCache(repoConfig.resolvedPath)
+    res.json({ ...result, repo })
+  } catch (err) {
+    res.status(400).json({ error: err.message })
+  }
+})
+
+// ── Bug CRUD endpoints (mirror task endpoints, using bugsFile) ──
+
+app.post('/api/bugs/done', (req, res) => {
+  const { repo, taskNum } = req.body
+  if (!repo || !taskNum) return res.status(400).json({ error: 'repo and taskNum required' })
+  const repoConfig = findRepoConfig(repo)
+  if (!repoConfig) return res.status(404).json({ error: `repo "${repo}" not found` })
+  if (!repoConfig.bugsFile) return res.status(400).json({ error: `repo "${repo}" has no bugsFile` })
+  try {
+    const result = writeTaskDone(path.join(repoConfig.resolvedPath, repoConfig.bugsFile), taskNum)
+    invalidateGitInfoCache(repoConfig.resolvedPath)
+    res.json({ ...result, repo })
+  } catch (err) {
+    res.status(400).json({ error: err.message })
+  }
+})
+
+app.post('/api/bugs/done-by-text', (req, res) => {
+  const { repo, text } = req.body
+  if (!repo || !text) return res.status(400).json({ error: 'repo and text required' })
+  const repoConfig = findRepoConfig(repo)
+  if (!repoConfig) return res.status(404).json({ error: `repo "${repo}" not found` })
+  if (!repoConfig.bugsFile) return res.status(400).json({ error: `repo "${repo}" has no bugsFile` })
+  try {
+    const result = writeTaskDoneByText(path.join(repoConfig.resolvedPath, repoConfig.bugsFile), text)
+    invalidateGitInfoCache(repoConfig.resolvedPath)
+    res.json({ ...result, repo })
+  } catch (err) {
+    res.status(400).json({ error: err.message })
+  }
+})
+
+app.post('/api/bugs/add', (req, res) => {
+  const { repo, text, section } = req.body
+  if (!repo || !text) return res.status(400).json({ error: 'repo and text required' })
+  const repoConfig = findRepoConfig(repo)
+  if (!repoConfig) return res.status(404).json({ error: `repo "${repo}" not found` })
+  if (!repoConfig.bugsFile) return res.status(400).json({ error: `repo "${repo}" has no bugsFile` })
+  try {
+    const result = writeTaskAdd(path.join(repoConfig.resolvedPath, repoConfig.bugsFile), text, section || null)
+    invalidateGitInfoCache(repoConfig.resolvedPath)
+    res.json({ ...result, repo })
+  } catch (err) {
+    res.status(400).json({ error: err.message })
+  }
+})
+
+app.post('/api/bugs/edit', (req, res) => {
+  const { repo, taskNum, newText } = req.body
+  if (!repo || !taskNum || !newText) return res.status(400).json({ error: 'repo, taskNum, and newText required' })
+  const repoConfig = findRepoConfig(repo)
+  if (!repoConfig) return res.status(404).json({ error: `repo "${repo}" not found` })
+  if (!repoConfig.bugsFile) return res.status(400).json({ error: `repo "${repo}" has no bugsFile` })
+  try {
+    const result = writeTaskEdit(path.join(repoConfig.resolvedPath, repoConfig.bugsFile), taskNum, newText)
+    invalidateGitInfoCache(repoConfig.resolvedPath)
     res.json({ ...result, repo })
   } catch (err) {
     res.status(400).json({ error: err.message })
@@ -279,122 +466,129 @@ app.post('/api/tasks/move', (req, res) => {
     const sourceFile = path.join(fromConfig.resolvedPath, fromConfig.taskFile)
     const destFile = path.join(toConfig.resolvedPath, toConfig.taskFile)
     const result = writeTaskMove(sourceFile, taskNum, destFile, section || null)
+    invalidateGitInfoCache(fromConfig.resolvedPath)
+    invalidateGitInfoCache(toConfig.resolvedPath)
     res.json({ ...result, fromRepo, toRepo })
   } catch (err) {
     res.status(400).json({ error: err.message })
   }
 })
 
-app.post('/api/swarm/:id/validate', (req, res) => {
-  const { notes } = req.body || {}
+function findJobFileById(id, config = getConfig()) {
   for (const repo of config.repos) {
-    const swarmDir = path.join(repo.resolvedPath, 'notes', 'swarm')
-    const filePath = path.join(swarmDir, `${req.params.id}.md`)
-    if (fs.existsSync(filePath)) {
-      try {
-        const result = writeSwarmValidation(filePath, 'validated', notes || null)
-        return res.json(result)
-      } catch (err) {
-        return res.status(400).json({ error: err.message })
-      }
+    for (const dirName of ['jobs', 'swarm']) {
+      const jobsDir = path.join(repo.resolvedPath, 'notes', dirName)
+      const filePath = path.join(jobsDir, `${id}.md`)
+      if (fs.existsSync(filePath)) return { repo, filePath }
     }
   }
-  res.status(404).json({ error: `Swarm agent "${req.params.id}" not found` })
+  return null
+}
+
+app.post(['/api/jobs/:id/validate', '/api/swarm/:id/validate'], (req, res) => {
+  const { notes } = req.body || {}
+  const found = findJobFileById(req.params.id)
+  if (!found) {
+    return res.status(404).json({ error: `Job "${req.params.id}" not found` })
+  }
+  try {
+    const result = writeJobValidation(found.filePath, 'validated', notes || null)
+    invalidateGitInfoCache(found.repo.resolvedPath)
+    emitJobsChanged({ repo: found.repo.name, id: req.params.id, reason: 'validated' })
+    return res.json(result)
+  } catch (err) {
+    return res.status(400).json({ error: err.message })
+  }
 })
 
-app.post('/api/swarm/:id/reject', (req, res) => {
+app.post(['/api/jobs/:id/reject', '/api/swarm/:id/reject'], (req, res) => {
   const { notes } = req.body || {}
   if (!notes) return res.status(400).json({ error: 'notes required when rejecting' })
 
-  for (const repo of config.repos) {
-    const swarmDir = path.join(repo.resolvedPath, 'notes', 'swarm')
-    const filePath = path.join(swarmDir, `${req.params.id}.md`)
-    if (fs.existsSync(filePath)) {
-      try {
-        const result = writeSwarmValidation(filePath, 'rejected', notes)
-        return res.json(result)
-      } catch (err) {
-        return res.status(400).json({ error: err.message })
-      }
-    }
+  const found = findJobFileById(req.params.id)
+  if (!found) {
+    return res.status(404).json({ error: `Job "${req.params.id}" not found` })
   }
-  res.status(404).json({ error: `Swarm agent "${req.params.id}" not found` })
+  try {
+    const result = writeJobValidation(found.filePath, 'rejected', notes)
+    invalidateGitInfoCache(found.repo.resolvedPath)
+    emitJobsChanged({ repo: found.repo.name, id: req.params.id, reason: 'rejected' })
+    return res.json(result)
+  } catch (err) {
+    return res.status(400).json({ error: err.message })
+  }
 })
 
-app.post('/api/swarm/:id/kill', (req, res) => {
-  for (const repo of config.repos) {
-    const swarmDir = path.join(repo.resolvedPath, 'notes', 'swarm')
-    const filePath = path.join(swarmDir, `${req.params.id}.md`)
-    if (fs.existsSync(filePath)) {
-      try {
-        const result = writeSwarmKill(filePath)
-        return res.json(result)
-      } catch (err) {
-        return res.status(400).json({ error: err.message })
-      }
-    }
+app.post(['/api/jobs/:id/kill', '/api/swarm/:id/kill'], (req, res) => {
+  const found = findJobFileById(req.params.id)
+  if (!found) {
+    return res.status(404).json({ error: `Job "${req.params.id}" not found` })
   }
-  res.status(404).json({ error: `Swarm agent "${req.params.id}" not found` })
+  try {
+    const result = writeJobKill(found.filePath)
+    invalidateGitInfoCache(found.repo.resolvedPath)
+    emitJobsChanged({ repo: found.repo.name, id: req.params.id, reason: 'killed' })
+    return res.json(result)
+  } catch (err) {
+    return res.status(400).json({ error: err.message })
+  }
 })
 
-app.delete('/api/swarm/:id', (req, res) => {
-  for (const repo of config.repos) {
-    const swarmDir = path.join(repo.resolvedPath, 'notes', 'swarm')
-    const filePath = path.join(swarmDir, `${req.params.id}.md`)
-    if (fs.existsSync(filePath)) {
-      try {
-        fs.unlinkSync(filePath)
-        // Also remove .kill marker if present
-        const killMarker = filePath + '.kill'
-        if (fs.existsSync(killMarker)) fs.unlinkSync(killMarker)
-        return res.json({ ok: true, id: req.params.id, repo: repo.name })
-      } catch (err) {
-        return res.status(400).json({ error: err.message })
-      }
-    }
+app.delete(['/api/jobs/:id', '/api/swarm/:id'], (req, res) => {
+  const found = findJobFileById(req.params.id)
+  if (!found) {
+    return res.status(404).json({ error: `Job "${req.params.id}" not found` })
   }
-  res.status(404).json({ error: `Swarm agent "${req.params.id}" not found` })
+  try {
+    fs.unlinkSync(found.filePath)
+    // Also remove .kill marker if present
+    const killMarker = found.filePath + '.kill'
+    if (fs.existsSync(killMarker)) fs.unlinkSync(killMarker)
+    invalidateGitInfoCache(found.repo.resolvedPath)
+    emitJobsChanged({ repo: found.repo.name, id: req.params.id, reason: 'deleted' })
+    return res.json({ ok: true, id: req.params.id, repo: found.repo.name })
+  } catch (err) {
+    return res.status(400).json({ error: err.message })
+  }
 })
 
-app.post('/api/swarm/:id/merge', (req, res) => {
+app.post(['/api/jobs/:id/merge', '/api/swarm/:id/merge'], (req, res) => {
   const { targetBranch } = req.body || {}
 
-  for (const repo of config.repos) {
-    const swarmDir = path.join(repo.resolvedPath, 'notes', 'swarm')
-    const filePath = path.join(swarmDir, `${req.params.id}.md`)
-    if (fs.existsSync(filePath)) {
-      const repoPath = repo.resolvedPath
-      try {
-        const { execSync } = require('child_process')
-        const git = (cmd) => execSync(`git -C "${repoPath}" ${cmd}`, { encoding: 'utf8' }).trim()
-
-        // Get current branch (the agent's working branch)
-        const currentBranch = git('branch --show-current')
-        const base = targetBranch || 'main'
-
-        if (currentBranch === base) {
-          return res.status(400).json({ error: `Already on ${base} — nothing to merge` })
-        }
-
-        // Checkout base, merge agent branch, then go back
-        git(`checkout "${base}"`)
-        try {
-          git(`merge "${currentBranch}" --no-edit`)
-        } catch (mergeErr) {
-          // Abort failed merge, restore state
-          try { git('merge --abort') } catch { /* ignore */ }
-          git(`checkout "${currentBranch}"`)
-          return res.status(409).json({ error: `Merge conflict — could not merge ${currentBranch} into ${base}` })
-        }
-        git(`checkout "${currentBranch}"`)
-
-        return res.json({ ok: true, merged: currentBranch, into: base, repo: repo.name })
-      } catch (err) {
-        return res.status(400).json({ error: err.message })
-      }
-    }
+  const found = findJobFileById(req.params.id)
+  if (!found) {
+    return res.status(404).json({ error: `Job "${req.params.id}" not found` })
   }
-  res.status(404).json({ error: `Swarm agent "${req.params.id}" not found` })
+  const repoPath = found.repo.resolvedPath
+  try {
+    const { execSync } = require('child_process')
+    const git = (cmd) => execSync(`git -C "${repoPath}" ${cmd}`, { encoding: 'utf8' }).trim()
+
+    // Get current branch (the job's working branch)
+    const currentBranch = git('branch --show-current')
+    const base = targetBranch || 'main'
+
+    if (currentBranch === base) {
+      return res.status(400).json({ error: `Already on ${base} — nothing to merge` })
+    }
+
+    // Checkout base, merge branch, then go back
+    git(`checkout "${base}"`)
+    try {
+      git(`merge "${currentBranch}" --no-edit`)
+    } catch (mergeErr) {
+      // Abort failed merge, restore state
+      try { git('merge --abort') } catch { /* ignore */ }
+      git(`checkout "${currentBranch}"`)
+      return res.status(409).json({ error: `Merge conflict — could not merge ${currentBranch} into ${base}` })
+    }
+    git(`checkout "${currentBranch}"`)
+
+    invalidateGitInfoCache(found.repo.resolvedPath)
+    return res.json({ ok: true, merged: currentBranch, into: base, repo: found.repo.name })
+  } catch (err) {
+    return res.status(400).json({ error: err.message })
+  }
 })
 
 // ── Checkpoint endpoints ─────────────────────────────────
@@ -405,6 +599,7 @@ app.post('/api/repos/:name/checkpoint', (req, res) => {
 
   try {
     const result = createCheckpoint(repoConfig.resolvedPath)
+    invalidateGitInfoCache(repoConfig.resolvedPath)
     res.json({ ...result, repo: req.params.name })
   } catch (err) {
     res.status(400).json({ error: err.message })
@@ -430,6 +625,7 @@ app.post('/api/repos/:name/checkpoint/:id/revert', (req, res) => {
   const checkpointId = `checkpoint/${req.params.id}`
   try {
     const result = revertCheckpoint(repoConfig.resolvedPath, checkpointId)
+    invalidateGitInfoCache(repoConfig.resolvedPath)
     res.json({ ...result, repo: req.params.name })
   } catch (err) {
     res.status(400).json({ error: err.message })
@@ -443,6 +639,7 @@ app.delete('/api/repos/:name/checkpoint/:id', (req, res) => {
   const checkpointId = `checkpoint/${req.params.id}`
   try {
     const result = dismissCheckpoint(repoConfig.resolvedPath, checkpointId)
+    invalidateGitInfoCache(repoConfig.resolvedPath)
     res.json({ ...result, repo: req.params.name })
   } catch (err) {
     res.status(400).json({ error: err.message })
@@ -484,7 +681,7 @@ app.post('/api/schedules', (req, res) => {
     repo,
     cron,
     prompt,
-    model: model || 'claude-sonnet-4-5-20250929',
+    model: model || 'claude-opus-4-6',
     enabled: true,
     created: new Date().toISOString(),
     lastRun: null,
@@ -532,7 +729,8 @@ app.post('/api/schedules/:id/toggle', (req, res) => {
 
 // SPA fallback for client-side routing
 if (fs.existsSync(distDir)) {
-  app.get('*', (req, res) => {
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api/')) return next()
     res.sendFile(path.join(distDir, 'index.html'))
   })
 }
@@ -543,7 +741,7 @@ const server = app.listen(PORT, () => {
 
 // ── Persistent PTY sessions ──────────────────────────────
 // Sessions persist across WebSocket disconnects so clients can reconnect
-const ptySessions = new Map() // sessionId → { shell, repo, cwd, created, scrollback, alive, swarmFilePath, eventStore }
+const ptySessions = new Map() // sessionId → { shell, repo, cwd, created, scrollback, alive, jobFilePath, eventStore }
 
 const SCROLLBACK_LIMIT = 50000 // characters of recent output to buffer for reconnect
 
@@ -569,7 +767,7 @@ function collectEventStores({ scope = 'all', repo = null, sessionId = null } = {
   return stores
 }
 
-function createPtySession(sessionId, cwd, repoName, swarmFilePath) {
+function createPtySession(sessionId, cwd, repoName, jobFilePath) {
   const shell = pty.spawn('/bin/zsh', ['--login'], {
     name: 'xterm-256color',
     cols: 80,
@@ -586,7 +784,7 @@ function createPtySession(sessionId, cwd, repoName, swarmFilePath) {
     scrollback: '',
     alive: true,
     ws: null, // current attached WebSocket
-    swarmFilePath: swarmFilePath || null,
+    jobFilePath: jobFilePath || null,
     eventStore: createSessionEventStore({
       sessionId,
       repo: repoName || null,
@@ -609,14 +807,30 @@ function createPtySession(sessionId, cwd, repoName, swarmFilePath) {
 
   shell.onExit(() => {
     session.alive = false
-    // If there's an associated swarm file that's still in_progress, mark it completed
-    if (session.swarmFilePath) {
+    // Ensure job file is in a reviewable state when the PTY exits
+    if (session.jobFilePath) {
       try {
-        if (fs.existsSync(session.swarmFilePath)) {
-          const agent = parseSwarmFile(session.swarmFilePath)
+        if (fs.existsSync(session.jobFilePath)) {
+          const agent = parseJobFile(session.jobFilePath)
           if (agent.status === 'in_progress') {
-            writeSwarmStatus(session.swarmFilePath, 'completed')
-            console.log(`PTY exit: marked swarm file as completed: ${session.swarmFilePath}`)
+            // Agent didn't write its own status — mark completed + needs_validation
+            writeJobStatus(session.jobFilePath, 'completed')
+            if (session.repo) {
+              const repoConfig = findRepoConfig(session.repo)
+              invalidateGitInfoCache(repoConfig?.resolvedPath)
+            }
+            emitJobsChanged({ repo: session.repo, id: agent.id, reason: 'pty_exit_completed' })
+            console.log(`PTY exit: marked job file as completed: ${session.jobFilePath}`)
+          } else if (agent.status === 'completed' && (!agent.validation || agent.validation === 'none')) {
+            // Agent wrote Status: Complete directly without setting Validation —
+            // add needs_validation so the job lands in review, not the completed bucket
+            writeJobValidation(session.jobFilePath, 'needs_validation', null)
+            if (session.repo) {
+              const repoConfig = findRepoConfig(session.repo)
+              invalidateGitInfoCache(repoConfig?.resolvedPath)
+            }
+            emitJobsChanged({ repo: session.repo, id: agent.id, reason: 'pty_exit_needs_validation' })
+            console.log(`PTY exit: added needs_validation to completed job file: ${session.jobFilePath}`)
           }
         }
       } catch (err) {
@@ -626,7 +840,8 @@ function createPtySession(sessionId, cwd, repoName, swarmFilePath) {
     if (session.ws) {
       try { session.ws.close() } catch {}
     }
-    ptySessions.delete(sessionId)
+    // Don't delete session — keep scrollback and event data for review.
+    // Dead sessions have alive=false and can be cleaned up explicitly.
   })
 
   ptySessions.set(sessionId, session)
@@ -635,19 +850,8 @@ function createPtySession(sessionId, cwd, repoName, swarmFilePath) {
 
 // List active PTY sessions (for client recovery after page refresh)
 app.get('/api/sessions', (req, res) => {
-  const sessions = []
-  for (const [id, s] of ptySessions) {
-    if (s.alive) {
-      sessions.push({
-        id,
-        repo: s.repo,
-        created: s.created,
-        summary: s.eventStore?.summary || null,
-        eventCount: s.eventStore?.events?.length || 0,
-      })
-    }
-  }
-  res.json({ sessions })
+  const state = buildCanonicalSessionState()
+  res.json(state)
 })
 
 app.get('/api/sessions/:id/events', (req, res) => {
@@ -741,13 +945,13 @@ app.delete('/api/sessions/:id', (req, res) => {
 })
 
 // ── WebSocket terminal server ────────────────────────────
-const wss = new WebSocketServer({ server, path: '/ws/terminal' })
+wss = new WebSocketServer({ server, path: '/ws/terminal' })
 
 wss.on('connection', (ws, req) => {
   const url = new URL(req.url, `http://${req.headers.host}`)
   const repoName = url.searchParams.get('repo')
   const sessionId = url.searchParams.get('session')
-  const swarmFilePath = url.searchParams.get('swarmFile')
+  const jobFilePath = url.searchParams.get('jobFile') || url.searchParams.get('swarmFile')
 
   let session
 
@@ -768,9 +972,9 @@ wss.on('connection', (ws, req) => {
       try { session.ws.close(1000, 'Reattached to new client') } catch {}
     }
     session.ws = ws
-    // Update swarm file path if provided (may not have been set on initial creation)
-    if (swarmFilePath && !session.swarmFilePath) {
-      session.swarmFilePath = swarmFilePath
+    // Update job file path if provided (may not have been set on initial creation)
+    if (jobFilePath && !session.jobFilePath) {
+      session.jobFilePath = jobFilePath
     }
 
     // Replay buffered output so the client sees recent context
@@ -781,13 +985,14 @@ wss.on('connection', (ws, req) => {
     // New session — resolve cwd and spawn PTY
     let cwd = HUB_DIR
     if (repoName) {
+      const config = getConfig()
       const repoConfig = config.repos.find(r => r.name === repoName)
       if (repoConfig?.resolvedPath) cwd = repoConfig.resolvedPath
     }
 
     const newId = sessionId || ('session-' + Date.now())
     try {
-      session = createPtySession(newId, cwd, repoName, swarmFilePath || null)
+      session = createPtySession(newId, cwd, repoName, jobFilePath || null)
     } catch (err) {
       console.error('Failed to spawn PTY:', err.message)
       try {
@@ -799,20 +1004,22 @@ wss.on('connection', (ws, req) => {
     session.ws = ws
 
     // Tell client the assigned session ID
-    ws.send(`\x01SESSION:${newId}`)
+    try { ws.send(`\x01SESSION:${newId}`) } catch { /* client disconnected */ }
   }
 
   ws.on('message', (msg) => {
     const str = msg.toString()
     if (str.startsWith('\x01RESIZE:')) {
       const [cols, rows] = str.slice(8).split(',').map(Number)
-      if (cols > 0 && rows > 0) session.shell.resize(cols, rows)
+      if (cols > 0 && rows > 0) {
+        try { session.shell.resize(cols, rows) } catch { /* PTY exited */ }
+      }
       return
     }
     if (str.trim()) {
       appendChunkToEventStore(session.eventStore, `\nUSER> ${stripAnsi(str)}\n`)
     }
-    session.shell.write(str)
+    try { session.shell.write(str) } catch { /* PTY exited */ }
   })
 
   ws.on('close', () => {

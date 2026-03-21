@@ -1,6 +1,9 @@
-import { useState, useCallback, useEffect, useMemo } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { usePolling } from './lib/usePolling'
 import { useSearch } from './lib/useSearch'
+import { useAppNavigation } from './lib/useAppNavigation'
+import { useSessionStore } from './lib/useSessionStore'
+import { useJobMetrics } from './lib/useJobMetrics'
 import HeaderBar from './components/HeaderBar'
 import ActivityBar from './components/ActivityBar'
 import StatusView from './components/StatusView'
@@ -14,77 +17,39 @@ import Toast from './components/Toast'
 
 export default function App() {
   const overview = usePolling('/api/overview', 10000)
-  const swarm = usePolling('/api/swarm', 5000)
+  const jobs = usePolling('/api/jobs', 5000)
+  const {
+    sessions,
+    agentTerminals,
+    jobFileToSession,
+    sessionRecordsForNav,
+    updateSessionId,
+    markPromptSent,
+    startTaskSession,
+    startWorkerSession,
+    removeSession,
+    killSession,
+  } = useSessionStore()
+  const {
+    activeNav,
+    setActiveNav,
+    drillDownJobId,
+    setDrillDownJobId,
+    commandPaletteOpen,
+    setCommandPaletteOpen,
+    handleNavChange,
+    openJobDetail,
+    openDispatch,
+    closeJobDetail,
+  } = useAppNavigation()
 
-  // Navigation state
-  const [activeNav, setActiveNav] = useState('tasks')
-  const [drillDownJobId, setDrillDownJobId] = useState(null)
-
-  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
-  const [agentTerminals, setAgentTerminals] = useState(() => {
-    try {
-      const saved = localStorage.getItem('hub:agentTerminals')
-      if (saved) {
-        const entries = JSON.parse(saved)
-        return new Map(entries)
-      }
-    } catch {}
-    return new Map()
-  })
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('hub:agentTerminals', JSON.stringify([...agentTerminals.entries()]))
-    } catch {}
-  }, [agentTerminals])
-
-  useEffect(() => {
-    if (agentTerminals.size === 0) return
-    fetch('/api/sessions')
-      .then(r => r.json())
-      .then(({ sessions }) => {
-        const liveIds = new Set(sessions.map(s => s.id))
-        setAgentTerminals(prev => {
-          let changed = false
-          const next = new Map(prev)
-          for (const [id, info] of next) {
-            if (info.ptySessionId && !liveIds.has(info.ptySessionId)) {
-              next.delete(id)
-              changed = true
-            }
-          }
-          return changed ? next : prev
-        })
-      })
-      .catch(() => {})
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const handleUpdateSessionId = useCallback((clientSessionId, ptySessionId) => {
-    setAgentTerminals(prev => {
-      const info = prev.get(clientSessionId)
-      if (!info || info.ptySessionId === ptySessionId) return prev
-      const next = new Map(prev)
-      next.set(clientSessionId, { ...info, ptySessionId })
-      return next
-    })
-  }, [])
-
-  const handlePromptSent = useCallback((clientSessionId) => {
-    setAgentTerminals(prev => {
-      const info = prev.get(clientSessionId)
-      if (!info || info.promptSent) return prev
-      const next = new Map(prev)
-      next.set(clientSessionId, { ...info, promptSent: true })
-      return next
-    })
-  }, [])
-
   const [skipPermissions, setSkipPermissions] = useState(true)
   const [contextUsage, setContextUsage] = useState(null)
   const [contextResetInfo, setContextResetInfo] = useState(null)
   const [toast, setToast] = useState(null)
   const [dispatchPreFill, setDispatchPreFill] = useState(null)
+  const lastJobsChangedRefreshRef = useRef(0)
 
   const showToast = useCallback((message, type = 'info') => {
     setToast({ message, type })
@@ -97,121 +62,52 @@ export default function App() {
     }
   }, [])
 
-  const lastRefresh = overview.lastRefresh || swarm.lastRefresh
-  const error = overview.error || swarm.error
+  const handleJobsChanged = useCallback(() => {
+    const now = Date.now()
+    if (now - lastJobsChangedRefreshRef.current < 400) return
+    lastJobsChangedRefreshRef.current = now
+    jobs.refresh()
+    overview.refresh()
+  }, [jobs.refresh, overview.refresh])
 
-  const swarmFileToSession = useMemo(() => {
-    const map = {}
-    for (const [sessionId, info] of agentTerminals) {
-      const slug = info.swarmFile?.fileName?.replace(/\.md$/, '')
-      if (slug) map[slug] = sessionId
-    }
-    return map
-  }, [agentTerminals])
+  const lastRefresh = overview.lastRefresh || jobs.lastRefresh || sessions.lastRefresh
+  const error = overview.error || jobs.error || sessions.error
 
-  // Compute active terminal for context usage tracking
   const activeTerminalSessionId = drillDownJobId && agentTerminals.has(drillDownJobId)
     ? drillDownJobId
-    : drillDownJobId ? (swarmFileToSession[drillDownJobId] || null) : null
+    : drillDownJobId ? (jobFileToSession[drillDownJobId] || null) : null
 
   useEffect(() => {
     setContextUsage(null)
     setContextResetInfo(null)
   }, [activeTerminalSessionId])
 
-  // Navigation handler — resets drill-down
-  const handleNavChange = useCallback((nav) => {
-    setActiveNav(nav)
-    setDrillDownJobId(null)
-  }, [])
+  const handleStartTask = useCallback(async (taskText, repoName, dispatchOpts = {}) => {
+    const sessionId = await startTaskSession(taskText, repoName, dispatchOpts)
+    openJobDetail(sessionId)
+  }, [startTaskSession, openJobDetail])
 
-  // Start task → create session and navigate to Jobs drill-down
-  async function handleStartTask(taskText, repoName, dispatchOpts = {}) {
-    const sessionId = 'session-' + Date.now()
-    let swarmFile = null
+  const handleStartWorker = useCallback((repoName) => {
+    const sessionId = startWorkerSession(repoName)
+    openJobDetail(sessionId)
+  }, [startWorkerSession, openJobDetail])
 
-    try {
-      const res = await fetch('/api/swarm/init', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          repo: repoName,
-          taskText,
-          sessionId,
-          model: dispatchOpts.model || undefined,
-          maxTurns: dispatchOpts.maxTurns || undefined,
-          autoMerge: dispatchOpts.autoMerge || undefined,
-          baseBranch: dispatchOpts.baseBranch || undefined,
-        }),
-      })
-      if (res.ok) {
-        swarmFile = await res.json()
-      }
-    } catch { /* proceed without swarm file */ }
-
-    setAgentTerminals(prev => {
-      const next = new Map(prev)
-      next.set(sessionId, {
-        taskText,
-        repoName,
-        swarmFile,
-        created: Date.now(),
-        model: dispatchOpts.model || null,
-        maxTurns: dispatchOpts.maxTurns || null,
-      })
-      return next
-    })
-    setActiveNav('jobs')
-    setDrillDownJobId(sessionId)
-  }
-
-  function handleStartWorker(repoName) {
-    const sessionId = 'session-' + Date.now()
-    setAgentTerminals(prev => {
-      const next = new Map(prev)
-      next.set(sessionId, { taskText: '', repoName, swarmFile: null, created: Date.now() })
-      return next
-    })
-    setActiveNav('jobs')
-    setDrillDownJobId(sessionId)
-  }
-
-  const handleKillSession = useCallback((id) => {
-    const info = agentTerminals.get(id)
-    if (info?.ptySessionId) {
-      fetch(`/api/sessions/${encodeURIComponent(info.ptySessionId)}`, { method: 'DELETE' }).catch(() => {})
-    }
-    setAgentTerminals(prev => {
-      const next = new Map(prev)
-      next.delete(id)
-      return next
-    })
-
-    if (drillDownJobId === id) {
-      setDrillDownJobId(null)
-    }
-  }, [agentTerminals, drillDownJobId])
-
-  // Navigate to dispatch with pre-filled values (from task "Start" button)
   const handleNavigateToDispatch = useCallback((repo, prompt) => {
     setDispatchPreFill({ repo, prompt })
-    setActiveNav('dispatch')
-  }, [])
+    openDispatch()
+  }, [openDispatch])
 
-  // Called after successful dispatch
   const handleDispatchComplete = useCallback(() => {
     setActiveNav('tasks')
     setDispatchPreFill(null)
     showToast('Worker dispatched', 'success')
   }, [showToast])
 
-  // Dispatch handler
-  async function handleDispatch({ repo, taskText, baseBranch, model, maxTurns, autoMerge }) {
-    await handleStartTask(taskText, repo, { baseBranch, model, maxTurns, autoMerge })
-  }
+  const handleDispatch = useCallback(async ({ repo, taskText, originalTask, baseBranch, model, maxTurns, autoMerge }) => {
+    await handleStartTask(taskText, repo, { originalTask, baseBranch, model, maxTurns, autoMerge })
+  }, [handleStartTask])
 
-  // Search
-  const searchResults = useSearch(searchQuery, overview.data, swarm.data, agentTerminals)
+  const searchResults = useSearch(searchQuery, overview.data, jobs.data, agentTerminals)
 
   const handleSearchSelect = useCallback((item) => {
     if (!item) return
@@ -219,20 +115,12 @@ export default function App() {
       setActiveNav('tasks')
       setDrillDownJobId(null)
     } else if (item.kind === 'agent') {
-      setActiveNav('jobs')
-      setDrillDownJobId(item.targetId)
+      openJobDetail(item.targetId)
     }
     setSearchQuery('')
     setCommandPaletteOpen(false)
-  }, [])
+  }, [openJobDetail, setActiveNav, setDrillDownJobId, setCommandPaletteOpen])
 
-  // Worker selection from task board — navigate to jobs drill-down
-  const handleSelectWorker = useCallback(({ id, isSession }) => {
-    setActiveNav('jobs')
-    setDrillDownJobId(id)
-  }, [])
-
-  // Keyboard shortcut for command palette
   useEffect(() => {
     function onKeyDown(e) {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
@@ -245,15 +133,18 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
 
-  // Job count for badge
-  const jobCount = agentTerminals.size + (swarm.data?.summary?.active || 0)
-  const reviewCount = swarm.data?.summary?.needsValidation || 0
+  const { activeJobCount, reviewCount } = useJobMetrics({
+    jobAgents: jobs.data?.agents || [],
+    jobFileToSession,
+    sessionRecordsForNav,
+  })
 
   return (
     <div className="h-screen flex flex-col bg-background">
       <HeaderBar
         overview={overview.data}
-        swarm={swarm.data}
+        activeJobCount={activeJobCount}
+        reviewCount={reviewCount}
         lastRefresh={lastRefresh}
         error={error}
         skipPermissions={skipPermissions}
@@ -271,30 +162,31 @@ export default function App() {
         <ActivityBar
           activeNav={activeNav}
           onNavChange={handleNavChange}
-          jobCount={jobCount}
+          jobCount={activeJobCount}
           reviewCount={reviewCount}
         />
 
         <main className="flex-1 min-w-0 min-h-0 flex flex-col relative">
-          {/* Always-mounted TerminalPanel for xterm.js state preservation */}
           <div
             className="absolute inset-0 z-10"
             style={{ display: drillDownJobId ? 'block' : 'none' }}
           >
             <JobDetailView
               jobId={drillDownJobId}
-              onBack={() => setDrillDownJobId(null)}
+              onBack={closeJobDetail}
               agentTerminals={agentTerminals}
-              swarmFileToSession={swarmFileToSession}
-              swarm={swarm.data}
+              jobFileToSession={jobFileToSession}
+              swarm={jobs.data}
               skipPermissions={skipPermissions}
-              onKillSession={handleKillSession}
-              onUpdateSessionId={handleUpdateSessionId}
-              onPromptSent={handlePromptSent}
+              onKillSession={killSession}
+              onUpdateSessionId={updateSessionId}
+              onPromptSent={markPromptSent}
               onContextUsage={handleContextUsage}
-              onSwarmRefresh={swarm.refresh}
+              onJobsChanged={handleJobsChanged}
+              onJobsRefresh={jobs.refresh}
               onOverviewRefresh={overview.refresh}
               onStartTask={handleStartTask}
+              onRemoveSession={removeSession}
               showToast={showToast}
             />
           </div>
@@ -303,46 +195,49 @@ export default function App() {
             className="flex-1 min-h-0 overflow-y-auto px-6 py-5"
             style={{ display: drillDownJobId ? 'none' : 'block' }}
           >
-            {activeNav === 'status' && (
-              <StatusView
-                overview={overview.data}
-                swarm={swarm.data}
-                error={error}
-                lastRefresh={lastRefresh}
-              />
-            )}
-            {activeNav === 'jobs' && (
-              <JobsView
-                swarm={swarm.data}
-                agentTerminals={agentTerminals}
-                swarmFileToSession={swarmFileToSession}
-                onSelectJob={(id) => setDrillDownJobId(id)}
-              />
-            )}
-            {activeNav === 'tasks' && (
-              <AllTasksView
-                overview={overview.data}
-                onOverviewRefresh={overview.refresh}
-                onNavigateToDispatch={handleNavigateToDispatch}
-                swarm={swarm.data}
-                agentTerminals={agentTerminals}
-                swarmFileToSession={swarmFileToSession}
-              />
-            )}
-            {activeNav === 'dispatch' && (
-              <DispatchView
-                overview={overview.data}
-                onDispatch={handleDispatch}
-                initialRepo={dispatchPreFill?.repo || null}
-                initialPrompt={dispatchPreFill?.prompt || null}
-                onDispatchComplete={handleDispatchComplete}
-              />
-            )}
-            {activeNav === 'schedules' && (
-              <SchedulesView
-                overview={overview.data}
-              />
-            )}
+            <div className="max-w-[50rem] mx-auto w-full">
+              {activeNav === 'status' && (
+                <StatusView
+                  overview={overview.data}
+                  swarm={jobs.data}
+                  error={error}
+                  lastRefresh={lastRefresh}
+                />
+              )}
+              {activeNav === 'jobs' && (
+                <JobsView
+                  swarm={jobs.data}
+                  jobFileToSession={jobFileToSession}
+                  sessionRecords={sessionRecordsForNav}
+                  overview={overview.data}
+                  onSelectJob={openJobDetail}
+                />
+              )}
+              {activeNav === 'tasks' && (
+                <AllTasksView
+                  overview={overview.data}
+                  onOverviewRefresh={overview.refresh}
+                  onNavigateToDispatch={handleNavigateToDispatch}
+                  onSelectJob={openJobDetail}
+                  swarm={jobs.data}
+                  agentTerminals={agentTerminals}
+                />
+              )}
+              {activeNav === 'dispatch' && (
+                <DispatchView
+                  overview={overview.data}
+                  onDispatch={handleDispatch}
+                  initialRepo={dispatchPreFill?.repo || null}
+                  initialPrompt={dispatchPreFill?.prompt || null}
+                  onDispatchComplete={handleDispatchComplete}
+                />
+              )}
+              {activeNav === 'schedules' && (
+                <SchedulesView
+                  overview={overview.data}
+                />
+              )}
+            </div>
           </div>
         </main>
       </div>
@@ -356,7 +251,7 @@ export default function App() {
         onSelectResult={handleSearchSelect}
         activeWorkers={agentTerminals}
         onStartWorker={handleStartWorker}
-        onKillSession={handleKillSession}
+        onKillSession={killSession}
         onNavChange={handleNavChange}
       />
 

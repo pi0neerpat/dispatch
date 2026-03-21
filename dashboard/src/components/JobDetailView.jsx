@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { ArrowLeft, TerminalSquare, ClipboardCheck } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { repoIdentityColors } from '../lib/constants'
@@ -9,36 +9,50 @@ export default function JobDetailView({
   jobId,
   onBack,
   agentTerminals,
-  swarmFileToSession,
+  jobFileToSession,
   swarm,
   skipPermissions,
   onKillSession,
   onUpdateSessionId,
   onPromptSent,
   onContextUsage,
-  onSwarmRefresh,
+  onJobsChanged,
+  onJobsRefresh,
   onOverviewRefresh,
   onStartTask,
+  onRemoveSession,
   showToast,
 }) {
   const [view, setView] = useState('review')
 
   const hasTerminal = agentTerminals.has(jobId)
+
+  // Auto-select the appropriate tab when the job changes or when a terminal
+  // first becomes available (handles page-refresh reconstruction delay)
+  useEffect(() => {
+    if (!jobId) return
+    const info = agentTerminals.get(jobId)
+    if (info && info.ptySessionId) {
+      setView('terminal')
+    } else if (!hasTerminal) {
+      setView('review')
+    }
+  }, [jobId, hasTerminal]) // eslint-disable-line react-hooks/exhaustive-deps
   const taskInfo = hasTerminal ? agentTerminals.get(jobId) : null
   const repoName = taskInfo?.repoName || ''
   const repoColor = repoIdentityColors[repoName] || 'var(--primary)'
 
-  const swarmFileId = taskInfo?.swarmFile?.fileName?.replace(/\.md$/, '') || null
+  const swarmFileId = taskInfo?.jobFile?.fileName?.replace(/\.md$/, '') || null
   const reviewAgentId = swarmFileId || (hasTerminal ? null : jobId)
 
   const jobLabel = taskInfo?.taskText || 'Worker session'
 
-  const activeTerminalSessionId = hasTerminal ? jobId : (swarmFileToSession?.[jobId] || null)
+  const activeTerminalSessionId = hasTerminal ? jobId : (jobFileToSession?.[jobId] || null)
 
   return (
     <div className="h-full flex flex-col">
       {/* Top bar */}
-      <div className="px-4 py-2.5 border-b border-border bg-background/60 shrink-0 flex items-center gap-3">
+      <div className="px-6 py-2.5 border-b border-border bg-background/60 shrink-0 flex items-center gap-3">
         <button
           onClick={onBack}
           className="flex items-center gap-1.5 text-[12px] text-muted-foreground hover:text-foreground transition-colors"
@@ -96,21 +110,23 @@ export default function JobDetailView({
             onUpdateSessionId={onUpdateSessionId}
             onPromptSent={onPromptSent}
             onContextUsage={onContextUsage}
+            onJobsChanged={onJobsChanged}
           />
         </div>
 
-        {view === 'review' && (
-          <div className="absolute inset-0 overflow-y-auto px-6 py-5">
+        <div className="absolute inset-0 overflow-y-auto px-6 py-5" style={{ display: view === 'review' ? 'block' : 'none' }}>
+          <div className="max-w-[50rem] mx-auto w-full">
             <ResultsPanel
               agentId={reviewAgentId}
-              onSwarmRefresh={onSwarmRefresh}
+              onJobsRefresh={onJobsRefresh}
               onOverviewRefresh={onOverviewRefresh}
               onStartTask={onStartTask}
               onBack={onBack}
+              onRemoveSession={() => onRemoveSession?.(jobId)}
               showToast={showToast}
             />
           </div>
-        )}
+        </div>
       </div>
     </div>
   )

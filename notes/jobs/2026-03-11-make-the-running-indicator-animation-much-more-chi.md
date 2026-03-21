@@ -1,6 +1,7 @@
 # Swarm Task: Make running indicator animations more chill
 Started: 2026-03-11
 Status: Complete
+Validation: Validated
 Skills: frontend-design
 
 ## Progress

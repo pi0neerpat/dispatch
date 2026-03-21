@@ -22,10 +22,10 @@ function AgentHeader({ taskInfo }) {
   const [detail, setDetail] = useState(null)
   const [loading, setLoading] = useState(false)
 
-  const swarmFileId = taskInfo?.swarmFile?.fileName?.replace(/\.md$/, '') || null
+  const jobFileId = taskInfo?.jobFile?.fileName?.replace(/\.md$/, '') || null
 
   useEffect(() => {
-    if (!swarmFileId) {
+    if (!jobFileId) {
       setDetail(null)
       return
     }
@@ -36,7 +36,7 @@ function AgentHeader({ taskInfo }) {
     async function fetchDetail() {
       if (!cancelled && firstRun) setLoading(true)
       try {
-        const res = await fetch(`/api/swarm/${swarmFileId}`)
+        const res = await fetch(`/api/jobs/${jobFileId}`)
         if (!res.ok) throw new Error('failed')
         const data = await res.json()
         if (!cancelled) setDetail(data)
@@ -54,7 +54,7 @@ function AgentHeader({ taskInfo }) {
       cancelled = true
       clearInterval(id)
     }
-  }, [swarmFileId])
+  }, [jobFileId])
 
   const status = detail?.status || (taskInfo?.promptSent ? 'in_progress' : 'starting')
   const currentStep = detail?.progressEntries?.length
@@ -219,12 +219,14 @@ function TerminalInstance({
   sessionId,
   taskInfo,
   showRaw,
+  isActive,
   skipPermissions,
   onKill,
   confirmKill,
   onUpdateSessionId,
   onPromptSent,
   onContextUsage,
+  onJobsChanged,
 }) {
   const sendCommandRef = useRef(null)
   const sendRawRef = useRef(null)
@@ -264,9 +266,10 @@ function TerminalInstance({
     if (data.includes('\u276F') || data.includes('bypass permissions')) {
       promptSentRef.current = true
       onPromptSent?.(sessionId)
-      let prompt = '/swarm ' + taskInfo.taskText
-      if (taskInfo.swarmFile?.relativePath) {
-        prompt += `\n\nWrite progress to: ${taskInfo.swarmFile.relativePath}`
+      let prompt = taskInfo.taskText
+      prompt += '\n\nUse a strictly linear approach. Do not run tasks in parallel and do not delegate to sub-agents.'
+      if (taskInfo.jobFile?.relativePath) {
+        prompt += `\n\nWrite progress to: ${taskInfo.jobFile.relativePath}`
       }
       setTimeout(() => {
         sendRawRef.current?.(prompt)
@@ -279,19 +282,29 @@ function TerminalInstance({
     onUpdateSessionId?.(sessionId, id)
   }, [sessionId, onUpdateSessionId])
 
-  const { termRef, isConnected, isMouseTracking, sendCommand, sendRaw, reconnect } = useTerminal({
+  const { termRef, isConnected, isMouseTracking, sendCommand, sendRaw, reconnect, fit } = useTerminal({
     onConnected,
     onIncomingData: onTerminalData,
+    onJobsChanged,
     repo: taskInfo?.repoName,
-    sessionId: taskInfo?.ptySessionId || null,
+    // Use ptySessionId if already assigned, otherwise seed with client session ID
+    // so the server creates the PTY with the same ID stored in the job file's Session: field
+    sessionId: taskInfo?.ptySessionId || sessionId,
     onSessionId: handleSessionId,
-    swarmFilePath: taskInfo?.swarmFile?.absolutePath || null,
+    jobFilePath: taskInfo?.jobFile?.absolutePath || null,
   })
 
   useEffect(() => {
     sendCommandRef.current = sendCommand
     sendRawRef.current = sendRaw
   }, [sendCommand, sendRaw])
+
+  // Re-fit when this terminal becomes the visible/active one
+  useEffect(() => {
+    if (isActive) {
+      requestAnimationFrame(() => fit())
+    }
+  }, [isActive, fit])
 
   const handleRestart = useCallback(() => {
     promptSentRef.current = false
@@ -355,7 +368,7 @@ function TerminalInstance({
   )
 }
 
-export default function TerminalPanel({ sessions, activeSessionId, skipPermissions, onKillSession, onUpdateSessionId, onPromptSent, onContextUsage }) {
+export default function TerminalPanel({ sessions, activeSessionId, skipPermissions, onKillSession, onUpdateSessionId, onPromptSent, onContextUsage, onJobsChanged }) {
   const hasTerminal = activeSessionId && sessions.has(activeSessionId)
   const [confirmKill, setConfirmKill] = useState(null)
 
@@ -376,21 +389,26 @@ export default function TerminalPanel({ sessions, activeSessionId, skipPermissio
   return (
     <div className="h-full relative flex flex-col">
       <div className="relative flex-1 min-h-0">
-        {[...sessions.entries()].map(([id, info]) => (
-          <div key={id} className="absolute inset-0" style={{ display: hasTerminal && id === activeSessionId ? 'block' : 'none' }}>
-            <TerminalInstance
-              sessionId={id}
-              taskInfo={info}
-              showRaw={true}
-              skipPermissions={skipPermissions}
-              onKill={() => handleKill(id)}
-              confirmKill={confirmKill === id}
-              onUpdateSessionId={onUpdateSessionId}
-              onPromptSent={onPromptSent}
-              onContextUsage={onContextUsage}
-            />
-          </div>
-        ))}
+        {[...sessions.entries()].map(([id, info]) => {
+          const active = hasTerminal && id === activeSessionId
+          return (
+            <div key={id} className="absolute inset-0" style={{ display: active ? 'block' : 'none' }}>
+              <TerminalInstance
+                sessionId={id}
+                taskInfo={info}
+                showRaw={true}
+                isActive={active}
+                skipPermissions={skipPermissions}
+                onKill={() => handleKill(id)}
+                confirmKill={confirmKill === id}
+                onUpdateSessionId={onUpdateSessionId}
+                onPromptSent={onPromptSent}
+                onContextUsage={onContextUsage}
+                onJobsChanged={onJobsChanged}
+              />
+            </div>
+          )
+        })}
       </div>
 
       {!hasTerminal && (

@@ -38,7 +38,7 @@ export default function ProgressTimeline({ agentId }) {
 
     async function fetchDetail() {
       try {
-        const res = await fetch(`/api/swarm/${agentId}`)
+        const res = await fetch(`/api/jobs/${agentId}`)
         if (!res.ok) throw new Error(`${res.status}`)
         const data = await res.json()
         if (!cancelled) setDetail(data)
@@ -100,7 +100,7 @@ export default function ProgressTimeline({ agentId }) {
               )}
               <div
                 className="hidden group-hover:block absolute left-4 bottom-full mb-1 z-20 max-w-[280px] px-2 py-1.5 rounded-lg border border-card-border-hover shadow-xl text-[11px] text-foreground whitespace-normal pointer-events-none"
-                style={{ background: 'var(--background-raised)', boxShadow: '0 4px 24px rgba(0,0,0,0.5)' }}
+                style={{ background: 'var(--background-raised)', boxShadow: '0 4px 24px rgba(0,0,0,0.3)' }}
               >
                 {entry}
               </div>

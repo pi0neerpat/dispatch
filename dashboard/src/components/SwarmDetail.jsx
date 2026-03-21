@@ -6,7 +6,7 @@ import { statusConfig, validationConfig } from '../lib/statusConfig'
 import { repoIdentityColors } from '../lib/constants'
 import { mdComponents } from './mdComponents'
 
-export default function SwarmDetail({ agentId, onSwarmRefresh, onOverviewRefresh }) {
+export default function SwarmDetail({ agentId, onJobsRefresh, onOverviewRefresh }) {
   const [detail, setDetail] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -30,7 +30,7 @@ export default function SwarmDetail({ agentId, onSwarmRefresh, onOverviewRefresh
 
     async function fetchDetail() {
       try {
-        const res = await fetch(`/api/swarm/${agentId}`)
+        const res = await fetch(`/api/jobs/${agentId}`)
         if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
         const data = await res.json()
         if (!cancelled) setDetail(data)
@@ -53,7 +53,7 @@ export default function SwarmDetail({ agentId, onSwarmRefresh, onOverviewRefresh
   async function handleValidate() {
     setActionLoading(true)
     try {
-      const res = await fetch(`/api/swarm/${agentId}/validate`, {
+      const res = await fetch(`/api/jobs/${agentId}/validate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
@@ -65,7 +65,7 @@ export default function SwarmDetail({ agentId, onSwarmRefresh, onOverviewRefresh
       const result = await res.json()
       setDetail(prev => prev ? { ...prev, validation: result.validation } : prev)
       showFeedbackMsg('Validated')
-      onSwarmRefresh?.()
+      onJobsRefresh?.()
       onOverviewRefresh?.()
     } catch (err) {
       showFeedbackMsg(err.message || 'Validate failed', true)
@@ -78,7 +78,7 @@ export default function SwarmDetail({ agentId, onSwarmRefresh, onOverviewRefresh
     if (!rejectNotes.trim()) return
     setActionLoading(true)
     try {
-      const res = await fetch(`/api/swarm/${agentId}/reject`, {
+      const res = await fetch(`/api/jobs/${agentId}/reject`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ notes: rejectNotes.trim() }),
@@ -92,7 +92,7 @@ export default function SwarmDetail({ agentId, onSwarmRefresh, onOverviewRefresh
       setShowRejectInput(false)
       setRejectNotes('')
       showFeedbackMsg('Rejected')
-      onSwarmRefresh?.()
+      onJobsRefresh?.()
       onOverviewRefresh?.()
     } catch (err) {
       showFeedbackMsg(err.message || 'Reject failed', true)
@@ -109,10 +109,10 @@ export default function SwarmDetail({ agentId, onSwarmRefresh, onOverviewRefresh
     }
     setKilling(true)
     try {
-      const res = await fetch(`/api/swarm/${agentId}/kill`, { method: 'POST' })
+      const res = await fetch(`/api/jobs/${agentId}/kill`, { method: 'POST' })
       if (res.ok) {
-        onSwarmRefresh?.()
-        const res2 = await fetch(`/api/swarm/${agentId}`)
+        onJobsRefresh?.()
+        const res2 = await fetch(`/api/jobs/${agentId}`)
         if (res2.ok) setDetail(await res2.json())
       }
     } catch { /* ignore */ }
@@ -263,7 +263,7 @@ export default function SwarmDetail({ agentId, onSwarmRefresh, onOverviewRefresh
                   </span>
                   <div
                     className="hidden group-hover:block absolute left-6 bottom-full mb-1 z-10 max-w-sm px-2.5 py-1.5 rounded-lg border border-card-border-hover shadow-xl text-xs text-foreground whitespace-normal pointer-events-none"
-                    style={{ background: 'var(--background-raised)', boxShadow: '0 4px 24px rgba(0,0,0,0.5)' }}
+                    style={{ background: 'var(--background-raised)', boxShadow: '0 4px 24px rgba(0,0,0,0.3)' }}
                   >
                     {entry}
                   </div>

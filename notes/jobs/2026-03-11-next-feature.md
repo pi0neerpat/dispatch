@@ -47,8 +47,8 @@ write side of the hub.
 **REST API endpoints (dashboard/server.js):**
 - `POST /api/tasks/done` — body: `{ repo, taskNum }`
 - `POST /api/tasks/add` — body: `{ repo, text, section? }`
-- `POST /api/swarm/:id/validate` — body: `{ notes? }`
-- `POST /api/swarm/:id/reject` — body: `{ notes }`
+- `POST /api/jobs/:id/validate` — body: `{ notes? }`
+- `POST /api/jobs/:id/reject` — body: `{ notes }`
 
 **Parser functions (parsers.js):**
 - `writeTaskDone(filePath, taskNum)` — finds Nth open task across all sections, toggles checkbox

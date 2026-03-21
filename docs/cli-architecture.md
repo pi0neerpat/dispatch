@@ -122,18 +122,14 @@ Read-only, non-interactive terminal display using box-drawing characters.
 | Output format | JSON | ANSI-colored box art |
 | Audience | Agents / scripts | Humans |
 | Interactivity | None | None |
-| Activity parsing | Uses `parseActivityLog` from parsers.js | Has its own `parseActivityLogTerminal` (formats dates as "Mar 10") |
-
-### Duplication Note
-
-`terminal.js` contains a local `parseActivityLogTerminal` function that reimplements `parseActivityLog` with different date formatting ("Mar 10" instead of "2026-03-10") and a 2-entry limit. This is the **only** known parsing duplication. It exists because the terminal needs compact human-readable dates, not ISO dates. If the terminal is ever extended, consider adding a `format` option to the shared `parseActivityLog` instead.
+| Activity parsing | Uses `parseActivityLog` from parsers.js | Uses `parseActivityLog(..., { dateFormat: 'compact', limit: 2 })` |
 
 ### Internal Structure
 
 ```
 terminal.js
 ├── Config loader (loadConfig)
-├── parseActivityLogTerminal()  — local variant with "Mar 10" dates
+├── parseActivityLog(..., { dateFormat: 'compact', limit: 2 })
 ├── ANSI helpers (bold, dim, italic, cyan, yellow, green)
 ├── Layout helpers (boxLine, boxTop, boxBottom, boxDivider, boxSeparator, pad, truncate)
 └── Main render loop

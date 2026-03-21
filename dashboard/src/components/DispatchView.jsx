@@ -13,6 +13,19 @@ export default function DispatchView({ overview, onDispatch, initialRepo, initia
   const [autoMerge, setAutoMerge] = useState(false)
   const [dispatching, setDispatching] = useState(false)
 
+  // Restore saved dispatch settings on mount
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('dispatch-settings'))
+      if (saved) {
+        if (!initialRepo && saved.repo) setRepo(saved.repo)
+        if (saved.model) setModel(saved.model)
+        if (saved.maxTurns != null) setMaxTurns(saved.maxTurns)
+        if (saved.autoMerge != null) setAutoMerge(saved.autoMerge)
+      }
+    } catch {}
+  }, [])
+
   // Apply pre-fill when props change
   useEffect(() => {
     if (initialRepo) setRepo(initialRepo)
@@ -34,11 +47,13 @@ export default function DispatchView({ overview, onDispatch, initialRepo, initia
       await onDispatch?.({
         repo,
         taskText: prompt.trim(),
+        originalTask: initialPrompt || null,
         baseBranch: baseBranch.trim() || defaultBranch,
         model,
         maxTurns,
         autoMerge,
       })
+      localStorage.setItem('dispatch-settings', JSON.stringify({ repo, model, maxTurns, autoMerge }))
       setPrompt('')
       onDispatchComplete?.()
     } catch (err) {
@@ -51,7 +66,7 @@ export default function DispatchView({ overview, onDispatch, initialRepo, initia
   const branchOptions = selectedRepo?.git?.branches || []
 
   return (
-    <div className="max-w-2xl">
+    <div>
       <h2 className="text-[16px] font-semibold text-foreground mb-3">Dispatch Worker</h2>
 
       <form onSubmit={handleDispatch} className="space-y-3">
@@ -164,7 +179,7 @@ export default function DispatchView({ overview, onDispatch, initialRepo, initia
               type="button"
               onClick={() => setAutoMerge(v => !v)}
               className={cn(
-                'w-7 h-[16px] rounded-full border transition-all relative shrink-0',
+                'w-7 h-[16px] rounded-full border transition-colors relative shrink-0 overflow-hidden',
                 autoMerge
                   ? 'bg-primary/20 border-primary/40'
                   : 'bg-card border-border'
@@ -172,10 +187,10 @@ export default function DispatchView({ overview, onDispatch, initialRepo, initia
             >
               <span
                 className={cn(
-                  'absolute top-[2px] w-2.5 h-2.5 rounded-full transition-all',
+                  'absolute top-[2px] left-[2px] w-2.5 h-2.5 rounded-full transition-transform duration-200',
                   autoMerge
-                    ? 'left-[13px] bg-primary'
-                    : 'left-[2px] bg-muted-foreground/40'
+                    ? 'translate-x-[11px] bg-primary'
+                    : 'translate-x-0 bg-muted-foreground/40'
                 )}
               />
             </button>

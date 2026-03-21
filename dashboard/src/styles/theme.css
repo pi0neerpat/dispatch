@@ -1,51 +1,51 @@
 :root {
-  /* Base palette — flat IDE, high-contrast */
-  --background: #161618;
-  --background-raised: #1c1c1e;
-  --foreground: #e4e4e7;
-  --foreground-secondary: #a1a1aa;
+  /* Base palette — ultra-soft warm dark, low contrast */
+  --background: #1a1b1e;
+  --background-raised: #201f23;
+  --foreground: #b0b1b8;
+  --foreground-secondary: #838490;
 
-  /* Card system — flat, minimal borders */
-  --card: #1c1c1e;
-  --card-foreground: #e4e4e7;
-  --card-hover: #222225;
-  --card-border: rgba(255, 255, 255, 0.06);
+  /* Card system — whisper-soft lift, barely-there borders */
+  --card: #201f23;
+  --card-foreground: #b0b1b8;
+  --card-hover: #27262b;
+  --card-border: rgba(255, 255, 255, 0.05);
   --card-border-hover: rgba(255, 255, 255, 0.08);
 
-  /* Accents — green for ready/active (IDE convention) */
-  --primary: #22c55e;
-  --primary-glow: rgba(34, 197, 94, 0.08);
-  --primary-foreground: #161618;
+  /* Accents — dusty lavender, very desaturated */
+  --primary: #8f8bab;
+  --primary-glow: rgba(143, 139, 171, 0.06);
+  --primary-foreground: #1a1b1e;
 
   /* Surface */
-  --secondary: #222225;
-  --secondary-foreground: #a1a1aa;
-  --muted: #27272a;
-  --muted-foreground: #71717a;
-  --accent: #27272a;
-  --accent-foreground: #e4e4e7;
-  --border: rgba(255, 255, 255, 0.06);
-  --ring: #22c55e;
+  --secondary: #242329;
+  --secondary-foreground: #838490;
+  --muted: #28272e;
+  --muted-foreground: #6b6c78;
+  --accent: #28272e;
+  --accent-foreground: #b0b1b8;
+  --border: rgba(255, 255, 255, 0.04);
+  --ring: #8f8bab;
   --radius: 0.5rem;
 
-  /* Status — green for ready, red for errors (IDE convention) */
-  --status-active: #22c55e;
-  --status-active-glow: rgba(34, 197, 94, 0.12);
-  --status-active-bg: rgba(34, 197, 94, 0.1);
-  --status-active-border: rgba(34, 197, 94, 0.2);
-  --status-complete: #22c55e;
-  --status-complete-bg: rgba(34, 197, 94, 0.08);
-  --status-complete-border: rgba(34, 197, 94, 0.15);
-  --status-failed: #ef4444;
-  --status-failed-bg: rgba(239, 68, 68, 0.1);
-  --status-failed-border: rgba(239, 68, 68, 0.2);
-  --status-review: #eab308;
-  --status-review-bg: rgba(234, 179, 8, 0.1);
-  --status-review-border: rgba(234, 179, 8, 0.2);
-  --status-validated: #22c55e;
-  --status-validated-bg: rgba(34, 197, 94, 0.1);
-  --status-dirty: #eab308;
-  --status-clean: #22c55e;
+  /* Status — deeply muted, pastel-weight indicators */
+  --status-active: #7ea89a;
+  --status-active-glow: rgba(126, 168, 154, 0.06);
+  --status-active-bg: rgba(126, 168, 154, 0.05);
+  --status-active-border: rgba(126, 168, 154, 0.12);
+  --status-complete: #7ea89a;
+  --status-complete-bg: rgba(126, 168, 154, 0.04);
+  --status-complete-border: rgba(126, 168, 154, 0.10);
+  --status-failed: #b87a7a;
+  --status-failed-bg: rgba(184, 122, 122, 0.05);
+  --status-failed-border: rgba(184, 122, 122, 0.12);
+  --status-review: #b5a06e;
+  --status-review-bg: rgba(181, 160, 110, 0.05);
+  --status-review-border: rgba(181, 160, 110, 0.12);
+  --status-validated: #7ea89a;
+  --status-validated-bg: rgba(126, 168, 154, 0.04);
+  --status-dirty: #b5a06e;
+  --status-clean: #7ea89a;
 
   /* Spacing scale — 4px base */
   --space-1: 4px;
@@ -55,13 +55,13 @@
   --space-5: 20px;
   --space-6: 24px;
 
-  /* Fonts — IBM Plex Sans (body), JetBrains Mono (code/display) */
-  --font-body: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+  /* Fonts — DM Sans (body), JetBrains Mono (code/display) */
+  --font-body: 'DM Sans', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', monospace;
   --font-display: 'JetBrains Mono', ui-monospace, monospace;
 
-  /* Gradient accent */
-  --gradient-accent: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+  /* Gradient accent — barely visible, soft lavender wash */
+  --gradient-accent: linear-gradient(135deg, #8f8bab 0%, #7a7799 100%);
 }
 
 @theme inline {
@@ -172,7 +172,7 @@
   animation: ping-slow 4s cubic-bezier(0, 0, 0.2, 1) infinite;
 }
 
-/* Scrollbar styling — thin, minimal */
+/* Scrollbar styling — thin, ghostly */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -181,9 +181,9 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.10);
 }

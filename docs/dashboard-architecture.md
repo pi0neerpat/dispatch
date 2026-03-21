@@ -130,6 +130,11 @@ ESM module. Bridges to `parsers.js` (CommonJS) via `createRequire`.
 | `DELETE /api/sessions/:id` | None (kills PTY) | Kill PTY session |
 | `POST /api/sessions/:id/chat` | `eventPipeline.answerFromEvents` | Ask questions about session history |
 
+**Schedules storage policy exception**
+- `schedules.json` is intentionally stored as JSON (not markdown).
+- Rationale: cron schedule definitions are structured config data, not narrative/task content.
+- This is the only known exception to the "markdown source-of-truth" pattern.
+
 ### WebSocket Terminal Server
 
 Path: `/ws/terminal`

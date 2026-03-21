@@ -121,7 +121,7 @@ function ResultsSummary({ text }) {
   )
 }
 
-function AgentActions({ detail, agentId, onSwarmRefresh, onOverviewRefresh, onStartTask, onBack, showToast, showFeedbackMsg }) {
+function AgentActions({ detail, agentId, onJobsRefresh, onOverviewRefresh, onStartTask, onBack, onRemoveSession, showToast, showFeedbackMsg }) {
   const [merging, setMerging] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -134,7 +134,7 @@ function AgentActions({ detail, agentId, onSwarmRefresh, onOverviewRefresh, onSt
   async function handleMerge() {
     setMerging(true)
     try {
-      const res = await fetch(`/api/swarm/${agentId}/merge`, {
+      const res = await fetch(`/api/jobs/${agentId}/merge`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
@@ -203,13 +203,14 @@ function AgentActions({ detail, agentId, onSwarmRefresh, onOverviewRefresh, onSt
     }
     setDeleting(true)
     try {
-      const res = await fetch(`/api/swarm/${agentId}`, { method: 'DELETE' })
+      const res = await fetch(`/api/jobs/${agentId}`, { method: 'DELETE' })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
         throw new Error(data.error || 'Delete failed')
       }
       showToast?.('Job deleted', 'info')
-      onSwarmRefresh?.()
+      onRemoveSession?.()
+      onJobsRefresh?.()
       onBack?.()
     } catch (err) {
       showFeedbackMsg(err.message, true)
@@ -343,14 +344,15 @@ function FollowUpChat({ repoName, detail, onDispatch, dispatching }) {
 
   async function handleDispatch() {
     if (!chatPrompt.trim()) return
-    await onDispatch?.(chatPrompt.trim(), chatModel, chatAutoMerge)
+    const swarmRef = detail?.id ? `\n\n---\nPrevious job context: notes/jobs/${detail.id}.md` : ''
+    await onDispatch?.(chatPrompt.trim() + swarmRef, chatModel, chatAutoMerge)
     setChatPrompt('')
     setActiveTemplate(null)
   }
 
   return (
     <div>
-      <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">Follow-up</p>
+      <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">Continue as New Job</p>
       <div className="space-y-3">
         <div className="flex items-center gap-3">
           <select
@@ -367,7 +369,7 @@ function FollowUpChat({ repoName, detail, onDispatch, dispatching }) {
             type="button"
             onClick={() => setChatAutoMerge(v => !v)}
             className={cn(
-              'w-7 h-[16px] rounded-full border transition-all relative shrink-0',
+              'w-7 h-[16px] rounded-full border transition-colors relative shrink-0 overflow-hidden',
               chatAutoMerge
                 ? 'bg-primary/20 border-primary/40'
                 : 'bg-card border-border'
@@ -375,10 +377,10 @@ function FollowUpChat({ repoName, detail, onDispatch, dispatching }) {
           >
             <span
               className={cn(
-                'absolute top-[2px] w-2.5 h-2.5 rounded-full transition-all',
+                'absolute top-[2px] left-[2px] w-2.5 h-2.5 rounded-full transition-transform duration-200',
                 chatAutoMerge
-                  ? 'left-[13px] bg-primary'
-                  : 'left-[2px] bg-muted-foreground/40'
+                  ? 'translate-x-[11px] bg-primary'
+                  : 'translate-x-0 bg-muted-foreground/40'
               )}
             />
           </button>
@@ -416,7 +418,7 @@ function FollowUpChat({ repoName, detail, onDispatch, dispatching }) {
               setActiveTemplate(null)
             }}
             placeholder="Send follow-up instructions to a new worker..."
-            rows={2}
+            rows={8}
             className={cn(
               'flex-1 px-2.5 py-2 rounded-md border border-border bg-card',
               'text-[12px] text-foreground placeholder:text-muted-foreground/40 leading-relaxed',
@@ -441,7 +443,7 @@ function FollowUpChat({ repoName, detail, onDispatch, dispatching }) {
   )
 }
 
-export default function ResultsPanel({ agentId, onSwarmRefresh, onOverviewRefresh, onStartTask, onBack, showToast }) {
+export default function ResultsPanel({ agentId, onJobsRefresh, onOverviewRefresh, onStartTask, onBack, onRemoveSession, showToast }) {
   const [detail, setDetail] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -469,7 +471,7 @@ export default function ResultsPanel({ agentId, onSwarmRefresh, onOverviewRefres
 
     async function fetchDetail() {
       try {
-        const res = await fetch(`/api/swarm/${agentId}`)
+        const res = await fetch(`/api/jobs/${agentId}`)
         if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
         const data = await res.json()
         if (!cancelled) setDetail(data)
@@ -492,7 +494,7 @@ export default function ResultsPanel({ agentId, onSwarmRefresh, onOverviewRefres
   async function handleValidate() {
     setActionLoading(true)
     try {
-      const res = await fetch(`/api/swarm/${agentId}/validate`, {
+      const res = await fetch(`/api/jobs/${agentId}/validate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
@@ -504,7 +506,7 @@ export default function ResultsPanel({ agentId, onSwarmRefresh, onOverviewRefres
       const result = await res.json()
       setDetail(prev => prev ? { ...prev, validation: result.validation } : prev)
       showFeedbackMsg('Validated')
-      onSwarmRefresh?.()
+      onJobsRefresh?.()
       onOverviewRefresh?.()
     } catch (err) {
       showFeedbackMsg(err.message || 'Validate failed', true)
@@ -517,7 +519,7 @@ export default function ResultsPanel({ agentId, onSwarmRefresh, onOverviewRefres
     if (!rejectNotes.trim()) return
     setActionLoading(true)
     try {
-      const res = await fetch(`/api/swarm/${agentId}/reject`, {
+      const res = await fetch(`/api/jobs/${agentId}/reject`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ notes: rejectNotes.trim() }),
@@ -531,7 +533,7 @@ export default function ResultsPanel({ agentId, onSwarmRefresh, onOverviewRefres
       setShowRejectInput(false)
       setRejectNotes('')
       showFeedbackMsg('Rejected')
-      onSwarmRefresh?.()
+      onJobsRefresh?.()
       onOverviewRefresh?.()
     } catch (err) {
       showFeedbackMsg(err.message || 'Reject failed', true)
@@ -548,10 +550,10 @@ export default function ResultsPanel({ agentId, onSwarmRefresh, onOverviewRefres
     }
     setKilling(true)
     try {
-      const res = await fetch(`/api/swarm/${agentId}/kill`, { method: 'POST' })
+      const res = await fetch(`/api/jobs/${agentId}/kill`, { method: 'POST' })
       if (res.ok) {
-        onSwarmRefresh?.()
-        const res2 = await fetch(`/api/swarm/${agentId}`)
+        onJobsRefresh?.()
+        const res2 = await fetch(`/api/jobs/${agentId}`)
         if (res2.ok) setDetail(await res2.json())
       }
     } catch { /* ignore */ }
@@ -588,7 +590,7 @@ export default function ResultsPanel({ agentId, onSwarmRefresh, onOverviewRefres
       <div className="flex items-center justify-center h-full">
         <div className="text-center">
           <Activity size={24} className="mx-auto mb-2 text-muted-foreground/40" />
-          <p className="text-sm text-muted-foreground/50">Select a swarm agent to view results</p>
+          <p className="text-sm text-muted-foreground/50">Select a job to view results</p>
         </div>
       </div>
     )
@@ -705,42 +707,47 @@ export default function ResultsPanel({ agentId, onSwarmRefresh, onOverviewRefres
         </div>
       )}
 
-      {canAct && (
+      {(canAct || (!taskMarked && detail.status === 'completed')) && (
         <div className="space-y-2">
           <div className="flex items-center gap-2">
-            <button
-              onClick={handleValidate}
-              disabled={actionLoading}
-              className={cn(
-                'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
-                'border border-status-active-border bg-status-active-bg text-status-active',
-                'hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed'
-              )}
-            >
-              <CheckCircle size={13} />
-              Validate
-            </button>
-            <button
-              onClick={() => {
-                setShowRejectInput(!showRejectInput)
-                setRejectNotes('')
-              }}
-              disabled={actionLoading}
-              className={cn(
-                'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
-                'border border-status-failed-border bg-status-failed-bg text-status-failed',
-                'hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed'
-              )}
-            >
-              <XCircle size={13} />
-              Reject
-            </button>
+            {canAct && (
+              <>
+                <button
+                  onClick={handleValidate}
+                  disabled={actionLoading}
+                  className={cn(
+                    'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
+                    'border border-status-active-border bg-status-active-bg text-status-active',
+                    'hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed'
+                  )}
+                >
+                  <CheckCircle size={13} />
+                  Validate
+                </button>
+                <button
+                  onClick={() => {
+                    setShowRejectInput(!showRejectInput)
+                    setRejectNotes('')
+                  }}
+                  disabled={actionLoading}
+                  className={cn(
+                    'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
+                    'border border-status-failed-border bg-status-failed-bg text-status-failed',
+                    'hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed'
+                  )}
+                >
+                  <XCircle size={13} />
+                  Reject
+                </button>
+              </>
+            )}
+
             {!taskMarked && detail.status === 'completed' && (
               <button
                 onClick={handleMarkDone}
                 disabled={markingDone}
                 className={cn(
-                  'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
+                  'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ml-auto',
                   'border border-border bg-card text-foreground/80 hover:bg-card-hover disabled:opacity-50'
                 )}
                 title="Mark matching task as done in todo"
@@ -774,10 +781,11 @@ export default function ResultsPanel({ agentId, onSwarmRefresh, onOverviewRefres
       <AgentActions
         detail={detail}
         agentId={agentId}
-        onSwarmRefresh={onSwarmRefresh}
+        onJobsRefresh={onJobsRefresh}
         onOverviewRefresh={onOverviewRefresh}
         onStartTask={onStartTask}
         onBack={onBack}
+        onRemoveSession={onRemoveSession}
         showToast={showToast}
         showFeedbackMsg={showFeedbackMsg}
       />

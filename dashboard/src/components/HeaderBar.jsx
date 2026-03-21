@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Activity, AlertCircle, ShieldOff, Shield, Search, Command } from 'lucide-react'
 import { cn } from '../lib/utils'
 
@@ -60,7 +60,8 @@ function ResetCountdown({ resetsAt }) {
 
 export default function HeaderBar({
   overview,
-  swarm,
+  activeJobCount = 0,
+  reviewCount = 0,
   lastRefresh,
   error,
   skipPermissions,
@@ -73,8 +74,21 @@ export default function HeaderBar({
   onSelectSearchResult,
   onOpenCommandPalette,
 }) {
-  const activeAgents = swarm?.summary?.active || 0
-  const needsReview = swarm?.summary?.needsValidation || 0
+
+  const searchContainerRef = useRef(null)
+
+  // Close search dropdown on outside click
+  useEffect(() => {
+    function handleClick(e) {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(e.target)) {
+        onSearchQueryChange?.('')
+      }
+    }
+    if (searchQuery) {
+      document.addEventListener('mousedown', handleClick)
+      return () => document.removeEventListener('mousedown', handleClick)
+    }
+  }, [searchQuery, onSearchQueryChange])
 
   const title = overview?.hubRoot
     ?.replace(/\/hub\/?$/, '')
@@ -84,15 +98,15 @@ export default function HeaderBar({
 
   return (
     <header className="sticky top-0 z-50 bg-background border-b border-border">
-      <div className="px-4 py-2 flex items-center gap-4">
+      <div className="px-6 py-2 flex items-center gap-4">
         <div className="flex items-center gap-2.5 shrink-0">
           <h1 className="text-sm font-medium text-foreground leading-none" style={{ fontFamily: 'var(--font-display)' }}>
             {title}
           </h1>
         </div>
 
-        <div className="relative flex-1 max-w-lg">
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-border bg-card/50">
+        <div className="relative flex-1 max-w-lg" ref={searchContainerRef}>
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-border bg-card">
             <Search size={13} className="text-muted-foreground" />
             <input
               value={searchQuery}
@@ -111,7 +125,7 @@ export default function HeaderBar({
           </div>
 
           {searchQuery && searchResults?.length > 0 && (
-            <div className="absolute left-0 right-0 top-[calc(100%+6px)] z-50 rounded-lg border border-card-border bg-background-raised shadow-xl max-h-64 overflow-y-auto p-1.5">
+            <div className="absolute left-0 right-0 top-[calc(100%+6px)] z-50 rounded-lg border shadow-xl max-h-64 overflow-y-auto p-1.5" style={{ background: '#242329', borderColor: 'rgba(255,255,255,0.06)' }}>
               {searchResults.slice(0, 8).map(item => (
                 <button
                   key={item.key}
@@ -127,17 +141,17 @@ export default function HeaderBar({
         </div>
 
         <div className="flex items-center gap-2.5 shrink-0">
-          {activeAgents > 0 && (
+          {activeJobCount > 0 && (
             <span className="flex items-center gap-1.5 text-[10px] font-medium px-2 py-0.5 rounded bg-status-active-bg text-status-active">
               <Activity size={10} strokeWidth={2.5} />
-              <span className="font-mono" style={{ fontFamily: 'var(--font-mono)' }}>{activeAgents}</span>
+              <span className="font-mono" style={{ fontFamily: 'var(--font-mono)' }}>{activeJobCount}</span>
               <span className="opacity-60 hidden sm:inline">active</span>
             </span>
           )}
-          {needsReview > 0 && (
+          {reviewCount > 0 && (
             <span className="flex items-center gap-1.5 text-[10px] font-medium px-2 py-0.5 rounded bg-status-review-bg text-status-review">
               <AlertCircle size={10} strokeWidth={2.5} />
-              <span className="font-mono" style={{ fontFamily: 'var(--font-mono)' }}>{needsReview}</span>
+              <span className="font-mono" style={{ fontFamily: 'var(--font-mono)' }}>{reviewCount}</span>
               <span className="opacity-60 hidden sm:inline">review</span>
             </span>
           )}

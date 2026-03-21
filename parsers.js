@@ -43,14 +43,28 @@ function parseTaskFile(filePath) {
           openCount++;
           if (currentSection) currentSection.tasks.push({ text, done: false });
         }
-        allTasks.push({ text, done, section: sectionName, timeframe: currentTimeframe });
+        // openTaskNum: 1-based index among open tasks (matches writeTaskEdit numbering)
+        allTasks.push({ text, done, section: sectionName, timeframe: currentTimeframe, openTaskNum: done ? null : openCount });
       }
     }
   } catch { /* file missing */ }
   return { sections: sections.filter(s => s.tasks.length > 0), openCount, doneCount, allTasks };
 }
 
-function parseActivityLog(filePath) {
+function formatActivityDate(dateStr, dateFormat) {
+  if (dateFormat !== 'compact') return dateStr;
+  const m = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return dateStr;
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const monthIndex = Math.max(1, Math.min(12, parseInt(m[2], 10))) - 1;
+  const day = parseInt(m[3], 10);
+  return `${months[monthIndex]} ${day}`;
+}
+
+function parseActivityLog(filePath, options = {}) {
+  const dateFormat = options.dateFormat || 'iso';
+  const limit = Number.isFinite(options.limit) ? Math.max(1, options.limit) : Infinity;
   let stage = '';
   const entries = [];
   try {
@@ -60,7 +74,8 @@ function parseActivityLog(filePath) {
       if (stageMatch) { stage = stageMatch[1]; continue; }
       const dateMatch = line.match(/^## (\d{4}-\d{2}-\d{2})/);
       if (dateMatch) {
-        entries.push({ date: dateMatch[1], bullet: '' });
+        if (entries.length >= limit) continue;
+        entries.push({ date: formatActivityDate(dateMatch[1], dateFormat), bullet: '' });
         continue;
       }
       if (entries.length > 0 && !entries[entries.length - 1].bullet) {
@@ -102,10 +117,10 @@ function normalizeStatus(raw) {
   return lower;
 }
 
-function parseSwarmFile(filePath) {
+function parseJobFile(filePath) {
   const id = path.basename(filePath, '.md');
   let taskName = '', started = '', status = 'unknown', validation = 'none', agentId = null, skills = [];
-  let originalTask = '';
+  let originalTask = '', session = null, repo = null;
   const progressEntries = [];
   let results = null;
   let validationNotes = null;
@@ -118,7 +133,7 @@ function parseSwarmFile(filePath) {
 
     for (const line of lines) {
       // Header metadata
-      const taskMatch = line.match(/^#\s+Swarm Task:\s*(.+)/);
+      const taskMatch = line.match(/^#\s+(?:Swarm|Job)\s+Task:\s*(.+)/);
       if (taskMatch) { taskName = taskMatch[1].trim(); continue; }
 
       const startedMatch = line.match(/^Started:\s*(.+)/);
@@ -138,6 +153,12 @@ function parseSwarmFile(filePath) {
 
       const originalTaskMatch = line.match(/^OriginalTask:\s*(.+)/);
       if (originalTaskMatch) { originalTask = originalTaskMatch[1].trim(); continue; }
+
+      const sessionMatch = line.match(/^Session:\s*(.+)/);
+      if (sessionMatch) { session = sessionMatch[1].trim(); continue; }
+
+      const repoMatch = line.match(/^Repo:\s*(.+)/);
+      if (repoMatch) { repo = repoMatch[1].trim(); continue; }
 
       // Section detection
       const sectionMatch = line.match(/^##\s+(.+)/);
@@ -176,16 +197,16 @@ function parseSwarmFile(filePath) {
 
   return {
     id, taskName, started, status, validation, agentId, skills,
-    originalTask,
+    originalTask, session, repo,
     lastProgress, progressCount, durationMinutes, resultsSummary,
     progressEntries, results, validationNotes,
   };
 }
 
-function parseSwarmDir(dirPath) {
+function parseJobDir(dirPath) {
   try {
     const files = fs.readdirSync(dirPath).filter(f => f.endsWith('.md'));
-    return files.map(f => parseSwarmFile(path.join(dirPath, f)));
+    return files.map(f => parseJobFile(path.join(dirPath, f)));
   } catch {
     return [];
   }
@@ -245,7 +266,12 @@ function writeTaskDone(filePath, taskNum) {
  * If section is null, adds under the first ## section that contains tasks.
  * Returns { success, section, text }.
  */
+function collapseToSingleLine(text) {
+  return text.replace(/[\r\n]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
+}
+
 function writeTaskAdd(filePath, text, section) {
+  text = collapseToSingleLine(text);
   const content = fs.readFileSync(filePath, 'utf8');
   const lines = content.split('\n');
   let insertIndex = -1;
@@ -339,7 +365,7 @@ function writeTaskAdd(filePath, text, section) {
  * newValidation: 'validated' | 'rejected' | 'needs_validation'
  * notes: optional string — appended to ## Validation Notes section
  */
-function writeSwarmValidation(filePath, newValidation, notes) {
+function writeJobValidation(filePath, newValidation, notes) {
   const content = fs.readFileSync(filePath, 'utf8');
   const lines = content.split('\n');
   let validationLineIndex = -1;
@@ -410,7 +436,7 @@ function writeSwarmValidation(filePath, newValidation, notes) {
 
   fs.writeFileSync(filePath, lines.join('\n'), 'utf8');
 
-  const parsed = parseSwarmFile(filePath);
+  const parsed = parseJobFile(filePath);
   return { success: true, id: parsed.id, validation: newValidation, taskName: parsed.taskName };
 }
 
@@ -418,7 +444,7 @@ function writeSwarmValidation(filePath, newValidation, notes) {
  * Kill a swarm agent by marking its file as Killed and writing a .kill marker.
  * Returns { success, id, agentId }.
  */
-function writeSwarmKill(filePath) {
+function writeJobKill(filePath) {
   const content = fs.readFileSync(filePath, 'utf8');
   const lines = content.split('\n');
   let statusLineIndex = -1;
@@ -450,7 +476,7 @@ function writeSwarmKill(filePath) {
   fs.writeFileSync(killMarkerPath, killTimestamp, 'utf8');
 
   // Parse the file to get id and agentId
-  const parsed = parseSwarmFile(filePath);
+  const parsed = parseJobFile(filePath);
   return { success: true, id: parsed.id, agentId: parsed.agentId };
 }
 
@@ -497,7 +523,7 @@ function writeTaskMove(sourceFile, taskNum, destFile, section) {
  * Update the Status: line in a swarm file.
  * Returns { success, id, status }.
  */
-function writeSwarmStatus(filePath, newStatus) {
+function writeJobStatus(filePath, newStatus) {
   const content = fs.readFileSync(filePath, 'utf8');
   const lines = content.split('\n');
   let statusLineIndex = -1;
@@ -526,7 +552,9 @@ function writeSwarmStatus(filePath, newStatus) {
   const displayValue = displayMap[newStatus];
   lines[statusLineIndex] = `Status: ${displayValue}`;
 
-  // When completing, auto-set validation to needs_validation if still 'none'
+  // When completing, always force validation to "Needs validation".
+  // This prevents agents from self-validating by writing Validation: Validated
+  // directly to the swarm file before the PTY exits.
   if (newStatus === 'completed') {
     let validationLineIndex = -1;
     for (let i = 0; i < lines.length; i++) {
@@ -537,7 +565,7 @@ function writeSwarmStatus(filePath, newStatus) {
     }
     if (validationLineIndex !== -1) {
       const currentVal = lines[validationLineIndex].replace(/^Validation:\s*/, '').trim().toLowerCase().replace(/\s+/g, '_');
-      if (currentVal === 'none' || currentVal === '') {
+      if (currentVal !== 'needs_validation') {
         lines[validationLineIndex] = 'Validation: Needs validation';
       }
     } else {
@@ -548,7 +576,7 @@ function writeSwarmStatus(filePath, newStatus) {
 
   fs.writeFileSync(filePath, lines.join('\n'), 'utf8');
 
-  const parsed = parseSwarmFile(filePath);
+  const parsed = parseJobFile(filePath);
   return { success: true, id: parsed.id, status: newStatus };
 }
 
@@ -667,7 +695,10 @@ function listCheckpoints(repoPath) {
 
 /**
  * Mark a task as done by matching its text content.
- * Finds the first open task whose text contains the search string (case-insensitive).
+ * Tries three strategies in order:
+ *   1. Exact substring: task text contains the search string
+ *   2. Reverse substring: search string contains the task text
+ *   3. Word overlap: ≥50% of needle words appear in task text
  * Returns { success, text } or throws on error.
  */
 function writeTaskDoneByText(filePath, searchText) {
@@ -675,19 +706,60 @@ function writeTaskDoneByText(filePath, searchText) {
   const lines = content.split('\n');
   const needle = searchText.toLowerCase().replace(/\*\*/g, '');
 
+  // Tokenise into significant words (3+ chars, skip stopwords, strip trailing s/ing/ed)
+  const STOP = new Set(['the','and','for','that','with','this','from','are','was',
+    'not','but','can','you','all','will','have','when','than','then','into','each',
+    'just','also','more','only','some','they','been','has','its','our','their']);
+  function stem(w) {
+    // Minimal suffix stripping: plurals, -ing, -ed, -er
+    return w.replace(/ing$/, '').replace(/ed$/, '').replace(/er$/, '').replace(/s$/, '');
+  }
+  function words(str) {
+    return str.replace(/[^a-z0-9\s]/g, ' ').split(/\s+/)
+      .filter(w => w.length >= 3 && !STOP.has(w))
+      .map(stem);
+  }
+
+  const needleWords = new Set(words(needle));
+
+  const candidates = [];
   for (let i = 0; i < lines.length; i++) {
     const m = lines[i].match(/^(\d+\.\s+|[-*]\s+)\[ \]\s+(.+)/);
-    if (m) {
-      const taskText = m[2].replace(/\*\*/g, '').replace(/\s*\(.*?\)\s*$/, '');
-      if (taskText.toLowerCase().includes(needle)) {
-        lines[i] = lines[i].replace('[ ]', '[x]');
-        fs.writeFileSync(filePath, lines.join('\n'), 'utf8');
-        return { success: true, text: taskText };
+    if (!m) continue;
+    const taskText = m[2].replace(/\*\*/g, '').replace(/\s*\(.*?\)\s*$/, '');
+    const lower = taskText.toLowerCase();
+
+    // Strategy 1: task text contains needle
+    if (lower.includes(needle)) {
+      candidates.push({ i, taskText, score: 1.0 });
+      continue;
+    }
+    // Strategy 2: needle contains task text (needle is more verbose)
+    if (needle.includes(lower)) {
+      candidates.push({ i, taskText, score: 0.9 });
+      continue;
+    }
+    // Strategy 3: word overlap (dispatched text was paraphrased)
+    if (needleWords.size > 0) {
+      const taskWords = words(lower);
+      const matches = taskWords.filter(w => needleWords.has(w)).length;
+      const score = matches / needleWords.size;
+      if (score >= 0.5) {
+        candidates.push({ i, taskText, score });
       }
     }
   }
 
-  throw new Error(`no open task matching "${searchText}" found`);
+  if (candidates.length === 0) {
+    throw new Error(`no open task matching "${searchText}" found`);
+  }
+
+  // Pick highest-scoring candidate (first in file on ties)
+  candidates.sort((a, b) => b.score - a.score);
+  const { i, taskText } = candidates[0];
+  lines[i] = lines[i].replace('[ ]', '[x]');
+  fs.writeFileSync(filePath, lines.join('\n'), 'utf8');
+  return { success: true, text: taskText };
 }
 
 /**
@@ -729,17 +801,24 @@ module.exports = {
   parseTaskFile,
   parseActivityLog,
   getGitInfo,
-  parseSwarmFile,
-  parseSwarmDir,
+  parseJobFile,
+  parseJobDir,
+  // Legacy aliases for compatibility during migration
+  parseSwarmFile: parseJobFile,
+  parseSwarmDir: parseJobDir,
   loadConfig,
   writeTaskDone,
   writeTaskDoneByText,
   writeTaskAdd,
   writeTaskEdit,
   writeTaskMove,
-  writeSwarmValidation,
-  writeSwarmKill,
-  writeSwarmStatus,
+  writeJobValidation,
+  writeJobKill,
+  writeJobStatus,
+  // Legacy aliases for compatibility during migration
+  writeSwarmValidation: writeJobValidation,
+  writeSwarmKill: writeJobKill,
+  writeSwarmStatus: writeJobStatus,
   createCheckpoint,
   revertCheckpoint,
   dismissCheckpoint,

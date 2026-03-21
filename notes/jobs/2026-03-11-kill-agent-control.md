@@ -5,7 +5,7 @@ Validation: Validated
 
 ## Progress
 - Completed Part 1: parsers.js -- added `writeSwarmKill` function, `agentId` parsing in `parseSwarmFile`, `killed` status in `normalizeStatus`, exported new function
-- Completed Part 2: server.js -- added `POST /api/swarm/:id/kill` endpoint, imported `writeSwarmKill`
+- Completed Part 2: server.js -- added `POST /api/jobs/:id/kill` endpoint, imported `writeSwarmKill`
 - Completed Part 3: SwarmPanel.jsx -- added `killed` statusConfig with Ban icon, Stop button with inline confirmation in AgentCard header, imported Ban and Square icons
 - Part 4: No CSS changes needed (killed status reuses failed colors)
 - Verified parsers.js loads correctly with all exports
@@ -23,7 +23,7 @@ All 4 parts implemented successfully:
 
 2. **server.js** (`/Volumes/My Shared Files/scribular/hub/dashboard/server.js`):
    - Imported `writeSwarmKill` from parsers
-   - Added `POST /api/swarm/:id/kill` endpoint that searches all repos for the swarm file and calls `writeSwarmKill`
+   - Added `POST /api/jobs/:id/kill` endpoint that searches all repos for the swarm file and calls `writeSwarmKill`
 
 3. **SwarmPanel.jsx** (`/Volumes/My Shared Files/scribular/hub/dashboard/src/components/SwarmPanel.jsx`):
    - Added `killed` to `statusConfig` with `Ban` icon and failed colors

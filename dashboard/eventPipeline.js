@@ -18,7 +18,7 @@ function stripAnsiForParse(str) {
 function detectAgentKind(state, text) {
   const line = (text || '').toLowerCase()
   if (state?.agentKind && state.agentKind !== 'generic') return state.agentKind
-  if (line.includes('claude code') || line.includes('/swarm ') || line.includes('bypass permissions')) return 'claude'
+  if (line.includes('claude code') || line.includes('/swarm ') || line.includes('/parallel ') || line.includes('bypass permissions')) return 'claude'
   if (line.includes('codex') || line.includes('openai codex')) return 'codex'
   return state?.agentKind || 'generic'
 }

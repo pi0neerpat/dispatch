@@ -6,6 +6,7 @@
  * Read commands:
  *   node hub/cli.js status                        Full overview
  *   node hub/cli.js tasks [--repo=name]           Open tasks across repos
+ *   node hub/cli.js bugs [--repo=name]            Open bugs across repos
  *   node hub/cli.js swarm [id]                    Swarm agent status
  *   node hub/cli.js repos                         Git status for all repos
  *   node hub/cli.js activity [--limit=N]          Recent activity entries
@@ -14,6 +15,8 @@
  * Write commands:
  *   node hub/cli.js tasks done <repo> <num>       Mark open task #num as done
  *   node hub/cli.js tasks add <repo> "text"       Add a new task [--section=name]
+ *   node hub/cli.js bugs done <repo> <num>        Mark open bug #num as done
+ *   node hub/cli.js bugs add <repo> "text"        Add a new bug [--section=name]
  *   node hub/cli.js swarm validate <id>           Validate a swarm task [--notes="..."]
  *   node hub/cli.js swarm reject <id>             Reject a swarm task --notes="reason"
  *
@@ -76,6 +79,18 @@ function gatherRepos() {
     const git = getGitInfo(rp);
     return { name: repo.name, resolvedPath: rp, tasks, activity, git };
   });
+}
+
+// Gather bugs data (lazy — only computed when needed)
+function gatherBugs() {
+  return config.repos
+    .filter(repo => repo.bugsFile)
+    .map(repo => {
+      const rp = repo.resolvedPath;
+      const bugsPath = path.join(rp, repo.bugsFile);
+      const bugs = parseTaskFile(bugsPath);
+      return { name: repo.name, resolvedPath: rp, bugs };
+    });
 }
 
 // Gather swarm data across all repos
@@ -143,6 +158,28 @@ function cmdTasks() {
       sections: r.tasks.sections,
       openCount: r.tasks.openCount,
       doneCount: r.tasks.doneCount,
+    })),
+  });
+}
+
+function cmdBugs() {
+  const repos = gatherBugs();
+  const repoFilter = flags.repo;
+
+  const filtered = repoFilter
+    ? repos.filter(r => r.name === repoFilter)
+    : repos;
+
+  if (repoFilter && filtered.length === 0) {
+    fail(`repo "${repoFilter}" not found in config (or has no bugsFile)`);
+  }
+
+  out({
+    repos: filtered.map(r => ({
+      name: r.name,
+      sections: r.bugs.sections,
+      openCount: r.bugs.openCount,
+      doneCount: r.bugs.doneCount,
     })),
   });
 }
@@ -261,6 +298,49 @@ function cmdTasksAdd() {
   }
 }
 
+function cmdBugsDone() {
+  // hub bugs done <repo> <bug-num>
+  const repoName = positionals[1];
+  const taskNum = parseInt(positionals[2], 10);
+
+  if (!repoName || isNaN(taskNum)) {
+    fail('usage: hub bugs done <repo> <bug-num>  (bug-num is the Nth open bug, 1-indexed)');
+  }
+
+  const repo = findRepo(repoName);
+  if (!repo.bugsFile) fail(`repo "${repoName}" has no bugsFile configured`);
+  const filePath = path.join(repo.resolvedPath, repo.bugsFile);
+
+  try {
+    const result = writeTaskDone(filePath, taskNum);
+    out({ ...result, repo: repoName });
+  } catch (err) {
+    fail(err.message);
+  }
+}
+
+function cmdBugsAdd() {
+  // hub bugs add <repo> "bug text" [--section=name]
+  const repoName = positionals[1];
+  const taskText = positionals[2];
+  const section = flags.section || null;
+
+  if (!repoName || !taskText) {
+    fail('usage: hub bugs add <repo> "bug text" [--section=name]');
+  }
+
+  const repo = findRepo(repoName);
+  if (!repo.bugsFile) fail(`repo "${repoName}" has no bugsFile configured`);
+  const filePath = path.join(repo.resolvedPath, repo.bugsFile);
+
+  try {
+    const result = writeTaskAdd(filePath, taskText, section);
+    out({ ...result, repo: repoName });
+  } catch (err) {
+    fail(err.message);
+  }
+}
+
 function cmdSwarmValidate() {
   // hub swarm validate <id> [--notes="..."]
   const id = positionals[1];
@@ -367,6 +447,7 @@ const USAGE = `Usage: hub <command>
 Read commands:
   status                        Full overview (stage, repos, tasks, git, swarm)
   tasks [--repo=name]           Open tasks across repos
+  bugs [--repo=name]            Open bugs across repos
   swarm [id]                    Swarm agent status
   repos                         Git status for all repos
   activity [--limit=N]          Recent activity entries
@@ -375,6 +456,8 @@ Read commands:
 Write commands:
   tasks done <repo> <num>       Mark open task #num as done
   tasks add <repo> "text"       Add a new task [--section=name]
+  bugs done <repo> <num>        Mark open bug #num as done
+  bugs add <repo> "text"        Add a new bug [--section=name]
   swarm validate <id>           Mark swarm task as validated [--notes="..."]
   swarm reject <id>             Mark swarm task as rejected --notes="reason"
 
@@ -395,6 +478,10 @@ function route() {
   if (command === 'tasks' && subcommand === 'done') return cmdTasksDone();
   if (command === 'tasks' && subcommand === 'add') return cmdTasksAdd();
 
+  // bugs done / bugs add
+  if (command === 'bugs' && subcommand === 'done') return cmdBugsDone();
+  if (command === 'bugs' && subcommand === 'add') return cmdBugsAdd();
+
   // swarm validate / swarm reject
   if (command === 'swarm' && subcommand === 'validate') return cmdSwarmValidate();
   if (command === 'swarm' && subcommand === 'reject') return cmdSwarmReject();
@@ -409,6 +496,7 @@ function route() {
   const readCommands = {
     status: cmdStatus,
     tasks: cmdTasks,
+    bugs: cmdBugs,
     swarm: cmdSwarm,
     repos: cmdRepos,
     activity: cmdActivity,

@@ -2,6 +2,15 @@
 
 **Current stage:** Get it on 10 people's computers
 
+## 2026-03-18
+
+- **Terminal session bug fixes** — fixed narrow terminal width on return (ResizeObserver now skips fit when container is hidden), re-fit triggered when switching to a session, session entries pruned from localStorage after 7 days
+- **Kill session fix** — killing a terminal now immediately nullifies `ptySessionId` to prevent auto-respawn of new PTY on reconnect
+- **Task done-by-text matching** — added word-overlap fuzzy matching fallback (stemmed, stopword-filtered) for paraphrased task descriptions
+- **Original task text preservation** — `OriginalTask` in swarm file now stores verbatim todo.md text (not the edited dispatch prompt), so "mark done" gets an exact match
+
+---
+
 ## 2026-03-11
 - **Dashboard refinements** — context-aware tabs (repos show Tasks only, workers show Terminal + Review), per-agent terminals with auto-launch of Claude Code, Worker Bees rename, header title from config
 - **Per-agent terminal architecture** — each started task spawns its own PTY/WebSocket/xterm instance with `claude --dangerously-skip-permissions` auto-launch and `/swarm` prompt injection

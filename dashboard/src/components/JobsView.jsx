@@ -1,32 +1,111 @@
-import { useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { Bot, Sparkles, AlertCircle, CheckCircle2, XCircle, Clock } from 'lucide-react'
 import { cn, timeAgo } from '../lib/utils'
 import { repoIdentityColors } from '../lib/constants'
 import { buildWorkerNavItems } from '../lib/workerUtils'
+import { FilterChip, toggleFilter, BUG_COLOR, loadFilters, saveFilters } from '../lib/filterUtils.jsx'
+
+const JOB_STATUSES = ['review', 'active', 'rejected', 'completed', 'failed']
+const STORAGE_KEY = 'jobsView:filters'
+
+const STATUS_LABELS = {
+  active: 'Active',
+  review: 'Needs Review',
+  rejected: 'Rejected',
+  completed: 'Completed',
+  failed: 'Failed',
+}
+
+function classifyItem(worker) {
+  if (worker.needsReview || worker.validation === 'needs_validation') return 'review'
+  if (worker.status === 'in_progress') return 'active'
+  if (worker.validation === 'rejected') return 'rejected'
+  if (worker.status === 'completed' && (!worker.validation || worker.validation === 'none')) return 'review'
+  if (worker.status === 'completed') return 'completed'
+  if (worker.status === 'failed' || worker.status === 'killed') return 'failed'
+  return 'active'
+}
 
 export default function JobsView({
   swarm,
-  agentTerminals,
-  swarmFileToSession,
+  jobFileToSession,
+  sessionRecords,
+  overview,
   onSelectJob,
 }) {
   const agents = swarm?.agents || []
 
+  // Build a set of bug task texts (lowercased) from overview for cross-referencing
+  const bugTaskTexts = useMemo(() => {
+    const texts = new Set()
+    for (const repo of overview?.repos || []) {
+      for (const task of repo.tasks?.allTasks || []) {
+        if (task.section?.toLowerCase().includes('bug')) {
+          texts.add(task.text.toLowerCase().slice(0, 40))
+        }
+      }
+    }
+    return texts
+  }, [overview])
+
   const allItems = useMemo(() => {
-    return buildWorkerNavItems(agents, agentTerminals, swarmFileToSession)
-  }, [agents, agentTerminals, swarmFileToSession])
+    const items = buildWorkerNavItems(agents, null, jobFileToSession, sessionRecords)
+    return items.map(item => {
+      const labelLower = (item.label || '').toLowerCase()
+      const isBug = [...bugTaskTexts].some(bt => labelLower.includes(bt) || bt.includes(labelLower.slice(0, 40)))
+      return { ...item, filterStatus: classifyItem(item), isBug }
+    })
+  }, [agents, jobFileToSession, bugTaskTexts, sessionRecords])
 
-  const active = allItems.filter(w => w.status === 'in_progress' && !w.needsReview)
-  const needsReview = allItems.filter(w => w.needsReview || w.validation === 'needs_validation')
-  const completed = allItems.filter(w => w.status === 'completed' && !w.needsReview)
-  const failed = allItems.filter(w => (w.status === 'failed' || w.status === 'killed') && !w.needsReview)
+  // Use overview repos so all configured repos appear as filter chips (including those with no jobs)
+  const repoNames = useMemo(() => {
+    return (overview?.repos || []).map(r => r.name)
+  }, [overview])
 
-  const groups = [
-    { label: 'Active', items: active, dotClass: 'bg-status-active', icon: Sparkles },
-    { label: 'Needs Review', items: needsReview, dotClass: 'bg-status-review', icon: AlertCircle },
-    { label: 'Completed', items: completed, dotClass: 'bg-status-complete', icon: CheckCircle2 },
-    { label: 'Failed', items: failed, dotClass: 'bg-status-failed', icon: XCircle },
-  ].filter(g => g.items.length > 0)
+  const [savedFilters] = useState(() => loadFilters(STORAGE_KEY))
+  const [selectedStatuses, setSelectedStatuses] = useState(() => {
+    if (!savedFilters) return new Set(JOB_STATUSES)
+    // Union saved statuses with any newly added statuses so new groups aren't hidden by stale cache
+    return new Set([...savedFilters.statuses, ...JOB_STATUSES.filter(s => !savedFilters.statuses.has(s))])
+  })
+  const [selectedRepos, setSelectedRepos] = useState(() => savedFilters?.repos ?? new Set(repoNames))
+  const [bugFilter, setBugFilter] = useState(() => savedFilters?.bugOnly ?? false)
+
+  // Sync repo filter when repos change (only if empty)
+  useMemo(() => {
+    if (repoNames.length > 0 && selectedRepos.size === 0) {
+      setSelectedRepos(new Set(repoNames))
+    }
+  }, [repoNames.join(',')]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    saveFilters(STORAGE_KEY, { statuses: selectedStatuses, repos: selectedRepos, bugOnly: bugFilter })
+  }, [selectedStatuses, selectedRepos, bugFilter])
+
+  const filteredItems = useMemo(() => {
+    return allItems.filter(w => {
+      if (selectedStatuses.size > 0 && !selectedStatuses.has(w.filterStatus)) return false
+      if (selectedRepos.size > 0 && !selectedRepos.has(w.repo)) return false
+      if (bugFilter && !w.isBug) return false
+      return true
+    })
+  }, [allItems, selectedStatuses, selectedRepos, bugFilter])
+
+  const GROUP_CONFIG = {
+    active: { label: 'Active', dotClass: 'bg-status-active', icon: Sparkles },
+    review: { label: 'Needs Review', dotClass: 'bg-status-review', icon: AlertCircle },
+    rejected: { label: 'Rejected', dotClass: 'bg-status-failed', icon: XCircle },
+    completed: { label: 'Completed', dotClass: 'bg-status-complete', icon: CheckCircle2 },
+    failed: { label: 'Failed', dotClass: 'bg-status-failed', icon: XCircle },
+  }
+
+  const groups = JOB_STATUSES
+    .map(status => ({
+      ...GROUP_CONFIG[status],
+      status,
+      items: filteredItems.filter(w => w.filterStatus === status),
+    }))
+    .filter(g => g.items.length > 0)
 
   if (allItems.length === 0) {
     return (
@@ -39,66 +118,121 @@ export default function JobsView({
   }
 
   return (
-    <div className="space-y-6">
-      {groups.map(group => {
-        const GroupIcon = group.icon
-        return (
-          <div key={group.label}>
-            <div className="flex items-center gap-2 mb-3">
-              <span className={cn('w-1.5 h-1.5 rounded-full', group.dotClass)} />
-              <h3 className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                {group.label}
-              </h3>
-              <span className="text-[10px] font-mono text-muted-foreground/40" style={{ fontFamily: 'var(--font-mono)' }}>
-                {group.items.length}
-              </span>
-            </div>
+    <div className="space-y-4">
+      {/* Filter chips */}
+      <div className="space-y-2">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 mr-1 shrink-0">Status</span>
+          {JOB_STATUSES.map(st => (
+            <FilterChip
+              key={st}
+              label={STATUS_LABELS[st]}
+              active={selectedStatuses.has(st)}
+              onClick={() => toggleFilter(selectedStatuses, setSelectedStatuses, st)}
+            />
+          ))}
 
-            <div className="space-y-2">
-              {group.items.map(worker => {
-                const repoColor = repoIdentityColors[worker.repo] || 'var(--primary)'
-                const duration = worker.durationMinutes != null
-                  ? timeAgo(null, worker.durationMinutes)
-                  : worker.created
-                    ? timeAgo(new Date(worker.created).toISOString())
-                    : null
+          {/* Divider */}
+          <div className="h-4 w-px bg-border mx-1" />
 
-                return (
-                  <button
-                    key={worker.key}
-                    onClick={() => onSelectJob?.(worker.id)}
-                    className="w-full text-left px-4 py-3 rounded-lg border border-card-border bg-card hover:bg-card-hover/40 hover:border-card-border-hover transition-all group animate-fade-up"
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className={cn('w-2 h-2 rounded-full shrink-0', group.dotClass, worker.status === 'in_progress' && 'animate-pulse-soft')} />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[13px] font-medium text-foreground truncate">{worker.label}</p>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          <span
-                            className="text-[10px] font-medium capitalize"
-                            style={{ color: repoColor }}
-                          >
-                            {worker.repo}
-                          </span>
-                          {duration && (
-                            <span className="text-[10px] text-muted-foreground/40 flex items-center gap-1 font-mono" style={{ fontFamily: 'var(--font-mono)' }}>
-                              <Clock size={9} />
-                              {duration}
+          {/* Bug */}
+          <FilterChip
+            label="🪲 Bug"
+            active={bugFilter}
+            onClick={() => setBugFilter(p => !p)}
+            color={BUG_COLOR}
+          />
+
+        </div>
+
+        {/* Repo - separate row */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 mr-1 shrink-0">Repo</span>
+          {repoNames.map(name => (
+            <FilterChip
+              key={name}
+              label={name}
+              active={selectedRepos.has(name)}
+              onClick={() => toggleFilter(selectedRepos, setSelectedRepos, name)}
+              color={repoIdentityColors[name]}
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* Count */}
+      <p className="text-[11px] text-muted-foreground/50">
+        {filteredItems.length} job{filteredItems.length !== 1 ? 's' : ''}
+      </p>
+
+      {/* Grouped job cards */}
+      <div className="space-y-6">
+        {groups.map(group => {
+          const GroupIcon = group.icon
+          return (
+            <div key={group.label}>
+              <div className="flex items-center gap-2 mb-3">
+                <span className={cn('w-1.5 h-1.5 rounded-full', group.dotClass)} />
+                <h3 className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                  {group.label}
+                </h3>
+                <span className="text-[10px] font-mono text-muted-foreground/40" style={{ fontFamily: 'var(--font-mono)' }}>
+                  {group.items.length}
+                </span>
+              </div>
+
+              <div className="space-y-2">
+                {group.items.map(worker => {
+                  const repoColor = repoIdentityColors[worker.repo] || 'var(--primary)'
+                  const duration = worker.durationMinutes != null
+                    ? timeAgo(null, worker.durationMinutes)
+                    : worker.created
+                      ? timeAgo(new Date(worker.created).toISOString())
+                      : null
+
+                  return (
+                    <button
+                      key={worker.key}
+                      onClick={() => onSelectJob?.(worker.id)}
+                      className="w-full text-left px-4 py-3 rounded-lg border border-card-border bg-card hover:bg-card-hover/40 hover:border-card-border-hover transition-all group animate-fade-up"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className={cn('w-2 h-2 rounded-full shrink-0', group.dotClass, worker.status === 'in_progress' && 'animate-pulse-soft')} />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[13px] font-medium text-foreground truncate">{worker.label}</p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span
+                              className="text-[10px] font-medium capitalize"
+                              style={{ color: repoColor }}
+                            >
+                              {worker.repo}
                             </span>
-                          )}
+                            {duration && (
+                              <span className="text-[10px] text-muted-foreground/40 flex items-center gap-1 font-mono" style={{ fontFamily: 'var(--font-mono)' }}>
+                                <Clock size={9} />
+                                {duration}
+                              </span>
+                            )}
+                          </div>
                         </div>
+                        <span className="text-[11px] text-muted-foreground/40 group-hover:text-primary transition-colors">
+                          View
+                        </span>
                       </div>
-                      <span className="text-[11px] text-muted-foreground/40 group-hover:text-primary transition-colors">
-                        View
-                      </span>
-                    </div>
-                  </button>
-                )
-              })}
+                    </button>
+                  )
+                })}
+              </div>
             </div>
+          )
+        })}
+
+        {filteredItems.length === 0 && (
+          <div className="py-12 text-center text-muted-foreground/50 text-sm">
+            No jobs match the current filters.
           </div>
-        )
-      })}
+        )}
+      </div>
     </div>
   )
 }
