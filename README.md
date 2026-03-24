@@ -4,7 +4,7 @@
 
 > **Experimental / testing grounds.** This is a working prototype, not a finished product. Expect rough edges.
 
-A coordination hub for Claude Code agent workflows across multiple repos. Tasks live in plain markdown files you already have. Work.Down gives you a dashboard to dispatch agents, track their progress, and automatically close out the work when you validate it — without touching your existing setup.
+A coordination dashboard for Claude Code agent workflows across multiple repos. Tasks live in plain markdown files you already have. Work.Down gives you a dashboard to dispatch agents, track their progress, and automatically close out the work when you validate it — without touching your existing setup.
 
 ## What it does
 
@@ -16,18 +16,26 @@ A coordination hub for Claude Code agent workflows across multiple repos. Tasks 
 
 ## What gets installed where
 
-The full list. Nothing is installed globally or outside the directories you explicitly connect.
+The full list. Nothing is installed globally.
 
-| What | Where | Why |
-|------|-------|-----|
-| Dashboard (React + Express) | `hub/dashboard/` | The web UI and API server |
-| CLI + parsers | `hub/` | `node cli.js` commands — zero external dependencies |
-| Claude skills | `hub/.claude/skills/` | `/hub`, `/jobs`, `/add-repo`, `/done` — only active in this directory |
-| Claude hooks | `hub/.claude/hooks/` | `protect-env.js` — only active in this directory |
-| `hub-stop.js` hook | `<each connected repo>/.claude/hooks/` | Signals the dashboard when a dispatched job finishes |
-| `settings.json` entry | `<each connected repo>/.claude/settings.json` | Registers the hook — merged with any existing config |
+**In the Work.Down directory:**
 
-The `hub-stop.js` hook is a no-op unless the hub dashboard dispatched that session. It won't affect normal Claude usage in your repos.
+| What | Path |
+|------|------|
+| Dashboard (React + Express) | `dashboard/` |
+| CLI + parsers | `cli.js`, `parsers.js` |
+| Claude skills (`/hub`, `/jobs`, `/add-repo`, `/done`) | `.claude/skills/` |
+| `protect-env.js` hook | `.claude/hooks/` |
+
+**In each repo you connect (via `/add-repo`):**
+
+| What | Path |
+|------|------|
+| `hub-stop.js` hook | `.claude/hooks/` |
+| Hook registration | `.claude/settings.json` (merged with any existing config) |
+| `todo.md`, `bugs.md`, `activity-log.md` | repo root (only created if missing) |
+
+`hub-stop.js` is a no-op unless Work.Down dispatched that Claude session. It won't affect normal Claude usage in your repos.
 
 ---
 
@@ -36,8 +44,8 @@ The `hub-stop.js` hook is a no-op unless the hub dashboard dispatched that sessi
 ### 1. Clone and install
 
 ```bash
-git clone https://github.com/your-org/workdown hub
-cd hub/dashboard && yarn install && cd ..
+git clone https://github.com/your-org/workdown
+cd workdown/dashboard && yarn install && cd ..
 ```
 
 > **Node.js version note:** `node-pty` requires Node 18 or 20. On Node 24+ the `postinstall` script rebuilds it from source automatically — this takes a minute on first install.
@@ -45,11 +53,10 @@ cd hub/dashboard && yarn install && cd ..
 ### 2. Open in Claude Code
 
 ```bash
-cd hub
 claude .
 ```
 
-### 3. Add your repos
+### 3. Connect your repos
 
 In the Claude Code conversation, run:
 
@@ -57,12 +64,7 @@ In the Claude Code conversation, run:
 /add-repo
 ```
 
-Claude will ask for the repo name, path, and optional scripts, then:
-- Add it to `config.json`
-- Create `todo.md`, `bugs.md`, and `activity-log.md` in that repo if they don't exist
-- Install the `hub-stop.js` hook in that repo's `.claude/` directory
-
-Repeat for each repo you want to track.
+Claude will ask for the repo name, path, and optional scripts, then set everything up in that repo. Repeat for each repo you want to track.
 
 ### 4. Start the dashboard
 
@@ -149,16 +151,16 @@ All output is JSON — designed for scripting and agent consumption.
 
 ## Claude skills
 
-Four skills are included and active when Claude Code is opened in the hub directory:
+Four skills are active when Claude Code is opened in the Work.Down directory:
 
 | Skill | Invoke | What it does |
 |-------|--------|--------------|
 | `/hub` | `/hub` or "what should I work on?" | Cross-repo task view and work recommendations |
 | `/jobs` | `/jobs` + task list | Launch multiple Claude sub-agents in parallel |
-| `/add-repo` | `/add-repo` | Connect a new repo to the hub |
+| `/add-repo` | `/add-repo` | Connect a new repo to Work.Down |
 | `/done` | `/done` or "we're done" | Mark a task done and log activity manually |
 
-`/done` is for work done outside the dashboard — manual sessions, ad-hoc fixes, anything where you weren't dispatched through the UI.
+`/done` is for work done outside the dashboard — manual sessions, ad-hoc fixes, anything not dispatched through the UI.
 
 ---
 
