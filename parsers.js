@@ -839,6 +839,54 @@ function writeTaskEdit(filePath, taskNum, newText) {
   return { success: true, taskNum, oldText, newText };
 }
 
+/**
+ * Append an entry to an activity-log.md file.
+ * If a section for today already exists, appends to it.
+ * Otherwise inserts a new dated section at the top (before the first existing date section).
+ * Returns { success, date }.
+ */
+function writeActivityEntry(filePath, title, body) {
+  const today = new Date().toISOString().slice(0, 10);
+  const entry = body ? `- **${title}** — ${body}` : `- **${title}**`;
+
+  let content;
+  try {
+    content = fs.readFileSync(filePath, 'utf8');
+  } catch {
+    // File missing — create minimal structure
+    fs.writeFileSync(
+      filePath,
+      `# Activity Log\n\n**Current stage:** Getting started\n\n## ${today}\n\n${entry}\n`,
+      'utf8'
+    );
+    return { success: true, date: today };
+  }
+
+  const lines = content.split('\n');
+  const todayHeader = `## ${today}`;
+  const todayIdx = lines.indexOf(todayHeader);
+
+  if (todayIdx !== -1) {
+    // Append to today's existing section — find last bullet in it
+    let lastBulletIdx = todayIdx;
+    for (let i = todayIdx + 1; i < lines.length; i++) {
+      if (lines[i].match(/^## /)) break;
+      if (lines[i].startsWith('- ')) lastBulletIdx = i;
+    }
+    lines.splice(lastBulletIdx + 1, 0, entry);
+  } else {
+    // Insert new section before the first date header (or at end)
+    let insertAt = lines.findIndex(l => l.match(/^## \d{4}-\d{2}-\d{2}/));
+    if (insertAt === -1) insertAt = lines.length;
+    // Trim trailing blank lines at the insertion boundary
+    while (insertAt > 0 && lines[insertAt - 1].trim() === '') insertAt--;
+    lines.splice(insertAt, 0, '', `## ${today}`, '', entry, '', '---');
+  }
+
+  fs.writeFileSync(filePath, lines.join('\n'), 'utf8');
+  return { success: true, date: today };
+}
+
 module.exports = {
   parseTaskFile,
   parseActivityLog,
@@ -854,6 +902,7 @@ module.exports = {
   writeTaskAdd,
   writeTaskEdit,
   writeTaskMove,
+  writeActivityEntry,
   writeJobValidation,
   writeJobKill,
   writeJobStatus,

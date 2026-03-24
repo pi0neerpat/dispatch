@@ -20,7 +20,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const {
   parseTaskFile, parseActivityLog, getGitInfo, parseJobFile, parseJobDir, loadConfig,
   writeTaskDone, writeTaskDoneByText, writeTaskAdd, writeTaskEdit, writeTaskMove,
-  writeJobValidation, writeJobKill, writeJobStatus,
+  writeActivityEntry, writeJobValidation, writeJobKill, writeJobStatus,
   createCheckpoint, revertCheckpoint, dismissCheckpoint, listCheckpoints,
 } = require('../parsers')
 
@@ -979,6 +979,20 @@ app.post(['/api/jobs/:id/validate', '/api/swarm/:id/validate'], (req, res) => {
     if (latestRun) {
       transitionRun(latestRun, RUN_STATE.VALIDATED, { validation: 'validated', reason: 'user_validated', force: latestRun.state === RUN_STATE.VALIDATED })
     }
+    // Mark the originating task done and log to activity — best-effort, non-blocking
+    try {
+      const taskText = detail.originalTask || detail.taskName
+      if (taskText && found.repo.taskFile) {
+        const taskFilePath = path.join(found.repo.resolvedPath, found.repo.taskFile)
+        writeTaskDoneByText(taskFilePath, taskText)
+      }
+    } catch { /* task may already be done or not found — not fatal */ }
+    try {
+      if (found.repo.activityFile && detail.taskName) {
+        const activityFilePath = path.join(found.repo.resolvedPath, found.repo.activityFile)
+        writeActivityEntry(activityFilePath, detail.taskName)
+      }
+    } catch { /* activity log update failure is non-fatal */ }
     invalidateGitInfoCache(found.repo.resolvedPath)
     emitJobsChanged({ repo: found.repo.name, id: req.params.id, reason: 'validated' })
     return res.json(result)
