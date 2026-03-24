@@ -1,30 +1,33 @@
 # Work.Down
 
+**Agents for your Markdown Files, not the other way around.**
+
 > **Experimental / testing grounds.** This is a working prototype, not a finished product. Expect rough edges.
 
-A coordination hub for Claude Code workflows across multiple repos. Track tasks, dispatch AI agents, and monitor job progress — all backed by plain markdown files. No database, no external services.
+A coordination hub for Claude Code agent workflows across multiple repos. Tasks live in plain markdown files you already have. Work.Down gives you a dashboard to dispatch agents, track their progress, and automatically close out the work when you validate it — without touching your existing setup.
 
 ## What it does
 
-- **Task dashboard** — see open tasks and activity across all your repos in one place
-- **Agent dispatch** — start Claude Code sessions from the dashboard, track progress live
+- **Task dashboard** — open tasks and activity across all your repos in one place
+- **Agent dispatch** — start Claude Code sessions from the dashboard, track terminal output live
+- **Auto-completion** — validating a job marks the task done in `todo.md` and logs it to `activity-log.md` automatically
 - **Job history** — every agent run is logged to a markdown file in `notes/jobs/`
 - **CLI** — JSON output for scripting and agent-to-agent queries
 
 ## What gets installed where
 
-This is the full list. Nothing is installed globally or outside the directories you explicitly connect.
+The full list. Nothing is installed globally or outside the directories you explicitly connect.
 
 | What | Where | Why |
 |------|-------|-----|
 | Dashboard (React + Express) | `hub/dashboard/` | The web UI and API server |
-| CLI + parsers | `hub/` | `node cli.js` commands — zero dependencies |
-| Claude skills | `hub/.claude/skills/` | `/hub`, `/jobs`, `/add-repo` — only active in this directory |
+| CLI + parsers | `hub/` | `node cli.js` commands — zero external dependencies |
+| Claude skills | `hub/.claude/skills/` | `/hub`, `/jobs`, `/add-repo`, `/done` — only active in this directory |
 | Claude hooks | `hub/.claude/hooks/` | `protect-env.js` — only active in this directory |
 | `hub-stop.js` hook | `<each connected repo>/.claude/hooks/` | Signals the dashboard when a dispatched job finishes |
 | `settings.json` entry | `<each connected repo>/.claude/settings.json` | Registers the hook — merged with any existing config |
 
-The `hub-stop.js` hook is a no-op unless the hub dashboard is running and dispatched that session. It won't interfere with normal Claude usage in your repos.
+The `hub-stop.js` hook is a no-op unless the hub dashboard dispatched that session. It won't affect normal Claude usage in your repos.
 
 ---
 
@@ -71,7 +74,22 @@ Open [http://localhost:5173](http://localhost:5173).
 
 ---
 
+## How it works
+
+1. Open tasks in your repos' `todo.md` files appear in the dashboard
+2. Click a task to dispatch a Claude Code agent — it opens a terminal session in that repo
+3. The agent writes progress to `notes/jobs/YYYY-MM-DD-slug.md` as it works
+4. When you validate the job in the dashboard, Work.Down automatically:
+   - Marks the task done in `todo.md`
+   - Logs an entry to `activity-log.md`
+
+Your markdown files stay the source of truth throughout. The dashboard is a lens over them.
+
+---
+
 ## File formats
+
+Work.Down reads and writes standard markdown. If you already have these files, they'll be picked up as-is.
 
 ### Tasks — `todo.md`
 
@@ -99,6 +117,8 @@ Open [http://localhost:5173](http://localhost:5173).
 ```
 
 ### Activity — `activity-log.md`
+
+Updated automatically when you validate a job. Also writable via `/done`.
 
 ```markdown
 # My Repo — Activity Log
@@ -129,13 +149,16 @@ All output is JSON — designed for scripting and agent consumption.
 
 ## Claude skills
 
-Three skills are included and active when Claude Code is opened in this directory:
+Four skills are included and active when Claude Code is opened in the hub directory:
 
 | Skill | Invoke | What it does |
 |-------|--------|--------------|
-| `/hub` | `/hub` or ask "what should I work on?" | Cross-repo task view and work recommendations |
-| `/jobs` | `/jobs` followed by a task list | Launch multiple Claude sub-agents in parallel |
-| `/add-repo` | `/add-repo` | Add a new repo to the hub (see Setup above) |
+| `/hub` | `/hub` or "what should I work on?" | Cross-repo task view and work recommendations |
+| `/jobs` | `/jobs` + task list | Launch multiple Claude sub-agents in parallel |
+| `/add-repo` | `/add-repo` | Connect a new repo to the hub |
+| `/done` | `/done` or "we're done" | Mark a task done and log activity manually |
+
+`/done` is for work done outside the dashboard — manual sessions, ad-hoc fixes, anything where you weren't dispatched through the UI.
 
 ---
 
