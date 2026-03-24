@@ -11,6 +11,16 @@
       "cleanupScript": "rm -rf dist"
     },
     {
+      "name": "backend",
+      "path": "../my-backend",
+      "taskFile": "todo.md",
+      "bugsFile": "bugs.md",
+      "activityFile": "activity-log.md",
+      "startScript": "npm run dev",
+      "testScript": "npm run test",
+      "cleanupScript": null
+    },
+    {
       "name": "hub",
       "path": ".",
       "taskFile": "todo.md",
@@ -21,5 +31,6 @@
       "cleanupScript": "cd dashboard && rm -rf dist node_modules/.vite"
     }
   ],
-  "hubRoot": "."
+  "hubRoot": ".",
+  "monthlyBudget": 200
 }

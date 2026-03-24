@@ -1,15 +1,5 @@
 {
   "hooks": {
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/skill-activation.js"
-          }
-        ]
-      }
-    ],
     "PreToolUse": [
       {
         "matcher": "Read|Grep|Edit|Write",
@@ -28,17 +18,6 @@
           {
             "type": "command",
             "command": "node \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/hub-stop.js"
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pbcopy-confirm.js"
           }
         ]
       }

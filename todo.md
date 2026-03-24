@@ -1,48 +1,8 @@
 # Hub — Task Tracker
 
-## Bugs
+## Open
 
-- [x] Fix server runtime error: write EPIPE at afterWriteDispatched
-- [x] Active jobs is not accurately reflecting the number of jobs that are currently running.
-- [x] Killing a terminal should not delete the entire session, just kill the terminal process where claude is running.
-- [x] The review tab for a completed job changes state every few seconds. it seems the changes section is being lost/reloaded continuously.
-- [x] In the task-list view, below the task is the Category and the repo. Please remove the repo since there is already a chip for this. Also, if the category is bug, then show the bug chip there instead of just the text "Bugs" category
-- [x] Time and Status filter chips don't have a visual differentiation between active/inactive states
-- [x] Dropdown for search needs to close when clicking somewhere else. Add opaque background to the search and repo dropdowns (currently transparent)
-- [x] add ../clauffice to the hub
-- [x] Add support for bugs.md file (if present) to manage bug-related tasks
-- [x] Timestamps in the review content are not being rendered correctly. See "Review and merge fix for `summarize.js` combine step" job has timestamps that aren't rendered as the human-readable format
-- [x] Implement "Dashboard URL Routing + Route History Plan"
-- [ ] Implement the new prompt editing feature plan
-- [ ] Remove the "Sessions" usage monitor in the top bar Remove the connection timer. The colored indicator can stay Make the Hub logo in the top right visible. its currently hidden
-- [ ] Persist the user's add task settings on refresh and navigation.
-- [ ] Navigating changes settings for the dispatch view. We added saving those during page refresh but navigation is clearing them somehow?
-- [ ] Progress view should render markdown correctly (eg code "`"). And the frontmatter should be better formatted visually, rather than just showing as a card.
-Add a background to the Search and Repo dropdown (currently transparent)
+- [ ] Example task: configure repos in config.json
 
-## Dashboard
-- [x] In Progress + Review tasks should be grouped together under an In Progress heading at the top of the task list. If none are in progress, don't show the heading.
-- [x] I should be able to click on an active task (in progress or review) to open the job page.
-- [x] Make the default model opus, not sonnet.
-- [x] Add checkpoint/revertibility support via git branches
-- [x] Add inter-agent communication support
-- [x] Add decision log timeline view
-- [x] - Add a session usage meter in the top showing progress bar and percentage for current claude code session usage.  Heres what is shown on my claude dashboard: Current session  Resets in 2 hr 3 min  61% used
-- [x] Organize worker bees under each respective repo they serve, rather than in one place
-- [x] Allow starting a new worker manually in a repo using a "Start worker" button immediately below each repo. This essentially starts a new worker, enters the /swarm and waits for the user to complete the message
-- [x] Add the following to the hub.config for each repo: start script, test script, cleanup script.
-- [x] Add a "🪲 Bug" tag for all items under the todo list heading "Bugs".
-- [x] Preserve active filters on task list view.
-- [x] Cannot scroll in terminal view, it always brings me back to the top. Likely some issue with claude interactive mode and our setup.
-- [x] once started, a todo item check box should become an indicator that the task is in progress, and not allow me to edit it, change its status or start a new session. I should instead be presented with a way to open the bee currently performing that task
-- [x] agents shouldnt be organized into the done dropdown until they are validated. They should remain visible, with a "Needs validation" flag so I know they are ready for my input. please resume the existing session for this
-- [x] I no longer see the terminal when clicking on a bee. I just see "No terminal for this worker."
-- [x] Place tasks filters all on a single row, rather than spread out across multiple rows.
-- [x] Add a New Task text input, tag selection dropdown, and submit button to the top of the task list.
-- [x] The flow for a manually started worker should be updated. The title of the session should be manageable. The sessions shouldn't automatically disappear from the running tasks. And the calaude startup command should not be randomely inserted into the input when navigating back to the session
-- [x] Make the running indicator animation much more chill. Maybe slow it down a bit?
-- [x] Make each item in the todo lists a card, so that when clicking to modify the text, we can modify multi-line rather than changing to single line text input
-- [x] Editing items in the marketing todo list doesn't work properly. maybe because there are multiple sections? Also, the first section "Outreach" doesnt seem to appear in the todo list at all. Lets make this todo parsing/editing more robust
-- [x] the mark todo as done feature doesnt work properly, because the title of the item is updated during the swarm process. We need to persist the original todo text so that we can properly close the correct todo after validation
-- [x] tasks with rejected status should be able to be restarted in the task view. Their indicator should change to a red x for failed
+## Done
 
