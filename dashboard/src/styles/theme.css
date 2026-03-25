@@ -12,9 +12,9 @@
   --card-border: rgba(255, 255, 255, 0.05);
   --card-border-hover: rgba(255, 255, 255, 0.08);
 
-  /* Accents — dusty lavender, very desaturated */
-  --primary: #8f8bab;
-  --primary-glow: rgba(143, 139, 171, 0.06);
+  /* Accents — muted sage green, very desaturated */
+  --primary: #8bab8f;
+  --primary-glow: rgba(139, 171, 143, 0.06);
   --primary-foreground: #1a1b1e;
 
   /* Surface */
@@ -25,7 +25,7 @@
   --accent: #28272e;
   --accent-foreground: #b0b1b8;
   --border: rgba(255, 255, 255, 0.04);
-  --ring: #8f8bab;
+  --ring: #8bab8f;
   --radius: 0.5rem;
 
   /* Status — deeply muted, pastel-weight indicators */
@@ -60,8 +60,8 @@
   --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', monospace;
   --font-display: 'JetBrains Mono', ui-monospace, monospace;
 
-  /* Gradient accent — barely visible, soft lavender wash */
-  --gradient-accent: linear-gradient(135deg, #8f8bab 0%, #7a7799 100%);
+  /* Gradient accent — barely visible, soft green wash */
+  --gradient-accent: linear-gradient(135deg, #8bab8f 0%, #7a997d 100%);
 }
 
 @theme inline {

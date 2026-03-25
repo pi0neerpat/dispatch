@@ -1,7 +1,8 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useMemo } from 'react'
 import { Clock, Loader, CheckCircle2, PlayCircle, XCircle, ListChecks } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { repoIdentityColors } from '../lib/constants'
+import { usePolling } from '../lib/usePolling'
 
 function formatRelativeDate(dateStr) {
   if (!dateStr) return ''
@@ -34,25 +35,8 @@ function typeMeta(type) {
 }
 
 export default function ActivityFeed() {
-  const [entries, setEntries] = useState([])
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    let cancelled = false
-
-    async function fetchActivity() {
-      try {
-        const res = await fetch('/api/activity?limit=20')
-        if (!res.ok) throw new Error(`${res.status}`)
-        const data = await res.json()
-        if (!cancelled) setEntries(data.entries || [])
-      } catch {}
-      if (!cancelled) setLoading(false)
-    }
-
-    fetchActivity()
-    return () => { cancelled = true }
-  }, [])
+  const { data, loading } = usePolling('/api/activity?limit=20', 10000)
+  const entries = data?.entries || []
 
   const grouped = useMemo(() => {
     const byDate = new Map()

@@ -79,25 +79,27 @@ export default function JobDetailView({
         <div className="flex items-center gap-1.5 shrink-0">
           <button
             onClick={() => setView('terminal')}
+            style={view === 'terminal' ? { color: '#8bab8f' } : undefined}
             className={cn(
               'text-[11px] px-2.5 py-1 rounded border flex items-center gap-1.5',
               view === 'terminal'
-                ? 'bg-card border-card-border-hover text-foreground'
+                ? 'bg-primary/[0.14] border-primary/20'
                 : 'border-border text-muted-foreground hover:text-foreground'
             )}
           >
-            <TerminalSquare size={12} /> Terminal
+            <TerminalSquare size={12} strokeWidth={view === 'terminal' ? 2.2 : 1.8} /> Terminal
           </button>
           <button
             onClick={() => setView('review')}
+            style={view === 'review' ? { color: '#8bab8f' } : undefined}
             className={cn(
               'text-[11px] px-2.5 py-1 rounded border flex items-center gap-1.5',
               view === 'review'
-                ? 'bg-card border-card-border-hover text-foreground'
+                ? 'bg-primary/[0.14] border-primary/20'
                 : 'border-border text-muted-foreground hover:text-foreground'
             )}
           >
-            <ClipboardCheck size={12} /> Review
+            <ClipboardCheck size={12} strokeWidth={view === 'review' ? 2.2 : 1.8} /> Review
           </button>
         </div>
       </div>

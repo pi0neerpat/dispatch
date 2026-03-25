@@ -71,7 +71,6 @@ export default function DispatchView({ overview, onDispatch, initialRepo, initia
 
   return (
     <div>
-      <h2 className="text-[16px] font-semibold text-foreground mb-3">Dispatch Worker</h2>
 
       <form onSubmit={handleDispatch} className="space-y-3">
         {/* Repo + Branch row */}

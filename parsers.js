@@ -66,24 +66,23 @@ function parseActivityLog(filePath, options = {}) {
   const dateFormat = options.dateFormat || 'iso';
   const limit = Number.isFinite(options.limit) ? Math.max(1, options.limit) : Infinity;
   let stage = '';
+  let currentDate = '';
   const entries = [];
   try {
     const lines = fs.readFileSync(filePath, 'utf8').split('\n');
     for (const line of lines) {
+      if (entries.length >= limit) break;
       const stageMatch = line.match(/\*\*Current stage:\*\*\s*(.+)/);
       if (stageMatch) { stage = stageMatch[1]; continue; }
       const dateMatch = line.match(/^## (\d{4}-\d{2}-\d{2})/);
-      if (dateMatch) {
-        if (entries.length >= limit) continue;
-        entries.push({ date: formatActivityDate(dateMatch[1], dateFormat), bullet: '' });
-        continue;
-      }
-      if (entries.length > 0 && !entries[entries.length - 1].bullet) {
+      if (dateMatch) { currentDate = formatActivityDate(dateMatch[1], dateFormat); continue; }
+      if (currentDate) {
         const bulletMatch = line.match(/^- (.+)/);
         if (bulletMatch) {
-          entries[entries.length - 1].bullet = bulletMatch[1]
-            .replace(/\*\*/g, '')
-            .replace(/\s*\(.*?\)/, '');
+          entries.push({
+            date: currentDate,
+            bullet: bulletMatch[1].replace(/\*\*/g, '').replace(/\s*\(.*?\)/, ''),
+          });
         }
       }
     }
@@ -805,6 +804,53 @@ function writeTaskDoneByText(filePath, searchText) {
 }
 
 /**
+ * Reopen a done task in a todo.md file by matching text.
+ * Finds the best-matching [x] task and replaces it with [ ].
+ * Returns { success: true, text } or throws on error.
+ */
+function writeTaskReopenByText(filePath, searchText) {
+  const content = fs.readFileSync(filePath, 'utf8');
+  const lines = content.split('\n');
+  const needle = searchText.toLowerCase().replace(/\*\*/g, '');
+
+  const STOP = new Set(['the','and','for','that','with','this','from','are','was',
+    'not','but','can','you','all','will','have','when','than','then','into','each',
+    'just','also','more','only','some','they','been','has','its','our','their']);
+  function stem(w) {
+    return w.replace(/ing$/, '').replace(/ed$/, '').replace(/er$/, '').replace(/s$/, '');
+  }
+  function words(str) {
+    return str.replace(/[^a-z0-9\s]/g, ' ').split(/\s+/)
+      .filter(w => w.length >= 3 && !STOP.has(w))
+      .map(stem);
+  }
+
+  const needleWords = new Set(words(needle));
+  const candidates = [];
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(/^(\d+\.\s+|[-*]\s+)\[x\]\s+(.+)/);
+    if (!m) continue;
+    const taskText = m[2].replace(/\*\*/g, '').replace(/\s*\(.*?\)\s*$/, '');
+    const lower = taskText.toLowerCase();
+    if (lower.includes(needle)) { candidates.push({ i, taskText, score: 1.0 }); continue; }
+    if (needle.includes(lower)) { candidates.push({ i, taskText, score: 0.9 }); continue; }
+    if (needleWords.size > 0) {
+      const taskWords = words(lower);
+      const matches = taskWords.filter(w => needleWords.has(w)).length;
+      const score = matches / needleWords.size;
+      if (score >= 0.5) candidates.push({ i, taskText, score });
+    }
+  }
+
+  if (candidates.length === 0) throw new Error(`no done task matching "${searchText}" found`);
+  candidates.sort((a, b) => b.score - a.score);
+  const { i, taskText } = candidates[0];
+  lines[i] = lines[i].replace('[x]', '[ ]');
+  fs.writeFileSync(filePath, lines.join('\n'), 'utf8');
+  return { success: true, text: taskText };
+}
+
+/**
  * Edit the text of an open task in a todo.md file.
  * taskNum is 1-indexed: the Nth open task in the file (across all sections).
  * Returns { success, taskNum, oldText, newText } or throws on error.
@@ -899,6 +945,7 @@ module.exports = {
   loadConfig,
   writeTaskDone,
   writeTaskDoneByText,
+  writeTaskReopenByText,
   writeTaskAdd,
   writeTaskEdit,
   writeTaskMove,

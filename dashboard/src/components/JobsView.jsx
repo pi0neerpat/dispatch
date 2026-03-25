@@ -5,7 +5,7 @@ import { repoIdentityColors } from '../lib/constants'
 import { buildWorkerNavItems } from '../lib/workerUtils'
 import { FilterChip, toggleFilter, BUG_COLOR, loadFilters, saveFilters } from '../lib/filterUtils.jsx'
 
-const JOB_STATUSES = ['review', 'active', 'rejected', 'completed', 'failed']
+const JOB_STATUSES = ['review', 'active', 'completed', 'failed', 'rejected']
 const STORAGE_KEY = 'jobsView:filters'
 
 const STATUS_LABELS = {
@@ -17,9 +17,10 @@ const STATUS_LABELS = {
 }
 
 function classifyItem(worker) {
-  if (worker.needsReview || worker.validation === 'needs_validation') return 'review'
+  if (worker.validation === 'validated' || worker.runState === 'validated') return 'completed'
+  if (worker.validation === 'rejected' || worker.runState === 'rejected') return 'rejected'
+  if (worker.needsReview || worker.validation === 'needs_validation' || worker.runState === 'awaiting_validation') return 'review'
   if (worker.status === 'in_progress') return 'active'
-  if (worker.validation === 'rejected') return 'rejected'
   if (worker.status === 'completed' && (!worker.validation || worker.validation === 'none')) return 'review'
   if (worker.status === 'completed') return 'completed'
   if (worker.status === 'failed' || worker.status === 'killed') return 'failed'
@@ -160,10 +161,6 @@ export default function JobsView({
         </div>
       </div>
 
-      {/* Count */}
-      <p className="text-[11px] text-muted-foreground/50">
-        {filteredItems.length} job{filteredItems.length !== 1 ? 's' : ''}
-      </p>
 
       {/* Grouped job cards */}
       <div className="space-y-6">

@@ -1,24 +1,24 @@
 import { useMemo } from 'react'
-import { Activity, Bot, CheckCircle2, XCircle, AlertCircle, Clock, Wifi, WifiOff } from 'lucide-react'
+import { Activity, Bot, CheckCircle2, XCircle, AlertCircle, Clock } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { repoIdentityColors } from '../lib/constants'
 import ActivityFeed from './ActivityFeed'
 
 function StatCard({ label, value, icon: Icon, colorClass }) {
   return (
-    <div className="rounded-lg border border-card-border bg-card px-4 py-3">
-      <div className="flex items-center gap-2 mb-1">
-        <Icon size={13} className={cn('shrink-0', colorClass)} />
-        <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">{label}</span>
+    <div className="rounded-lg border border-card-border bg-card px-3 py-2">
+      <div className="flex items-center gap-1.5 mb-0.5">
+        <Icon size={11} className={cn('shrink-0', colorClass)} />
+        <span className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium">{label}</span>
       </div>
-      <p className={cn('text-2xl font-semibold font-mono', colorClass)} style={{ fontFamily: 'var(--font-mono)' }}>
+      <p className={cn('text-xl font-semibold font-mono', colorClass)} style={{ fontFamily: 'var(--font-mono)' }}>
         {value}
       </p>
     </div>
   )
 }
 
-export default function StatusView({ overview, swarm, error, lastRefresh }) {
+export default function StatusView({ overview, swarm }) {
   const summary = swarm?.summary || {}
   const repos = overview?.repos || []
   const agents = swarm?.agents || []
@@ -42,30 +42,13 @@ export default function StatusView({ overview, swarm, error, lastRefresh }) {
 
   return (
     <div className="space-y-6">
-      {/* System health */}
-      <div className="flex items-center gap-4">
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-card-border bg-card">
-          {error ? (
-            <><WifiOff size={13} className="text-status-failed" /><span className="text-[11px] text-status-failed">Offline</span></>
-          ) : (
-            <><Wifi size={13} className="text-status-active" /><span className="text-[11px] text-status-active">Connected</span></>
-          )}
-        </div>
-        {lastRefresh && (
-          <span className="text-[10px] text-muted-foreground/50 font-mono" style={{ fontFamily: 'var(--font-mono)' }}>
-            Last refresh: {lastRefresh.toLocaleTimeString()}
-          </span>
-        )}
-      </div>
-
       {/* Agent stats */}
       <div>
-        <h3 className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground mb-3">Agent Stats</h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <StatCard label="Active" value={summary.active || 0} icon={Activity} colorClass="text-status-active" />
+          <StatCard label="Needs Review" value={summary.needsValidation || 0} icon={AlertCircle} colorClass="text-status-review" />
           <StatCard label="Completed" value={summary.completed || 0} icon={CheckCircle2} colorClass="text-status-complete" />
           <StatCard label="Failed" value={summary.failed || 0} icon={XCircle} colorClass="text-status-failed" />
-          <StatCard label="Needs Review" value={summary.needsValidation || 0} icon={AlertCircle} colorClass="text-status-review" />
         </div>
       </div>
 

@@ -21,11 +21,12 @@ export default function ActivityBar({ activeNav, onNavChange, jobCount = 0, revi
           <button
             key={item.id}
             onClick={() => onNavChange(item.id)}
+            style={isActive ? { color: '#8bab8f' } : undefined}
             className={cn(
               'relative w-[52px] flex flex-col items-center gap-0.5 py-2 rounded-md transition-all',
               isActive
-                ? 'text-primary bg-primary/8 border-l-2 border-l-primary'
-                : 'text-muted-foreground hover:text-foreground hover:bg-card/50 border-l-2 border-l-transparent'
+                ? 'bg-primary/[0.14]'
+                : 'text-muted-foreground hover:text-foreground hover:bg-card/50'
             )}
             title={item.label}
           >

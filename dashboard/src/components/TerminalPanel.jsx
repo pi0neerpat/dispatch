@@ -32,7 +32,7 @@ function buildSpawnPrompt(taskInfo) {
   let prompt = taskInfo?.taskText || ''
   prompt += '\n\nUse a strictly linear approach. Do not run tasks in parallel and do not delegate to sub-agents.'
   if (taskInfo?.jobFile?.relativePath) {
-    prompt += `\n\nWrite progress to: ${taskInfo.jobFile.relativePath}`
+    prompt += `\n\nWrite progress to the existing file just created: ${taskInfo.jobFile.relativePath}`
   }
   return prompt
 }

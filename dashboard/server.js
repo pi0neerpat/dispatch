@@ -19,7 +19,7 @@ const pty = require('node-pty')
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const {
   parseTaskFile, parseActivityLog, getGitInfo, parseJobFile, parseJobDir, loadConfig,
-  writeTaskDone, writeTaskDoneByText, writeTaskAdd, writeTaskEdit, writeTaskMove,
+  writeTaskDone, writeTaskDoneByText, writeTaskReopenByText, writeTaskAdd, writeTaskEdit, writeTaskMove,
   writeActivityEntry, writeJobValidation, writeJobKill, writeJobStatus,
   createCheckpoint, revertCheckpoint, dismissCheckpoint, listCheckpoints,
 } = require('../parsers')
@@ -203,7 +203,7 @@ function buildDispatchPrompt(taskText, jobRelativePath = null) {
   let prompt = String(taskText || '')
   prompt += '\n\nUse a strictly linear approach. Do not run tasks in parallel and do not delegate to sub-agents.'
   if (jobRelativePath) {
-    prompt += `\n\nWrite progress to: ${jobRelativePath}`
+    prompt += `\n\nWrite progress to the existing file just created: ${jobRelativePath}`
   }
   return prompt
 }
@@ -707,6 +707,35 @@ app.post('/api/bugs/done-by-text', (req, res) => {
   }
 })
 
+app.post('/api/tasks/reopen-by-text', (req, res) => {
+  const { repo, text } = req.body
+  if (!repo || !text) return res.status(400).json({ error: 'repo and text required' })
+  const repoConfig = findRepoConfig(repo)
+  if (!repoConfig) return res.status(404).json({ error: `repo "${repo}" not found` })
+  try {
+    const result = writeTaskReopenByText(path.join(repoConfig.resolvedPath, repoConfig.taskFile), text)
+    invalidateGitInfoCache(repoConfig.resolvedPath)
+    res.json({ ...result, repo })
+  } catch (err) {
+    res.status(400).json({ error: err.message })
+  }
+})
+
+app.post('/api/bugs/reopen-by-text', (req, res) => {
+  const { repo, text } = req.body
+  if (!repo || !text) return res.status(400).json({ error: 'repo and text required' })
+  const repoConfig = findRepoConfig(repo)
+  if (!repoConfig) return res.status(404).json({ error: `repo "${repo}" not found` })
+  if (!repoConfig.bugsFile) return res.status(400).json({ error: `repo "${repo}" has no bugsFile` })
+  try {
+    const result = writeTaskReopenByText(path.join(repoConfig.resolvedPath, repoConfig.bugsFile), text)
+    invalidateGitInfoCache(repoConfig.resolvedPath)
+    res.json({ ...result, repo })
+  } catch (err) {
+    res.status(400).json({ error: err.message })
+  }
+})
+
 app.post('/api/bugs/add', (req, res) => {
   const { repo, text, section } = req.body
   if (!repo || !text) return res.status(400).json({ error: 'repo and text required' })
@@ -968,6 +997,9 @@ app.post(['/api/jobs/:id/validate', '/api/swarm/:id/validate'], (req, res) => {
     if (latestRun && !validatableStates.has(latestRun.state)) {
       return res.status(409).json({ error: `Job cannot be validated from state "${latestRun.state}"` })
     }
+    if (['failed', 'in_progress'].includes(detail.status)) {
+      writeJobStatus(found.filePath, 'completed')
+    }
     const result = writeJobValidation(found.filePath, 'validated', notes || null)
     // On validate, fully close and remove the terminal session for this job.
     if (detail.session && ptySessions.has(detail.session)) {
@@ -977,7 +1009,7 @@ app.post(['/api/jobs/:id/validate', '/api/swarm/:id/validate'], (req, res) => {
       ptySessions.delete(detail.session)
     }
     if (latestRun) {
-      transitionRun(latestRun, RUN_STATE.VALIDATED, { validation: 'validated', reason: 'user_validated', force: latestRun.state === RUN_STATE.VALIDATED })
+      transitionRun(latestRun, RUN_STATE.VALIDATED, { validation: 'validated', reason: 'user_validated', force: true })
     }
     // Mark the originating task done and log to activity — best-effort, non-blocking
     try {
@@ -1392,13 +1424,12 @@ function createPtySession(sessionId, cwd, repoName, jobFilePath, initialScrollba
           const agent = parseJobFile(session.jobFilePath)
           const run = getLatestRunByJobId(agent.id) || getLatestRunBySessionId(sessionId)
           const isKilled = session.killRequested || reason === 'killed'
-          const hasNonZeroExitCode = Number.isInteger(session.commandExitCode) && session.commandExitCode !== 0
           if (run) {
             if (isKilled) {
               transitionRun(run, RUN_STATE.KILLED, { reason, validation: run.validation || 'none', force: true })
-            } else if (reason === 'write_error' || hasNonZeroExitCode) {
+            } else if (reason === 'write_error') {
               transitionRun(run, RUN_STATE.FAILED, { reason, validation: run.validation || 'none', force: true })
-            } else {
+            } else if (run.state !== RUN_STATE.AWAITING_VALIDATION) {
               transitionRun(run, RUN_STATE.AWAITING_VALIDATION, {
                 reason,
                 validation: 'needs_validation',
@@ -1419,7 +1450,7 @@ function createPtySession(sessionId, cwd, repoName, jobFilePath, initialScrollba
             return
           }
 
-          if (reason === 'write_error' || hasNonZeroExitCode) {
+          if (reason === 'write_error') {
             if (agent.status === 'in_progress') {
               writeJobStatus(session.jobFilePath, 'failed')
             }
@@ -1433,6 +1464,7 @@ function createPtySession(sessionId, cwd, repoName, jobFilePath, initialScrollba
 
           if (agent.status === 'in_progress') {
             writeJobStatus(session.jobFilePath, 'completed')
+            writeJobValidation(session.jobFilePath, 'needs_validation', null)
             if (session.repo) {
               const repoConfig = findRepoConfig(session.repo)
               invalidateGitInfoCache(repoConfig?.resolvedPath)

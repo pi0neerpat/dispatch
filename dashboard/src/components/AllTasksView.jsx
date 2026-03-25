@@ -150,8 +150,10 @@ export default function AllTasksView({
 
   async function handleToggleDone(task) {
     try {
-      if (task.done) return // Can't undo done for now
-      await fetch(task.isBug ? '/api/bugs/done-by-text' : '/api/tasks/done-by-text', {
+      const url = task.done
+        ? (task.isBug ? '/api/bugs/reopen-by-text' : '/api/tasks/reopen-by-text')
+        : (task.isBug ? '/api/bugs/done-by-text' : '/api/tasks/done-by-text')
+      await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ repo: task.repoName, text: task.text }),
@@ -280,83 +282,89 @@ export default function AllTasksView({
   return (
     <div className="space-y-4">
       {/* New task input */}
-      <form onSubmit={handleAddTask} className="flex items-start gap-2">
-        <AutoGrowTextarea
-          value={newTaskText}
-          onChange={e => setNewTaskText(e.target.value)}
-          onKeyDown={e => {
-            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-              e.preventDefault()
-              handleAddTask(e)
-            }
-          }}
-          placeholder="Add a new task..."
-          className="flex-1 min-w-0 px-3 py-1.5 rounded-lg border border-border bg-card text-[13px] text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/40 transition-colors resize-none"
-          autoFocus={false}
-        />
-        <div className="relative shrink-0" ref={repoDropdownRef}>
-          <button
-            type="button"
-            onClick={() => setRepoDropdownOpen(p => !p)}
-            className="flex items-center gap-1.5 pl-2.5 pr-2 py-1.5 rounded-lg border text-[12px] font-medium transition-all cursor-pointer capitalize"
-            style={newTaskRepo && repoIdentityColors[newTaskRepo] ? {
-              background: `${repoIdentityColors[newTaskRepo]}10`,
-              color: repoIdentityColors[newTaskRepo],
-              borderColor: `${repoIdentityColors[newTaskRepo]}30`,
-            } : undefined}
-          >
-            {newTaskRepo || 'Repo'}
-            <ChevronDown size={12} className="opacity-50" />
-          </button>
-          {repoDropdownOpen && (
-            <div className="absolute z-20 top-full mt-1 left-0 min-w-[120px] rounded-lg border shadow-lg py-1" style={{ background: '#242329', borderColor: 'rgba(255,255,255,0.06)' }}>
-              {repoNames.map(name => {
-                const color = repoIdentityColors[name]
-                return (
-                  <button
-                    key={name}
-                    type="button"
-                    onClick={() => { setNewTaskRepo(name); setRepoDropdownOpen(false) }}
-                    className={cn(
-                      'w-full text-left px-3 py-1.5 text-[12px] font-medium capitalize transition-colors',
-                      newTaskRepo === name ? 'opacity-100' : 'opacity-70 hover:opacity-100'
-                    )}
-                    style={{ color }}
-                  >
-                    {name}
-                  </button>
-                )
-              })}
-            </div>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={() => setNewTaskIsBug(p => !p)}
-          className={cn(
-            'text-[11px] px-2.5 py-1 rounded-full border font-medium transition-all shrink-0',
-            newTaskIsBug
-              ? ''
-              : 'bg-card border-border text-muted-foreground/60 hover:text-muted-foreground hover:border-border'
-          )}
-          style={newTaskIsBug ? { borderColor: `${BUG_COLOR}50`, backgroundColor: `${BUG_COLOR}12`, color: BUG_COLOR } : undefined}
-        >
-          🪲 Bug
-        </button>
-        <button
-          type="submit"
-          disabled={!newTaskText.trim() || !newTaskRepo || isAdding}
-          className={cn(
-            'flex items-center gap-1 px-3 py-1.5 rounded-lg text-[12px] font-medium border transition-all shrink-0',
-            newTaskText.trim() && newTaskRepo && !isAdding
-              ? 'bg-primary/12 border-primary/30 text-primary hover:bg-primary/20'
-              : 'bg-card border-border text-muted-foreground/30 cursor-not-allowed'
-          )}
-        >
-          <Plus size={14} />
-          Add
-        </button>
-      </form>
+      <div className="rounded-xl bg-card" style={{ border: '1px solid rgba(255,255,255,0.06)' }}>
+        <form onSubmit={handleAddTask} className="flex items-stretch">
+          {/* Repo picker — left section */}
+          <div className="relative shrink-0 flex items-center border-r rounded-l-xl hover:bg-card-hover transition-colors" style={{ borderColor: 'rgba(255,255,255,0.06)' }} ref={repoDropdownRef}>
+            <button
+              type="button"
+              onClick={() => setRepoDropdownOpen(p => !p)}
+              className="flex items-center gap-1.5 px-3 py-2.5 text-[12px] font-medium capitalize"
+              style={newTaskRepo && repoIdentityColors[newTaskRepo]
+                ? { color: repoIdentityColors[newTaskRepo] }
+                : { color: 'var(--muted-foreground)' }}
+            >
+              {newTaskRepo || 'Repo'}
+              <ChevronDown size={11} className="opacity-50" />
+            </button>
+            {repoDropdownOpen && (
+              <div className="absolute z-20 top-full mt-1 left-0 min-w-[120px] rounded-lg border shadow-lg py-1" style={{ background: '#242329', borderColor: 'rgba(255,255,255,0.06)' }}>
+                {repoNames.map(name => {
+                  const color = repoIdentityColors[name]
+                  return (
+                    <button
+                      key={name}
+                      type="button"
+                      onClick={() => { setNewTaskRepo(name); setRepoDropdownOpen(false) }}
+                      className={cn(
+                        'w-full text-left px-3 py-1.5 text-[12px] font-medium capitalize transition-colors',
+                        newTaskRepo === name ? 'opacity-100' : 'opacity-70 hover:opacity-100'
+                      )}
+                      style={{ color }}
+                    >
+                      {name}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Textarea — middle */}
+          <AutoGrowTextarea
+            value={newTaskText}
+            onChange={e => setNewTaskText(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault()
+                handleAddTask(e)
+              }
+            }}
+            placeholder="Add a new task..."
+            className="flex-1 min-w-0 px-3 py-2.5 bg-transparent border-0 outline-none text-[13px] text-foreground placeholder:text-muted-foreground/35 resize-none [&::-webkit-scrollbar]:hidden"
+            style={{ scrollbarWidth: 'none' }}
+            autoFocus={false}
+          />
+
+          {/* Right section — Bug + Add */}
+          <div className="shrink-0 flex items-center gap-2 px-3 border-l rounded-r-xl" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+            <button
+              type="button"
+              onClick={() => setNewTaskIsBug(p => !p)}
+              className={cn(
+                'text-[13px] px-2 self-stretch flex items-center rounded-md transition-all',
+                newTaskIsBug ? 'opacity-100' : 'opacity-30 hover:opacity-60'
+              )}
+              style={newTaskIsBug ? { background: 'rgba(139,171,143,0.15)' } : undefined}
+            >
+              🪲
+            </button>
+            <button
+              type="submit"
+              disabled={!newTaskText.trim() || !newTaskRepo || isAdding}
+              className={cn(
+                'flex items-center gap-1 px-2.5 py-1 rounded-md text-[12px] font-medium transition-all',
+                newTaskText.trim() && newTaskRepo && !isAdding
+                  ? 'bg-primary/12 text-primary hover:bg-primary/20'
+                  : 'text-muted-foreground/25 cursor-not-allowed'
+              )}
+            >
+              <Plus size={13} />
+              Add
+            </button>
+          </div>
+        </form>
+      </div>
 
       {/* Filter chips */}
       <div className="space-y-2">
@@ -413,11 +421,6 @@ export default function AllTasksView({
         </div>
       </div>
 
-      {/* Count */}
-      <p className="text-[11px] text-muted-foreground/50">
-        {filteredTasks.length} task{filteredTasks.length !== 1 ? 's' : ''}
-      </p>
-
       {/* Task cards */}
       <div className="space-y-1.5">
         {(() => {
@@ -445,12 +448,12 @@ export default function AllTasksView({
                 {/* Checkbox */}
                 <button
                   onClick={(e) => { e.stopPropagation(); handleToggleDone(task) }}
-                  disabled={task.done}
+                  style={!task.done ? { borderColor: '#b4d9b8' } : undefined}
                   className={cn(
-                    'w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors mt-0.5',
+                    'w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-colors self-center',
                     task.done
                       ? 'bg-status-complete/20 border-status-complete/40 text-status-complete'
-                      : 'border-border hover:border-primary/40'
+                      : ''
                   )}
                 >
                   {task.done && <Check size={10} />}
@@ -501,7 +504,7 @@ export default function AllTasksView({
                 </div>
 
                 {/* Chips */}
-                <div className="flex items-center gap-1.5 shrink-0 mt-0.5">
+                <div className="flex items-center gap-1.5 shrink-0 self-center">
                   <span className="text-[9px] px-1.5 py-0.5 rounded-full border border-border bg-card text-muted-foreground/60 capitalize">
                     {task.timeframe}
                   </span>
@@ -520,7 +523,8 @@ export default function AllTasksView({
                 {task.status === 'open' && !isEditing && (
                   <button
                     onClick={(e) => { e.stopPropagation(); onNavigateToDispatch?.(task.repoName, task.text) }}
-                    className="opacity-0 group-hover:opacity-100 flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium text-primary hover:bg-primary/10 border border-transparent hover:border-primary/20 transition-all shrink-0"
+                    style={{ color: '#b4d9b8', borderColor: '#b4d9b8' }}
+                    className="opacity-0 group-hover:opacity-100 flex items-center gap-1 px-2 py-1 text-[10px] font-medium hover:bg-primary/10 border self-center transition-all shrink-0"
                   >
                     <Play size={10} />
                     Start
@@ -546,23 +550,27 @@ export default function AllTasksView({
             )
           }
 
+          const CountBadge = ({ n }) => (
+            <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-muted text-[9px] font-medium text-muted-foreground/70">{n}</span>
+          )
+
           return (
             <>
               {inProgressTasks.length > 0 && (
                 <>
-                  <h3 className="text-[11px] uppercase tracking-wider text-status-active font-semibold pt-1 pb-0.5">In Progress</h3>
+                  <h3 className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-status-active font-semibold pt-1 pb-0.5">In Progress <CountBadge n={inProgressTasks.length} /></h3>
                   {inProgressTasks.map(renderTask)}
                 </>
               )}
               {openTasks.length > 0 && (
                 <>
-                  <h3 className="text-[11px] uppercase tracking-wider text-muted-foreground/60 font-semibold pt-3 pb-0.5">Open</h3>
+                  <h3 className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-muted-foreground/60 font-semibold pt-3 pb-0.5">Open <CountBadge n={openTasks.length} /></h3>
                   {openTasks.map(renderTask)}
                 </>
               )}
               {doneTasks.length > 0 && (
                 <>
-                  <h3 className="text-[11px] uppercase tracking-wider text-status-complete/60 font-semibold pt-3 pb-0.5">Done</h3>
+                  <h3 className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-status-complete/60 font-semibold pt-3 pb-0.5">Done <CountBadge n={doneTasks.length} /></h3>
                   {doneTasks.map(renderTask)}
                 </>
               )}
