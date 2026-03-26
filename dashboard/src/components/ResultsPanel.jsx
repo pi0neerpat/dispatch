@@ -846,7 +846,6 @@ export default function ResultsPanel({ agentId, hasLiveTerminal = false, onJobsR
   const [showFullOutput, setShowFullOutput] = useState(false)
   const [diffData, setDiffData] = useState(null)
   const [diffLoading, setDiffLoading] = useState(false)
-  const [reviewQueue, setReviewQueue] = useState(null)
 
   useEffect(() => {
     if (!agentId) { setDiffData(null); return }
@@ -897,20 +896,6 @@ export default function ResultsPanel({ agentId, hasLiveTerminal = false, onJobsR
     }
   }, [agentId])
 
-  // Fetch review queue count for post-action continuity
-  useEffect(() => {
-    let cancelled = false
-    fetch('/api/jobs')
-      .then(r => r.ok ? r.json() : null)
-      .then(data => {
-        if (cancelled || !data) return
-        const jobs = Array.isArray(data) ? data : data.jobs || []
-        const needsReview = jobs.filter(j => j.validation === 'needs_validation' && j.id !== agentId)
-        setReviewQueue({ total: needsReview.length, next: needsReview[0] || null })
-      })
-      .catch(() => {})
-    return () => { cancelled = true }
-  }, [agentId, detail?.validation])
 
   function showFeedbackMsg(msg, isError = false) {
     setFeedback({ msg, isError })
@@ -1072,7 +1057,6 @@ export default function ResultsPanel({ agentId, hasLiveTerminal = false, onJobsR
   const canAct = (detail.validation === 'needs_validation' || detail.validation === 'none') &&
     !(detail.validation === 'validated' || detail.validation === 'rejected')
 
-  const isResolved = detail.validation === 'validated' || detail.validation === 'rejected'
 
   return (
     <div className="animate-fade-up space-y-6">
@@ -1159,9 +1143,9 @@ export default function ResultsPanel({ agentId, hasLiveTerminal = false, onJobsR
                     onClick={handleValidate}
                     disabled={actionLoading}
                     className={cn(
-                      'flex items-center gap-1.5 px-4 py-2 rounded-md text-xs font-semibold transition-all',
-                      'bg-status-active/90 text-background',
-                      'hover:bg-status-active disabled:opacity-50 disabled:cursor-not-allowed'
+                      'flex items-center gap-1.5 px-5 py-2.5 rounded-md text-[13px] font-semibold transition-all shadow-sm',
+                      'bg-status-active text-background',
+                      'hover:brightness-110 hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed'
                     )}
                   >
                     {actionLoading ? <Loader size={13} className="animate-spin" /> : <CheckCircle size={13} />}
@@ -1233,22 +1217,6 @@ export default function ResultsPanel({ agentId, hasLiveTerminal = false, onJobsR
           </div>
         )}
 
-        {/* Review queue continuity — after action */}
-        {isResolved && reviewQueue && (
-          <div className="mt-3 flex items-center gap-3 text-xs">
-            {reviewQueue.total > 0 ? (
-              <button
-                onClick={onBack}
-                className="flex items-center gap-1.5 text-primary hover:text-foreground transition-colors font-medium"
-              >
-                <ChevronRight size={12} />
-                {reviewQueue.total} more to review
-              </button>
-            ) : (
-              <span className="text-muted-foreground/60">All caught up</span>
-            )}
-          </div>
-        )}
       </div>
 
       {/* ━━━ ZONE 2: EVIDENCE ━━━ */}
