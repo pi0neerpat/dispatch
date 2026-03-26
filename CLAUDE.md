@@ -59,18 +59,18 @@ Separate Node.js project with its own `package.json` (ESM, `"type": "module"`).
 
 ### Claude Skills (`.claude/`)
 
-Two skills are included:
+The canonical skill and hook files live in `dot-claude/` and are committed to this repo:
 
-- **`/workdown`** -- Cross-repo task view and work prioritization. Runs `cli.js status` and presents a unified view.
-- **`/done`** -- Mark a task done and log activity. Updates `todo.md` and `activity-log.md` for manual sessions.
-- **`/add-repo`** -- Connect a new repo to Work.Down.
+- **`dot-claude/skills/workdown/`** -- Cross-repo task view and work prioritization.
+- **`dot-claude/skills/done/`** -- Mark a task done and log activity.
+- **`dot-claude/skills/add-repo/`** -- Connect a new repo to Work.Down.
+- **`dot-claude/hooks/protect-env.js`** -- Blocks Claude from reading/editing `.env` files.
+- **`dot-claude/hooks/hub-stop.js`** -- Signals the dashboard when a dispatched Claude session ends.
 
-Two hooks are included:
+**`.claude/` setup — two options:**
 
-- **`protect-env.js`** -- Blocks Claude from reading/editing `.env` files. Security safeguard.
-- **`hub-stop.js`** -- Signals the dashboard when a dispatched Claude session ends. No-op outside Hub-dispatched sessions.
-
-For a richer skill suite (marketing, research, strategy, etc.), see [Clauffice](https://github.com/pi0neerpat/clauffice).
+1. **Standalone** (no Clauffice): copy `dot-claude/` contents into `.claude/` manually.
+2. **With [Clauffice](https://github.com/pi0neerpat/clauffice)**: `.claude/` uses symlinks into the Clauffice install (`clauffice/dot-claude/`), giving you the full skill suite. See `.gitmodules` for the repo reference. Clauffice is gitignored — install it separately alongside this repo.
 
 ## Running Things
 

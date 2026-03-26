@@ -96,6 +96,20 @@ The full list. Nothing is installed globally.
 
 ## Setup
 
+### 0. Install tmux (strongly recommended)
+
+> **tmux keeps your agent sessions alive across dashboard restarts.** Without it, any running Claude session will be killed whenever the dashboard server restarts (e.g. after a code change). With it, sessions survive restarts and reconnect automatically.
+
+```bash
+# macOS
+brew install tmux
+
+# Ubuntu/Debian
+sudo apt install tmux
+```
+
+Work.Down automatically uses tmux when available and falls back gracefully if it isn't installed.
+
 ### 1. Clone and install
 
 ```bash
@@ -218,7 +232,7 @@ Three skills are active when Claude Code is opened in the Work.Down directory:
 
 ## Future improvements
 
-- Better agent lifecycle management, eg. killing orphaned terminal sessions
+- Better agent lifecycle management (tmux-backed persistence is implemented; orphan cleanup is ongoing)
 - Support for other AI agents, eg. Codex, Cursor, etc.
 
 

@@ -36,8 +36,11 @@ notes/swarm/
 # Plans (project-specific work-in-progress)
 plans/
 
-# Clauffice skill suite (optional enhancement, install separately)
+# Clauffice skill suite (optional, install separately — see .gitmodules)
 clauffice/
 
 # Agent runtime
 .agents/
+
+# Claude local settings (personal permissions, not committed)
+.claude/settings.local.json

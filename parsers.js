@@ -122,6 +122,7 @@ function parseJobFile(filePath) {
   let originalTask = '', session = null, repo = null;
   let skipPermissions = null;
   let resumeId = null, resumeCommand = null;
+  let ai = null;
   const progressEntries = [];
   let results = null;
   let validationNotes = null;
@@ -229,7 +230,8 @@ function parseJobDir(dirPath) {
 }
 
 function loadConfig(hubDir) {
-  const configPath = path.join(hubDir, 'config.json');
+  const localConfigPath = path.join(hubDir, 'config.local.json');
+  const configPath = fs.existsSync(localConfigPath) ? localConfigPath : path.join(hubDir, 'config.json');
   const raw = JSON.parse(fs.readFileSync(configPath, 'utf8'));
   return {
     ...raw,
