@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "skills": {
+    "agent-cribs": {
+      "source": "pwv-vc/agentcribs-community",
+      "sourceType": "github",
+      "computedHash": "1048b42f38b75c0c6fb9fb5ab8a3d645dc48f7693a639165d13904391ae5f31e"
+    }
+  }
+}

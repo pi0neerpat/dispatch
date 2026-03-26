@@ -36,7 +36,7 @@ notes/swarm/
 # Plans (project-specific work-in-progress)
 plans/
 
-# Clauffice skill suite (optional, install separately — see .gitmodules)
+# Clauffice (removed — now installed globally)
 clauffice/
 
 # Agent runtime

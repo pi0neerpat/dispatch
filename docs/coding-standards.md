@@ -164,7 +164,7 @@ hub/
   notes/
     jobs/              # Primary job progress files (YYYY-MM-DD-slug.md)
   docs/                # Documentation
-  clauffice/           # Claude Code configuration source (generates .claude/)
+  dot-claude/          # Project-specific Claude Code skills and hooks
 ```
 
 ### Key architectural rules
@@ -440,8 +440,8 @@ Bad: "Updated SwarmPanel.jsx" (describes the file, not the intent).
 
 ### What not to commit
 
-- **`.claude/`** — Generated from `clauffice/`. Listed in `.gitignore` as the
-  `.claude/` directory is workspace-specific.
+- **`.claude/`** — Project-specific skills and hooks. Listed in `.gitignore` as
+  the `.claude/` directory is workspace-specific.
 - **`node_modules/`** — Standard npm exclusion.
 - **`.env` files** — Environment-specific secrets.
 - **`.DS_Store`** — macOS finder metadata.

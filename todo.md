@@ -16,10 +16,11 @@
 - [ ] Add auth to the Express dashboard server (required before any remote/Tailscale access)
 - [x] Add structured `## Results Summary` section to job files (Changes, Decisions, Discoveries, Follow-up)
 - [ ] Create `/remove-repo` skill to uninstall hooks and remove config entries (inverse of `/add-repo`)
-- [ ] Reframe "no parallelism" from hard principle to current limitation; plan worktree-based parallel dispatch
-- [ ] Evaluate SQLite backing store for task/activity data if markdown parsing hits reliability issues at scale (~50+ tasks, 5+ repos)
-- [ ] Currently the terminal tab must be opened by the user for a job to actually kick off. Is Claude Code doing this to enforce usage only in viewable terminals? Would using the -p flag fix this? Or is it something simple causing the issue?
+- [ ] Reframe "no parallelism" from hard principle to current limitation; plan worktree-based parallel dispatch. see https://share.galexc.io/30d/feedback-for-patrick.md for reference
+- [ ] Evaluate SQLite backing store for task/activity data if markdown parsing hits reliability issues at scale. see https://share.galexc.io/30d/feedback-for-patrick.md for reference
+- [x] Currently the terminal tab must be opened by the user for a job to actually kick off. Is Claude Code doing this to enforce usage only in viewable terminals? Would using the -p flag fix this? Or is it something simple causing the issue?
 - [ ] In dispatch, add an additional dropdown for choosing the AI, before model. Add Codex, and Claude as options. Then update the terminal command accordingly. Also include this information in the job markdown file.
+- [ ] In the task list, clicking to edit a task sometimes scrolls me down the page. i cannot click to edit them. investigate.
 
 ## Done
 
