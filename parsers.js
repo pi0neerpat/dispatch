@@ -123,6 +123,7 @@ function parseJobFile(filePath) {
   let skipPermissions = null;
   let resumeId = null, resumeCommand = null;
   let ai = null;
+  let branch = null, worktreePath = null;
   const progressEntries = [];
   let results = null;
   let validationNotes = null;
@@ -177,6 +178,12 @@ function parseJobFile(filePath) {
       const repoMatch = line.match(/^Repo:\s*(.+)/);
       if (repoMatch) { repo = repoMatch[1].trim(); continue; }
 
+      const branchMatch = line.match(/^Branch:\s*(.+)/);
+      if (branchMatch) { branch = branchMatch[1].trim(); continue; }
+
+      const worktreePathMatch = line.match(/^WorktreePath:\s*(.+)/);
+      if (worktreePathMatch) { worktreePath = worktreePathMatch[1].trim(); continue; }
+
       // Section detection
       const sectionMatch = line.match(/^##\s+(.+)/);
       if (sectionMatch) {
@@ -215,6 +222,7 @@ function parseJobFile(filePath) {
   return {
     id, taskName, started, status, validation, agentId, skills,
     originalTask, session, skipPermissions, resumeId, resumeCommand, repo,
+    branch, worktreePath,
     lastProgress, progressCount, durationMinutes, resultsSummary,
     progressEntries, results, validationNotes, rawContent,
   };

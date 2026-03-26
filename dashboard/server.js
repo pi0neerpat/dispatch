@@ -1,5 +1,5 @@
 import { createRequire } from 'module'
-import { execFileSync } from 'child_process'
+import { execFileSync, execSync } from 'child_process'
 import express from 'express'
 import cors from 'cors'
 import path from 'path'
@@ -30,6 +30,7 @@ const PORT = 3001
 const RUNTIME_DIR = path.join(HUB_DIR, '.hub-runtime')
 const JOB_RUNS_FILE = path.join(RUNTIME_DIR, 'job-runs.json')
 const PROMPTS_DIR = path.join(RUNTIME_DIR, 'prompts')
+const WORKTREES_DIR = path.join(RUNTIME_DIR, 'worktrees')
 const RUN_STATE = Object.freeze({
   QUEUED: 'queued',
   STARTING: 'starting',
@@ -200,11 +201,11 @@ function buildResumeClaudeCommand(resumeId, flags = '') {
   return `claude${flags} --resume "${id}"`
 }
 
-function buildDispatchPrompt(taskText, jobRelativePath = null) {
+function buildDispatchPrompt(taskText, jobFilePath = null) {
   let prompt = String(taskText || '')
   prompt += '\n\nUse a strictly linear approach. Do not run tasks in parallel and do not delegate to sub-agents.'
-  if (jobRelativePath) {
-    prompt += `\n\nWrite progress to the existing file just created: ${jobRelativePath}`
+  if (jobFilePath) {
+    prompt += `\n\nWrite progress to the existing file just created: ${jobFilePath}`
   }
   return prompt
 }
@@ -264,6 +265,47 @@ function stripAnsi(str) {
     .replace(/\x1b\([A-Z]/g, '')               // Charset sequences
     .replace(/\x1b[=>]/g, '')                  // Keypad mode
     .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '') // Control chars (keep \n \r \t)
+}
+
+// ── Git worktree helpers ─────────────────────────────────
+
+function createJobWorktree(repoPath, jobId, baseBranch = 'main') {
+  const branchName = `job/${jobId}`
+  const worktreePath = path.join(WORKTREES_DIR, jobId)
+  fs.mkdirSync(WORKTREES_DIR, { recursive: true })
+  // Create worktree with a new branch off baseBranch
+  execSync(
+    `git -C ${shellQuote(repoPath)} worktree add ${shellQuote(worktreePath)} -b ${shellQuote(branchName)} ${shellQuote(baseBranch)}`,
+    { encoding: 'utf8', stdio: 'pipe' }
+  )
+  return { branchName, worktreePath }
+}
+
+function removeJobWorktree(repoPath, jobId, { deleteBranch = false } = {}) {
+  const worktreePath = path.join(WORKTREES_DIR, jobId)
+  const branchName = `job/${jobId}`
+  try {
+    if (fs.existsSync(worktreePath)) {
+      execSync(
+        `git -C ${shellQuote(repoPath)} worktree remove ${shellQuote(worktreePath)} --force`,
+        { encoding: 'utf8', stdio: 'pipe' }
+      )
+    }
+  } catch (err) {
+    // If worktree remove fails (e.g. already removed), clean up the directory manually
+    console.warn(`[worktree] remove failed for ${jobId}: ${err.message}`)
+    try { fs.rmSync(worktreePath, { recursive: true, force: true }) } catch {}
+    // Prune stale worktree entries
+    try { execSync(`git -C ${shellQuote(repoPath)} worktree prune`, { stdio: 'pipe' }) } catch {}
+  }
+  if (deleteBranch) {
+    try {
+      execSync(
+        `git -C ${shellQuote(repoPath)} branch -D ${shellQuote(branchName)}`,
+        { encoding: 'utf8', stdio: 'pipe' }
+      )
+    } catch { /* branch may already be deleted or merged */ }
+  }
 }
 
 try {
@@ -420,6 +462,7 @@ app.get(['/api/jobs', '/api/swarm'], (req, res) => {
       skills: a.skills,
       session: latestRunByJob.get(a.id)?.sessionId || a.session,
       runState: latestRunByJob.get(a.id)?.state || null,
+      branch: a.branch || null,
     }))
   res.json({
     jobs,
@@ -500,6 +543,60 @@ app.get(['/api/jobs/:id', '/api/swarm/:id'], (req, res) => {
   res.status(404).json({ error: `Job "${req.params.id}" not found` })
 })
 
+app.get(['/api/jobs/:id/diff', '/api/swarm/:id/diff'], (req, res) => {
+  const found = findJobFileById(req.params.id)
+  if (!found) {
+    return res.status(404).json({ error: `Job "${req.params.id}" not found` })
+  }
+  const detail = parseJobFile(found.filePath)
+
+  // Branch cleaned up after merge — return sentinel so UI can show merged state
+  if (!detail.branch || detail.worktreePath === '(merged)') {
+    return res.json({ merged: true })
+  }
+
+  const validBranchRe = /^[a-zA-Z0-9._\-/]+$/
+  const base = req.query.base || 'main'
+  if (!validBranchRe.test(base)) {
+    return res.status(400).json({ error: `Invalid base branch: ${base}` })
+  }
+  if (!validBranchRe.test(detail.branch)) {
+    return res.status(400).json({ error: `Invalid job branch: ${detail.branch}` })
+  }
+
+  const repoPath = found.repo.resolvedPath
+  try {
+    const git = (...args) => execFileSync('git', ['-C', repoPath, ...args], { encoding: 'utf8' }).trim()
+
+    const commits = parseInt(git('rev-list', '--count', `${base}..${detail.branch}`), 10) || 0
+
+    const nameStatus = git('diff', '--name-status', `${base}..${detail.branch}`)
+    const files = nameStatus
+      ? nameStatus.split('\n').filter(Boolean).map(line => {
+          const parts = line.split('\t')
+          const letter = parts[0]?.[0] || '?'
+          // Renames: R<score>\t<old>\t<new> — show the new path
+          const filePath = parts.length >= 3 ? parts[2] : parts[1] || ''
+          return { status: letter, path: filePath }
+        })
+      : []
+
+    let insertions = 0, deletions = 0
+    const shortstat = git('diff', '--shortstat', `${base}..${detail.branch}`)
+    if (shortstat) {
+      const ins = shortstat.match(/(\d+) insertion/)
+      const del = shortstat.match(/(\d+) deletion/)
+      if (ins) insertions = parseInt(ins[1], 10)
+      if (del) deletions = parseInt(del[1], 10)
+    }
+
+    return res.json({ files, insertions, deletions, commits, merged: false })
+  } catch (err) {
+    // Branch not found in this repo (e.g. never committed or already gone)
+    return res.status(404).json({ error: 'Branch not found', merged: false })
+  }
+})
+
 app.get('/api/activity', (req, res) => {
   const limit = Math.max(1, parseInt(req.query.limit, 10) || 10)
   const config = getConfig()
@@ -529,6 +626,11 @@ function findRepoConfig(name) {
 app.post(['/api/jobs/init', '/api/swarm/init'], (req, res) => {
   const { repo, taskText, originalTask, sessionId, ai, model, maxTurns, autoMerge, baseBranch, skipPermissions } = req.body
   if (!repo || !taskText) return res.status(400).json({ error: 'repo and taskText required' })
+  // Validate baseBranch if provided — reject shell metacharacters and path traversal
+  const validBranchRe = /^[a-zA-Z0-9._\-/]+$/
+  if (baseBranch && !validBranchRe.test(baseBranch)) {
+    return res.status(400).json({ error: `Invalid base branch name: ${baseBranch}` })
+  }
 
   const repoConfig = findRepoConfig(repo)
   if (!repoConfig) return res.status(404).json({ error: `repo "${repo}" not found` })
@@ -567,12 +669,28 @@ app.post(['/api/jobs/init', '/api/swarm/init'], (req, res) => {
   if (maxTurns) lines.push(`MaxTurns: ${maxTurns}`)
   if (autoMerge) lines.push('AutoMerge: true')
   if (baseBranch) lines.push(`BaseBranch: ${baseBranch}`)
+
+  const relativePath = `notes/jobs/${fileName}`
+  const jobId = fileName.replace(/\.md$/, '')
+
+  // Create a git worktree so this job runs in an isolated branch
+  let worktreeInfo = null
+  try {
+    worktreeInfo = createJobWorktree(repoConfig.resolvedPath, jobId, baseBranch || 'main')
+    lines.push(`Branch: ${worktreeInfo.branchName}`)
+    lines.push(`WorktreePath: ${worktreeInfo.worktreePath}`)
+  } catch (err) {
+    console.warn(`[worktree] Failed to create worktree for ${jobId}, falling back to main repo: ${err.message}`)
+  }
+
   lines.push('', '## Progress', `- [${timestamp}] Task initiated from dashboard`, '', '## Results', '')
   fs.writeFileSync(filePath, lines.join('\n'), 'utf8')
 
-  // Return both the relative path (for the prompt) and absolute path
-  const relativePath = `notes/jobs/${fileName}`
-  const jobId = fileName.replace(/\.md$/, '')
+  // Determine PTY working directory — use worktree if available, else repo root
+  const ptyCwd = worktreeInfo ? worktreeInfo.worktreePath : repoConfig.resolvedPath
+  // Use absolute path to job file so it works from the worktree cwd
+  const jobFilePathForPrompt = worktreeInfo ? filePath : relativePath
+
   createRun({
     jobId,
     repo,
@@ -581,10 +699,10 @@ app.post(['/api/jobs/init', '/api/swarm/init'], (req, res) => {
     state: RUN_STATE.STARTING,
   })
   try {
-    const promptFilePath = persistPromptFile(assignedSessionId, buildDispatchPrompt(taskText, relativePath))
+    const promptFilePath = persistPromptFile(assignedSessionId, buildDispatchPrompt(taskText, jobFilePathForPrompt))
     createPtySession(
       assignedSessionId,
-      repoConfig.resolvedPath,
+      ptyCwd,
       repo,
       filePath,
       '',
@@ -605,11 +723,20 @@ app.post(['/api/jobs/init', '/api/swarm/init'], (req, res) => {
       try { transitionRun(run, RUN_STATE.FAILED, { reason: 'spawn_failed', force: true }) } catch {}
     }
     try { writeJobStatus(filePath, 'failed') } catch {}
+    // Clean up worktree on spawn failure
+    if (worktreeInfo) {
+      try { removeJobWorktree(repoConfig.resolvedPath, jobId, { deleteBranch: true }) } catch {}
+    }
     return res.status(500).json({ error: `Failed to start job session: ${err.message}` })
   }
   invalidateGitInfoCache(repoConfig.resolvedPath)
   emitJobsChanged({ repo, id: jobId, reason: 'init' })
-  res.json({ fileName, relativePath, absolutePath: filePath, repo, sessionId: assignedSessionId, serverStarted: true })
+  res.json({
+    fileName, relativePath, absolutePath: filePath, repo,
+    sessionId: assignedSessionId, serverStarted: true,
+    branch: worktreeInfo?.branchName || null,
+    worktreePath: worktreeInfo?.worktreePath || null,
+  })
 })
 
 app.post('/api/tasks/done', (req, res) => {
@@ -1053,6 +1180,7 @@ app.post(['/api/jobs/:id/reject', '/api/swarm/:id/reject'], (req, res) => {
     if (latestRun && latestRun.state !== RUN_STATE.AWAITING_VALIDATION && latestRun.state !== RUN_STATE.REJECTED) {
       return res.status(409).json({ error: `Job cannot be rejected from state "${latestRun.state}"` })
     }
+    const detail = parseJobFile(found.filePath)
     const result = writeJobValidation(found.filePath, 'rejected', notes)
     if (latestRun) {
       transitionRun(latestRun, RUN_STATE.REJECTED, { validation: 'rejected', reason: 'user_rejected', force: latestRun.state === RUN_STATE.REJECTED })
@@ -1106,6 +1234,11 @@ app.delete(['/api/jobs/:id', '/api/swarm/:id'], (req, res) => {
     return res.status(404).json({ error: `Job "${req.params.id}" not found` })
   }
   try {
+    // Clean up worktree and branch before deleting the job file
+    const detail = parseJobFile(found.filePath)
+    if (detail.worktreePath) {
+      try { removeJobWorktree(found.repo.resolvedPath, req.params.id, { deleteBranch: true }) } catch {}
+    }
     fs.unlinkSync(found.filePath)
     // Also remove .kill marker if present
     const killMarker = found.filePath + '.kill'
@@ -1124,6 +1257,9 @@ app.delete(['/api/jobs/:id', '/api/swarm/:id'], (req, res) => {
   }
 })
 
+// Per-repo lock to prevent concurrent merge operations (checkout/merge/restore is not atomic)
+const mergeLockedRepos = new Set()
+
 app.post(['/api/jobs/:id/merge', '/api/swarm/:id/merge'], (req, res) => {
   const { targetBranch } = req.body || {}
 
@@ -1132,34 +1268,64 @@ app.post(['/api/jobs/:id/merge', '/api/swarm/:id/merge'], (req, res) => {
     return res.status(404).json({ error: `Job "${req.params.id}" not found` })
   }
   const repoPath = found.repo.resolvedPath
+  if (mergeLockedRepos.has(repoPath)) {
+    return res.status(409).json({ error: 'Another merge is in progress for this repo. Try again shortly.' })
+  }
+  mergeLockedRepos.add(repoPath)
   try {
-    const { execSync } = require('child_process')
-    const git = (cmd) => execSync(`git -C "${repoPath}" ${cmd}`, { encoding: 'utf8' }).trim()
+    const git = (...args) => execFileSync('git', ['-C', repoPath, ...args], { encoding: 'utf8' }).trim()
 
-    // Get current branch (the job's working branch)
-    const currentBranch = git('branch --show-current')
+    // Read the job's branch from its file header (set by worktree creation)
+    const detail = parseJobFile(found.filePath)
+    const jobBranch = detail.branch || git('branch', '--show-current')
     const base = targetBranch || 'main'
 
-    if (currentBranch === base) {
-      return res.status(400).json({ error: `Already on ${base} — nothing to merge` })
+    // Validate branch names — reject anything with shell metacharacters or path traversal
+    const validBranchRe = /^[a-zA-Z0-9._\-/]+$/
+    if (!validBranchRe.test(base)) {
+      return res.status(400).json({ error: `Invalid target branch name: ${base}` })
+    }
+    if (!validBranchRe.test(jobBranch)) {
+      return res.status(400).json({ error: `Invalid job branch name: ${jobBranch}` })
     }
 
-    // Checkout base, merge branch, then go back
-    git(`checkout "${base}"`)
+    if (jobBranch === base) {
+      return res.status(400).json({ error: `Job branch is ${base} — nothing to merge` })
+    }
+
+    // Save and restore main repo branch to avoid disrupting other work
+    const mainRepoBranch = git('branch', '--show-current')
+    if (mainRepoBranch !== base) {
+      git('checkout', base)
+    }
     try {
-      git(`merge "${currentBranch}" --no-edit`)
+      git('merge', jobBranch, '--no-edit')
     } catch (mergeErr) {
       // Abort failed merge, restore state
-      try { git('merge --abort') } catch { /* ignore */ }
-      git(`checkout "${currentBranch}"`)
-      return res.status(409).json({ error: `Merge conflict — could not merge ${currentBranch} into ${base}` })
+      try { git('merge', '--abort') } catch { /* ignore */ }
+      if (mainRepoBranch !== base) {
+        try { git('checkout', mainRepoBranch) } catch { /* ignore */ }
+      }
+      return res.status(409).json({ error: `Merge conflict — could not merge ${jobBranch} into ${base}` })
     }
-    git(`checkout "${currentBranch}"`)
+    // Restore original branch if we switched
+    if (mainRepoBranch !== base) {
+      try { git('checkout', mainRepoBranch) } catch { /* ignore */ }
+    }
+
+    // Clean up worktree after successful merge
+    if (detail.worktreePath) {
+      try { removeJobWorktree(repoPath, req.params.id, { deleteBranch: true }) } catch {}
+      // Remove worktree headers from job file
+      try { upsertHeaderLine(found.filePath, 'WorktreePath', '(merged)') } catch {}
+    }
 
     invalidateGitInfoCache(found.repo.resolvedPath)
-    return res.json({ ok: true, merged: currentBranch, into: base, repo: found.repo.name })
+    return res.json({ ok: true, merged: jobBranch, into: base, repo: found.repo.name })
   } catch (err) {
     return res.status(400).json({ error: err.message })
+  } finally {
+    mergeLockedRepos.delete(repoPath)
   }
 })
 

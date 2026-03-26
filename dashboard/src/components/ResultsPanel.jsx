@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { CheckCircle, XCircle, Loader, Clock, Square, Activity, ListChecks, GitMerge, Scissors, Network, Trash2, Send, RotateCcw, ChevronRight } from 'lucide-react'
+import { CheckCircle, XCircle, Loader, Clock, Square, Activity, ListChecks, GitMerge, Scissors, Network, Trash2, Send, RotateCcw, ChevronRight, GitBranch, Copy, Check } from 'lucide-react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { cn, timeAgo } from '../lib/utils'
@@ -246,8 +246,89 @@ function FullJobOutput({ rawContent }) {
   )
 }
 
-function AgentActions({ detail, agentId, onJobsRefresh, onOverviewRefresh, onStartTask, onBack, onRemoveSession, showToast, showFeedbackMsg }) {
+const DIFF_STATUS_COLOR = { M: '#f59e0b', A: '#22c55e', D: '#ef4444', R: '#3b82f6', C: '#a855f7' }
+
+function CopyChip({ icon, text, label }) {
+  const [copied, setCopied] = useState(false)
+  function handleCopy() {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    })
+  }
+  return (
+    <button
+      onClick={handleCopy}
+      title={`Copy ${label}`}
+      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-border bg-background/30 text-[10px] font-mono text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors max-w-xs"
+    >
+      {icon}
+      <span className="truncate">{text}</span>
+      {copied ? <Check size={9} className="shrink-0 text-status-active" /> : <Copy size={9} className="shrink-0 opacity-50" />}
+    </button>
+  )
+}
+
+function DiffSummary({ diffData, diffLoading }) {
+  const [expanded, setExpanded] = useState(false)
+
+  if (diffLoading) return (
+    <div className="mb-5">
+      <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">Changes</p>
+      <div className="rounded-lg border border-card-border bg-card px-4 py-3 flex items-center gap-2 text-xs text-muted-foreground">
+        <Loader size={11} className="animate-spin" /> Loading diff…
+      </div>
+    </div>
+  )
+
+  if (!diffData) return null
+
+  if (diffData.merged) return (
+    <div className="mb-5">
+      <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">Changes</p>
+      <div className="rounded-lg border border-status-active-border bg-status-active-bg px-4 py-3 flex items-center gap-2 text-xs text-status-active">
+        <GitMerge size={12} /> Branch merged
+      </div>
+    </div>
+  )
+
+  const files = diffData.files || []
+  if (!files.length && !diffData.insertions && !diffData.deletions) return null
+
+  const shown = expanded ? files : files.slice(0, 5)
+  const hiddenCount = files.length - 5
+
+  return (
+    <div className="mb-5">
+      <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">Changes</p>
+      <div className="rounded-lg border border-card-border bg-card px-4 py-3 space-y-1.5">
+        {shown.map((f, i) => (
+          <div key={i} className="flex items-center gap-2 text-[11px] font-mono">
+            <span className="w-3 text-center font-bold shrink-0 text-[10px]" style={{ color: DIFF_STATUS_COLOR[f.status] || '#6b7280' }}>
+              {f.status}
+            </span>
+            <span className="text-foreground/80 truncate">{f.path}</span>
+          </div>
+        ))}
+        {!expanded && hiddenCount > 0 && (
+          <button onClick={() => setExpanded(true)} className="text-[10px] text-muted-foreground hover:text-foreground transition-colors pl-5">
+            + {hiddenCount} more
+          </button>
+        )}
+        <div className="pt-1.5 border-t border-border text-[10px] text-muted-foreground font-mono flex items-center gap-2">
+          <span>{files.length} file{files.length !== 1 ? 's' : ''} changed</span>
+          {diffData.insertions > 0 && <span className="text-green-500">+{diffData.insertions}</span>}
+          {diffData.deletions > 0 && <span className="text-red-400">−{diffData.deletions}</span>}
+          {diffData.commits > 0 && <span className="text-muted-foreground/60">{diffData.commits} commit{diffData.commits !== 1 ? 's' : ''}</span>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function AgentActions({ detail, agentId, diffData, onJobsRefresh, onOverviewRefresh, onStartTask, onBack, onRemoveSession, showToast, showFeedbackMsg }) {
   const [merging, setMerging] = useState(false)
+  const [mergedBranch, setMergedBranch] = useState(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [showSplitInput, setShowSplitInput] = useState(false)
@@ -266,8 +347,9 @@ function AgentActions({ detail, agentId, onJobsRefresh, onOverviewRefresh, onSta
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Merge failed')
-      showFeedbackMsg(`Merged ${data.merged} → ${data.into}`)
+      setMergedBranch({ branch: data.merged, into: data.into })
       showToast?.(`Branch merged into ${data.into}`, 'success')
+      onJobsRefresh?.()
     } catch (err) {
       showFeedbackMsg(err.message, true)
     } finally {
@@ -364,19 +446,45 @@ function AgentActions({ detail, agentId, onJobsRefresh, onOverviewRefresh, onSta
     }
   }
 
+  const hasBranch = detail.branch && detail.branch !== '(merged)'
+  const canMerge = hasBranch && detail.validation === 'validated'
+  const diffStat = diffData && !diffData.merged && (diffData.files?.length || diffData.insertions)
+    ? [
+        `${diffData.files?.length ?? 0} file${(diffData.files?.length ?? 0) !== 1 ? 's' : ''}`,
+        diffData.insertions > 0 ? `+${diffData.insertions}` : null,
+        diffData.deletions > 0 ? `−${diffData.deletions}` : null,
+      ].filter(Boolean).join(', ')
+    : null
+
   return (
     <div className="mt-6 pt-5 border-t border-border space-y-4">
-      <div>
-        <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">Agent Actions</p>
-        <div className="flex items-center gap-2 flex-wrap">
+      {/* Merge CTA — only shown when branch is validated and not yet merged */}
+      {canMerge && !mergedBranch && (
+        <div>
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">Merge Branch</p>
           <button
             onClick={handleMerge}
             disabled={merging}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-medium border border-border text-muted-foreground hover:text-foreground hover:bg-card-hover transition-colors disabled:opacity-50"
+            className="flex items-center gap-2 px-4 py-2 rounded-md text-[12px] font-medium border border-status-active-border bg-status-active-bg text-status-active hover:brightness-110 disabled:opacity-50 transition-colors"
           >
-            {merging ? <Loader size={12} className="animate-spin" /> : <GitMerge size={12} />}
+            {merging ? <Loader size={12} className="animate-spin" /> : <GitMerge size={13} />}
             Merge
+            {diffStat && !merging && (
+              <span className="text-[10px] opacity-70 font-mono">· {diffStat}</span>
+            )}
           </button>
+        </div>
+      )}
+      {mergedBranch && (
+        <div className="rounded-lg border border-status-active-border bg-status-active-bg px-4 py-3 text-xs text-status-active flex items-center gap-2">
+          <GitMerge size={13} />
+          Merged <code className="font-mono text-[10px] mx-1 opacity-90">{mergedBranch.branch}</code> into <code className="font-mono text-[10px] ml-1 opacity-90">{mergedBranch.into}</code>
+        </div>
+      )}
+
+      <div>
+        <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">Agent Actions</p>
+        <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={() => { setShowSplitInput(v => !v); setShowSubtaskInput(false) }}
             className={cn(
@@ -593,6 +701,20 @@ export default function ResultsPanel({ agentId, hasLiveTerminal = false, onJobsR
   const [taskMarked, setTaskMarked] = useState(false)
   const [markingDone, setMarkingDone] = useState(false)
   const [showFullOutput, setShowFullOutput] = useState(false)
+  const [diffData, setDiffData] = useState(null)
+  const [diffLoading, setDiffLoading] = useState(false)
+
+  useEffect(() => {
+    if (!agentId) { setDiffData(null); return }
+    let cancelled = false
+    setDiffLoading(true)
+    fetch(`/api/jobs/${agentId}/diff`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (!cancelled) setDiffData(data) })
+      .catch(() => { if (!cancelled) setDiffData(null) })
+      .finally(() => { if (!cancelled) setDiffLoading(false) })
+    return () => { cancelled = true }
+  }, [agentId])
 
   useEffect(() => {
     if (!agentId) { setDetail(null); return }
@@ -810,6 +932,14 @@ export default function ResultsPanel({ agentId, hasLiveTerminal = false, onJobsR
               </span>
             )}
           </div>
+          {detail.branch && detail.branch !== '(merged)' && (
+            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+              <CopyChip icon={<GitBranch size={9} />} text={detail.branch} label="branch name" />
+              {detail.worktreePath && detail.worktreePath !== '(merged)' && (
+                <CopyChip icon={null} text={detail.worktreePath} label="worktree path" />
+              )}
+            </div>
+          )}
           <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
             <span className={cn('font-medium', st.color)}>{st.label}</span>
             {relativeTime && (
@@ -879,6 +1009,8 @@ export default function ResultsPanel({ agentId, hasLiveTerminal = false, onJobsR
           {showFullOutput && <FullJobOutput rawContent={detail.rawContent} />}
         </div>
       )}
+
+      <DiffSummary diffData={diffData} diffLoading={diffLoading} />
 
       {detail.validationNotes && (
         <div className="mb-5">
@@ -971,6 +1103,7 @@ export default function ResultsPanel({ agentId, hasLiveTerminal = false, onJobsR
       <AgentActions
         detail={detail}
         agentId={agentId}
+        diffData={diffData}
         onJobsRefresh={onJobsRefresh}
         onOverviewRefresh={onOverviewRefresh}
         onStartTask={onStartTask}

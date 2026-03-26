@@ -248,6 +248,8 @@ describe('parseJobFile', () => {
       'SkipPermissions: true',
       'ResumeId: resume-456',
       'ResumeCommand: claude --resume',
+      'Branch: job/2026-03-25-test-job',
+      'WorktreePath: /tmp/worktrees/2026-03-25-test-job',
       '',
       '## Progress',
       '- Started coding',
@@ -271,10 +273,25 @@ describe('parseJobFile', () => {
     assert.equal(result.skipPermissions, true);
     assert.equal(result.resumeId, 'resume-456');
     assert.equal(result.resumeCommand, 'claude --resume');
+    assert.equal(result.branch, 'job/2026-03-25-test-job');
+    assert.equal(result.worktreePath, '/tmp/worktrees/2026-03-25-test-job');
     assert.equal(result.progressCount, 2);
     assert.equal(result.lastProgress, 'Added tests');
     assert.ok(result.results.includes('Login page is ready'));
     assert.ok(result.validationNotes.includes('Looks good'));
+  });
+
+  it('returns null branch and worktreePath for legacy jobs', () => {
+    const f = tmp('2026-03-25-legacy-job.md', [
+      '# Job Task: Old job without worktree',
+      'Started: 2026-03-25 10:00:00',
+      'Status: Completed',
+      'Repo: app',
+    ].join('\n'));
+
+    const result = parseJobFile(f);
+    assert.equal(result.branch, null);
+    assert.equal(result.worktreePath, null);
   });
 
   it('normalizes status values', () => {
