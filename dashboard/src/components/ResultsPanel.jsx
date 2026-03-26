@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { CheckCircle, XCircle, Loader, Clock, Square, Activity, ListChecks, GitMerge, Scissors, Network, Trash2, Send, RotateCcw, ChevronRight, GitBranch, Copy, Check } from 'lucide-react'
+import { CheckCircle, XCircle, Loader, Clock, Square, Activity, ListChecks, GitMerge, Scissors, Network, Trash2, Send, RotateCcw, ChevronRight, ChevronDown, GitBranch, Copy, Check, MoreHorizontal } from 'lucide-react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { cn, timeAgo } from '../lib/utils'
@@ -140,22 +140,53 @@ function parseJobHeader(bodyText) {
   }
 }
 
-function ResultsSummary({ text }) {
+/* ── Zone 1 sub-components ─────────────────────────────── */
+
+function ResultsSummary({ text, statusColor }) {
   return (
-    <div className="rounded-lg border border-card-border bg-card px-5 py-4 text-sm text-foreground/90 leading-loose">
-      <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">Result Summary</p>
+    <div
+      className="rounded-lg border border-card-border bg-card px-5 py-4 text-sm text-foreground leading-loose"
+      style={{ borderLeft: `3px solid ${statusColor || 'var(--primary)'}` }}
+    >
       <Markdown remarkPlugins={[remarkGfm]} components={mdComponents}>{formatTimestampsInText(text)}</Markdown>
     </div>
   )
 }
 
+function CollapsibleDetails({ branch, worktreePath }) {
+  const [open, setOpen] = useState(false)
+  if (!branch || branch === '(merged)') return null
+
+  return (
+    <div className="mt-2">
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="flex items-center gap-1 text-[10px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+      >
+        {open ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+        <span>Branch &amp; path</span>
+      </button>
+      {open && (
+        <div className="flex items-center gap-2 mt-1.5 flex-wrap animate-slide-in">
+          <CopyChip icon={<GitBranch size={9} />} text={branch} label="branch name" />
+          {worktreePath && worktreePath !== '(merged)' && (
+            <CopyChip icon={null} text={worktreePath} label="worktree path" />
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ── Zone 2 sub-components ─────────────────────────────── */
+
 function ProgressTimeline({ entries }) {
+  const [expanded, setExpanded] = useState(false)
   const rows = (entries || []).map((entry) => {
     const text = String(entry || '')
     const m = text.match(/^\[([^\]]+)\]\s*(.*)$/)
     if (!m) return { relative: null, exact: null, text }
     const timestampToken = m[0].match(/^\[[^\]]+\]/)?.[0] || null
-    const ts = m[1].trim()
     return {
       relative: formatRelativeTimestamp(timestampToken),
       exact: formatExactTimestamp(timestampToken),
@@ -165,26 +196,102 @@ function ProgressTimeline({ entries }) {
 
   if (rows.length === 0) return null
 
+  const collapsible = rows.length > 5
+  const visibleRows = collapsible && !expanded
+    ? [rows[0], ...rows.slice(-2)]
+    : rows
+  const hiddenCount = rows.length - 3
+
   return (
-    <div className="mb-5">
-      <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">Progress</p>
-      <div className="rounded-lg border border-card-border bg-card px-4 py-3">
-        <ul className="space-y-2">
-          {rows.map((row, i) => (
-            <li key={`progress-${i}`} className="text-xs text-foreground/90 leading-relaxed">
-              {row.relative ? (
-                <span
-                  className="inline-flex items-center rounded-sm border border-border bg-background/40 px-1.5 py-0.5 mr-2 text-[10px] text-muted-foreground"
-                  title={row.exact || undefined}
-                >
-                  {row.relative}
-                </span>
-              ) : null}
-              <span>{row.text || String(entries[i] || '')}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
+    <div>
+      <button
+        onClick={() => setExpanded(v => !v)}
+        className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2 hover:text-foreground/70 transition-colors"
+      >
+        <ChevronRight size={12} className={cn('transition-transform duration-200', expanded && 'rotate-90')} />
+        Progress ({rows.length} steps)
+      </button>
+      {(expanded || !collapsible) && (
+        <div className="rounded-lg border border-card-border bg-card px-4 py-3 animate-fade-up">
+          <div className="relative pl-4">
+            {/* Vertical timeline line */}
+            <div className="absolute left-[5px] top-1 bottom-1 w-px bg-border" />
+            <ul className="space-y-2.5">
+              {(collapsible ? rows : visibleRows).map((row, i) => {
+                const isLast = i === (collapsible ? rows : visibleRows).length - 1
+                return (
+                  <li key={`progress-${i}`} className="relative text-xs leading-relaxed">
+                    {/* Timeline dot */}
+                    <div
+                      className={cn(
+                        'absolute -left-4 top-[5px] w-[7px] h-[7px] rounded-full border',
+                        isLast
+                          ? 'bg-primary border-primary/50'
+                          : 'bg-card border-muted-foreground/30'
+                      )}
+                    />
+                    <span className={cn(isLast ? 'text-foreground font-medium' : 'text-foreground/70')}>
+                      {row.relative ? (
+                        <span
+                          className="inline-flex items-center rounded-sm border border-border bg-background/40 px-1.5 py-0.5 mr-2 text-[10px] text-muted-foreground"
+                          title={row.exact || undefined}
+                        >
+                          {row.relative}
+                        </span>
+                      ) : null}
+                      <span>{row.text || String(entries[i] || '')}</span>
+                    </span>
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
+        </div>
+      )}
+      {collapsible && !expanded && (
+        <div className="rounded-lg border border-card-border bg-card px-4 py-3 animate-fade-up">
+          <div className="relative pl-4">
+            <div className="absolute left-[5px] top-1 bottom-1 w-px bg-border" />
+            <ul className="space-y-2.5">
+              {visibleRows.map((row, i) => {
+                const isLast = i === visibleRows.length - 1
+                const isCollapsedGap = i === 0
+                return (
+                  <li key={`progress-${i}`} className="relative text-xs leading-relaxed">
+                    <div
+                      className={cn(
+                        'absolute -left-4 top-[5px] w-[7px] h-[7px] rounded-full border',
+                        isLast
+                          ? 'bg-primary border-primary/50'
+                          : 'bg-card border-muted-foreground/30'
+                      )}
+                    />
+                    <span className={cn(isLast ? 'text-foreground font-medium' : 'text-foreground/70')}>
+                      {row.relative ? (
+                        <span
+                          className="inline-flex items-center rounded-sm border border-border bg-background/40 px-1.5 py-0.5 mr-2 text-[10px] text-muted-foreground"
+                          title={row.exact || undefined}
+                        >
+                          {row.relative}
+                        </span>
+                      ) : null}
+                      <span>{row.text || ''}</span>
+                    </span>
+                    {isCollapsedGap && hiddenCount > 0 && (
+                      <button
+                        onClick={() => setExpanded(true)}
+                        className="block mt-2 ml-0 text-[10px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+                      >
+                        ··· show {hiddenCount} more steps
+                      </button>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -273,7 +380,7 @@ function DiffSummary({ diffData, diffLoading }) {
   const [expanded, setExpanded] = useState(false)
 
   if (diffLoading) return (
-    <div className="mb-5">
+    <div>
       <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">Changes</p>
       <div className="rounded-lg border border-card-border bg-card px-4 py-3 flex items-center gap-2 text-xs text-muted-foreground">
         <Loader size={11} className="animate-spin" /> Loading diff…
@@ -284,7 +391,7 @@ function DiffSummary({ diffData, diffLoading }) {
   if (!diffData) return null
 
   if (diffData.merged) return (
-    <div className="mb-5">
+    <div>
       <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">Changes</p>
       <div className="rounded-lg border border-status-active-border bg-status-active-bg px-4 py-3 flex items-center gap-2 text-xs text-status-active">
         <GitMerge size={12} /> Branch merged
@@ -299,9 +406,15 @@ function DiffSummary({ diffData, diffLoading }) {
   const hiddenCount = files.length - 5
 
   return (
-    <div className="mb-5">
+    <div>
       <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">Changes</p>
       <div className="rounded-lg border border-card-border bg-card px-4 py-3 space-y-1.5">
+        <div className="pb-1.5 border-b border-border text-[10px] text-muted-foreground font-mono flex items-center gap-2">
+          <span>{files.length} file{files.length !== 1 ? 's' : ''} changed</span>
+          {diffData.insertions > 0 && <span className="text-green-500">+{diffData.insertions}</span>}
+          {diffData.deletions > 0 && <span className="text-red-400">−{diffData.deletions}</span>}
+          {diffData.commits > 0 && <span className="text-muted-foreground/60">{diffData.commits} commit{diffData.commits !== 1 ? 's' : ''}</span>}
+        </div>
         {shown.map((f, i) => (
           <div key={i} className="flex items-center gap-2 text-[11px] font-mono">
             <span className="w-3 text-center font-bold shrink-0 text-[10px]" style={{ color: DIFF_STATUS_COLOR[f.status] || '#6b7280' }}>
@@ -315,16 +428,12 @@ function DiffSummary({ diffData, diffLoading }) {
             + {hiddenCount} more
           </button>
         )}
-        <div className="pt-1.5 border-t border-border text-[10px] text-muted-foreground font-mono flex items-center gap-2">
-          <span>{files.length} file{files.length !== 1 ? 's' : ''} changed</span>
-          {diffData.insertions > 0 && <span className="text-green-500">+{diffData.insertions}</span>}
-          {diffData.deletions > 0 && <span className="text-red-400">−{diffData.deletions}</span>}
-          {diffData.commits > 0 && <span className="text-muted-foreground/60">{diffData.commits} commit{diffData.commits !== 1 ? 's' : ''}</span>}
-        </div>
       </div>
     </div>
   )
 }
+
+/* ── Zone 3 sub-components ─────────────────────────────── */
 
 function AgentActions({ detail, agentId, diffData, onJobsRefresh, onOverviewRefresh, onStartTask, onBack, onRemoveSession, showToast, showFeedbackMsg }) {
   const [merging, setMerging] = useState(false)
@@ -336,6 +445,7 @@ function AgentActions({ detail, agentId, diffData, onJobsRefresh, onOverviewRefr
   const [splitText, setSplitText] = useState('')
   const [subtaskText, setSubtaskText] = useState('')
   const [dispatching, setDispatching] = useState(false)
+  const [showFollowUp, setShowFollowUp] = useState(false)
 
   async function handleMerge() {
     setMerging(true)
@@ -455,20 +565,20 @@ function AgentActions({ detail, agentId, diffData, onJobsRefresh, onOverviewRefr
         diffData.deletions > 0 ? `−${diffData.deletions}` : null,
       ].filter(Boolean).join(', ')
     : null
+  const showFollowUpSection = detail.validation === 'needs_validation' || detail.status === 'completed' || detail.status === 'killed'
 
   return (
-    <div className="mt-6 pt-5 border-t border-border space-y-4">
-      {/* Merge CTA — only shown when branch is validated and not yet merged */}
+    <div className="space-y-5">
+      {/* Merge CTA */}
       {canMerge && !mergedBranch && (
         <div>
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">Merge Branch</p>
           <button
             onClick={handleMerge}
             disabled={merging}
             className="flex items-center gap-2 px-4 py-2 rounded-md text-[12px] font-medium border border-status-active-border bg-status-active-bg text-status-active hover:brightness-110 disabled:opacity-50 transition-colors"
           >
             {merging ? <Loader size={12} className="animate-spin" /> : <GitMerge size={13} />}
-            Merge
+            Merge Branch
             {diffStat && !merging && (
               <span className="text-[10px] opacity-70 font-mono">· {diffStat}</span>
             )}
@@ -482,96 +592,112 @@ function AgentActions({ detail, agentId, diffData, onJobsRefresh, onOverviewRefr
         </div>
       )}
 
-      <div>
-        <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">Agent Actions</p>
-        <div className="flex items-center gap-2 flex-wrap">
-          <button
-            onClick={() => { setShowSplitInput(v => !v); setShowSubtaskInput(false) }}
-            className={cn(
-              'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-medium border transition-colors',
-              showSplitInput
-                ? 'border-primary/30 bg-primary/10 text-foreground'
-                : 'border-border text-muted-foreground hover:text-foreground hover:bg-card-hover'
-            )}
-          >
-            <Scissors size={12} /> Split
-          </button>
-          <button
-            onClick={() => { setShowSubtaskInput(v => !v); setShowSplitInput(false) }}
-            className={cn(
-              'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-medium border transition-colors',
-              showSubtaskInput
-                ? 'border-primary/30 bg-primary/10 text-foreground'
-                : 'border-border text-muted-foreground hover:text-foreground hover:bg-card-hover'
-            )}
-          >
-            <Network size={12} /> Subtask
-          </button>
-          <button
-            onClick={handleDelete}
-            disabled={deleting}
-            className={cn(
-              'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-medium transition-colors',
-              confirmDelete
-                ? 'bg-status-failed-bg text-status-failed border border-status-failed-border'
-                : 'border border-status-failed-border/50 text-status-failed/60 hover:text-status-failed hover:bg-status-failed-bg'
-            )}
-          >
-            {deleting ? <Loader size={12} className="animate-spin" /> : <Trash2 size={12} />}
-            {confirmDelete ? 'Confirm?' : 'Delete'}
-          </button>
-        </div>
-
-        {/* Split input — multiple tasks, one per line */}
-        {showSplitInput && (
-          <div className="mt-2 space-y-2 animate-slide-in">
-            <textarea
-              value={splitText}
-              onChange={(e) => setSplitText(e.target.value)}
-              placeholder="Enter subtasks, one per line..."
-              rows={3}
-              className="w-full px-2.5 py-2 rounded-md border border-border bg-card text-[12px] text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/30 resize-y"
-            />
-            <button
-              onClick={handleSplitSubmit}
-              disabled={!splitText.trim()}
-              className="h-7 px-3 rounded-md text-[11px] font-medium bg-primary text-primary-foreground disabled:opacity-40"
-            >
-              Add {splitText.split('\n').filter(l => l.trim()).length || 0} subtask(s)
-            </button>
-          </div>
-        )}
-
-        {/* Subtask input — single task */}
-        {showSubtaskInput && (
-          <div className="mt-2 flex items-center gap-2 animate-slide-in">
-            <input
-              value={subtaskText}
-              onChange={(e) => setSubtaskText(e.target.value)}
-              placeholder="Subtask description..."
-              className="flex-1 h-8 rounded-md border border-border bg-card px-2.5 text-[12px] text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/30"
-              onKeyDown={(e) => { if (e.key === 'Enter') handleSubtaskSubmit() }}
-            />
-            <button
-              onClick={handleSubtaskSubmit}
-              disabled={!subtaskText.trim()}
-              className="h-8 px-3 rounded-md text-[11px] font-medium bg-primary text-primary-foreground disabled:opacity-40"
-            >
-              Add
-            </button>
-          </div>
-        )}
+      {/* Split & Subtask */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <button
+          onClick={() => { setShowSplitInput(v => !v); setShowSubtaskInput(false) }}
+          className={cn(
+            'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-medium border transition-colors',
+            showSplitInput
+              ? 'border-primary/30 bg-primary/10 text-foreground'
+              : 'border-border text-muted-foreground hover:text-foreground hover:bg-card-hover'
+          )}
+        >
+          <Scissors size={12} /> Split
+        </button>
+        <button
+          onClick={() => { setShowSubtaskInput(v => !v); setShowSplitInput(false) }}
+          className={cn(
+            'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-medium border transition-colors',
+            showSubtaskInput
+              ? 'border-primary/30 bg-primary/10 text-foreground'
+              : 'border-border text-muted-foreground hover:text-foreground hover:bg-card-hover'
+          )}
+        >
+          <Network size={12} /> Subtask
+        </button>
       </div>
 
-      {/* Follow-up dispatch — visible when completed/review/stopped */}
-      {(detail.validation === 'needs_validation' || detail.status === 'completed' || detail.status === 'killed') && (
-        <FollowUpChat
-          repoName={detail.repo}
-          detail={detail}
-          onDispatch={handleFollowUpDispatch}
-          dispatching={dispatching}
-        />
+      {/* Split input */}
+      {showSplitInput && (
+        <div className="space-y-2 animate-slide-in">
+          <textarea
+            value={splitText}
+            onChange={(e) => setSplitText(e.target.value)}
+            placeholder="Enter subtasks, one per line..."
+            rows={3}
+            className="w-full px-2.5 py-2 rounded-md border border-border bg-card text-[12px] text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/30 resize-y"
+          />
+          <button
+            onClick={handleSplitSubmit}
+            disabled={!splitText.trim()}
+            className="h-7 px-3 rounded-md text-[11px] font-medium bg-primary text-primary-foreground disabled:opacity-40"
+          >
+            Add {splitText.split('\n').filter(l => l.trim()).length || 0} subtask(s)
+          </button>
+        </div>
       )}
+
+      {/* Subtask input */}
+      {showSubtaskInput && (
+        <div className="flex items-center gap-2 animate-slide-in">
+          <input
+            value={subtaskText}
+            onChange={(e) => setSubtaskText(e.target.value)}
+            placeholder="Subtask description..."
+            className="flex-1 h-8 rounded-md border border-border bg-card px-2.5 text-[12px] text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/30"
+            onKeyDown={(e) => { if (e.key === 'Enter') handleSubtaskSubmit() }}
+          />
+          <button
+            onClick={handleSubtaskSubmit}
+            disabled={!subtaskText.trim()}
+            className="h-8 px-3 rounded-md text-[11px] font-medium bg-primary text-primary-foreground disabled:opacity-40"
+          >
+            Add
+          </button>
+        </div>
+      )}
+
+      {/* Follow-up dispatch — collapsed by default */}
+      {showFollowUpSection && (
+        <div>
+          <button
+            onClick={() => setShowFollowUp(v => !v)}
+            className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ChevronRight size={12} className={cn('transition-transform duration-200', showFollowUp && 'rotate-90')} />
+            <Send size={11} />
+            Continue as New Job
+          </button>
+          {showFollowUp && (
+            <div className="mt-3 animate-slide-in">
+              <FollowUpChat
+                repoName={detail.repo}
+                detail={detail}
+                onDispatch={handleFollowUpDispatch}
+                dispatching={dispatching}
+              />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Danger zone — Delete isolated at bottom */}
+      <div className="pt-4 border-t border-border/50">
+        <button
+          onClick={handleDelete}
+          disabled={deleting}
+          className={cn(
+            'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-medium transition-colors',
+            confirmDelete
+              ? 'bg-status-failed-bg text-status-failed border border-status-failed-border'
+              : 'border border-transparent text-muted-foreground/40 hover:text-status-failed/70 hover:border-status-failed-border/30 hover:bg-status-failed-bg/50'
+          )}
+        >
+          {deleting ? <Loader size={12} className="animate-spin" /> : <Trash2 size={12} />}
+          {confirmDelete ? 'Confirm Delete?' : 'Delete Job'}
+        </button>
+      </div>
     </div>
   )
 }
@@ -596,97 +722,114 @@ function FollowUpChat({ repoName, detail, onDispatch, dispatching }) {
   }
 
   return (
-    <div>
-      <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">Continue as New Job</p>
-      <div className="space-y-3">
-        <div className="flex items-center gap-3">
-          <select
-            value={chatModel}
-            onChange={(e) => setChatModel(e.target.value)}
-            className="h-8 px-2 rounded-md border border-border bg-card text-[11px] text-foreground focus:outline-none focus:border-primary/30"
-          >
-            {MODEL_OPTIONS.map(opt => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
-            ))}
-          </select>
+    <div className="space-y-3">
+      <div className="flex items-center gap-3">
+        <select
+          value={chatModel}
+          onChange={(e) => setChatModel(e.target.value)}
+          className="h-8 px-2 rounded-md border border-border bg-card text-[11px] text-foreground focus:outline-none focus:border-primary/30"
+        >
+          {MODEL_OPTIONS.map(opt => (
+            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          ))}
+        </select>
 
-          <button
-            type="button"
-            onClick={() => setChatAutoMerge(v => !v)}
+        <button
+          type="button"
+          onClick={() => setChatAutoMerge(v => !v)}
+          className={cn(
+            'w-7 h-[16px] rounded-full border transition-colors relative shrink-0 overflow-hidden',
+            chatAutoMerge
+              ? 'bg-primary/20 border-primary/40'
+              : 'bg-card border-border'
+          )}
+        >
+          <span
             className={cn(
-              'w-7 h-[16px] rounded-full border transition-colors relative shrink-0 overflow-hidden',
+              'absolute top-[2px] left-[2px] w-2.5 h-2.5 rounded-full transition-transform duration-200',
               chatAutoMerge
-                ? 'bg-primary/20 border-primary/40'
-                : 'bg-card border-border'
-            )}
-          >
-            <span
-              className={cn(
-                'absolute top-[2px] left-[2px] w-2.5 h-2.5 rounded-full transition-transform duration-200',
-                chatAutoMerge
-                  ? 'translate-x-[11px] bg-primary'
-                  : 'translate-x-0 bg-muted-foreground/40'
-              )}
-            />
-          </button>
-          <span className="text-[11px] text-foreground/70">Auto-merge</span>
-        </div>
-
-        {detail && (
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {FOLLOWUP_TEMPLATES.map(tpl => (
-              <button
-                key={tpl.id}
-                type="button"
-                onClick={() => {
-                  setChatPrompt(tpl.prompt(detail))
-                  setActiveTemplate(tpl.id)
-                }}
-                className={cn(
-                  'text-[10px] px-2 py-0.5 rounded-full border font-medium transition-all',
-                  activeTemplate === tpl.id
-                    ? 'bg-primary/12 border-primary/35 text-foreground'
-                    : 'bg-card border-border text-muted-foreground/60 hover:text-muted-foreground hover:border-border'
-                )}
-              >
-                {tpl.label}
-              </button>
-            ))}
-          </div>
-        )}
-
-        <div className="flex items-start gap-2">
-          <textarea
-            value={chatPrompt}
-            onChange={(e) => {
-              setChatPrompt(e.target.value)
-              setActiveTemplate(null)
-            }}
-            placeholder="Send follow-up instructions to a new worker..."
-            rows={8}
-            className={cn(
-              'flex-1 px-2.5 py-2 rounded-md border border-border bg-card',
-              'text-[12px] text-foreground placeholder:text-muted-foreground/40 leading-relaxed',
-              'focus:outline-none focus:border-primary/30 resize-y'
+                ? 'translate-x-[11px] bg-primary'
+                : 'translate-x-0 bg-muted-foreground/40'
             )}
           />
-          <button
-            onClick={handleDispatch}
-            disabled={!chatPrompt.trim() || dispatching}
-            className={cn(
-              'h-9 px-3 rounded-md text-[12px] font-medium flex items-center gap-1.5 shrink-0',
-              'bg-primary text-primary-foreground hover:brightness-110',
-              'disabled:opacity-40 disabled:cursor-not-allowed'
-            )}
-          >
-            {dispatching ? <Loader size={12} className="animate-spin" /> : <Send size={12} />}
-            Dispatch
-          </button>
+        </button>
+        <span className="text-[11px] text-foreground/70">Auto-merge</span>
+      </div>
+
+      {detail && (
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {FOLLOWUP_TEMPLATES.map(tpl => (
+            <button
+              key={tpl.id}
+              type="button"
+              onClick={() => {
+                setChatPrompt(tpl.prompt(detail))
+                setActiveTemplate(tpl.id)
+              }}
+              className={cn(
+                'text-[10px] px-2 py-0.5 rounded-full border font-medium transition-all',
+                activeTemplate === tpl.id
+                  ? 'bg-primary/12 border-primary/35 text-foreground'
+                  : 'bg-card border-border text-muted-foreground/60 hover:text-muted-foreground hover:border-border'
+              )}
+            >
+              {tpl.label}
+            </button>
+          ))}
         </div>
+      )}
+
+      <div className="flex items-start gap-2">
+        <textarea
+          value={chatPrompt}
+          onChange={(e) => {
+            setChatPrompt(e.target.value)
+            setActiveTemplate(null)
+          }}
+          placeholder="Send follow-up instructions to a new worker..."
+          rows={3}
+          className={cn(
+            'flex-1 px-2.5 py-2 rounded-md border border-border bg-card',
+            'text-[12px] text-foreground placeholder:text-muted-foreground/40 leading-relaxed',
+            'focus:outline-none focus:border-primary/30 resize-y'
+          )}
+        />
+        <button
+          onClick={handleDispatch}
+          disabled={!chatPrompt.trim() || dispatching}
+          className={cn(
+            'h-9 px-3 rounded-md text-[12px] font-medium flex items-center gap-1.5 shrink-0',
+            'bg-primary text-primary-foreground hover:brightness-110',
+            'disabled:opacity-40 disabled:cursor-not-allowed'
+          )}
+        >
+          {dispatching ? <Loader size={12} className="animate-spin" /> : <Send size={12} />}
+          Dispatch
+        </button>
       </div>
     </div>
   )
 }
+
+/* ── State-specific hero styling ───────────────────────── */
+
+function getHeroStyle(status, validation) {
+  if (status === 'in_progress') return 'animate-glow-pulse'
+  if (status === 'failed' || status === 'killed') return 'ring-1 ring-status-failed/10'
+  if (validation === 'needs_validation') return 'ring-1 ring-status-review/10'
+  if (validation === 'validated') return 'opacity-90'
+  return ''
+}
+
+function getHeroBg(status, validation) {
+  if (status === 'in_progress') return 'bg-status-active-bg/30'
+  if (status === 'failed' || status === 'killed') return 'bg-status-failed-bg/30'
+  if (validation === 'needs_validation') return 'bg-status-review-bg/30'
+  if (validation === 'validated') return 'bg-status-active-bg/20'
+  return 'bg-card/30'
+}
+
+/* ── Main component ────────────────────────────────────── */
 
 export default function ResultsPanel({ agentId, hasLiveTerminal = false, onJobsRefresh, onOverviewRefresh, onStartTask, onResumeJob, onBack, onRemoveSession, showToast }) {
   const [detail, setDetail] = useState(null)
@@ -703,6 +846,7 @@ export default function ResultsPanel({ agentId, hasLiveTerminal = false, onJobsR
   const [showFullOutput, setShowFullOutput] = useState(false)
   const [diffData, setDiffData] = useState(null)
   const [diffLoading, setDiffLoading] = useState(false)
+  const [reviewQueue, setReviewQueue] = useState(null)
 
   useEffect(() => {
     if (!agentId) { setDiffData(null); return }
@@ -730,6 +874,7 @@ export default function ResultsPanel({ agentId, hasLiveTerminal = false, onJobsR
     setTaskMarked(false)
     setMarkingDone(false)
     setShowFullOutput(false)
+    setReviewQueue(null)
 
     async function fetchDetail() {
       try {
@@ -752,6 +897,21 @@ export default function ResultsPanel({ agentId, hasLiveTerminal = false, onJobsR
     }
   }, [agentId])
 
+  // Fetch review queue count for post-action continuity
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/jobs')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (cancelled || !data) return
+        const jobs = Array.isArray(data) ? data : data.jobs || []
+        const needsReview = jobs.filter(j => j.validation === 'needs_validation' && j.id !== agentId)
+        setReviewQueue({ total: needsReview.length, next: needsReview[0] || null })
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [agentId, detail?.validation])
+
   function showFeedbackMsg(msg, isError = false) {
     setFeedback({ msg, isError })
     setTimeout(() => setFeedback(null), 2000)
@@ -771,7 +931,7 @@ export default function ResultsPanel({ agentId, hasLiveTerminal = false, onJobsR
       }
       const result = await res.json()
       setDetail(prev => prev ? { ...prev, validation: result.validation } : prev)
-      showFeedbackMsg('Validated')
+      showFeedbackMsg('Approved')
       onJobsRefresh?.()
       onOverviewRefresh?.()
     } catch (err) {
@@ -798,7 +958,7 @@ export default function ResultsPanel({ agentId, hasLiveTerminal = false, onJobsR
       setDetail(prev => prev ? { ...prev, validation: result.validation, validationNotes: rejectNotes.trim() } : prev)
       setShowRejectInput(false)
       setRejectNotes('')
-      showFeedbackMsg('Rejected')
+      showFeedbackMsg('Changes requested')
       onJobsRefresh?.()
       onOverviewRefresh?.()
     } catch (err) {
@@ -907,211 +1067,236 @@ export default function ResultsPanel({ agentId, hasLiveTerminal = false, onJobsR
   const val = validationConfig[detail.validation]
   const repoColor = repoIdentityColors[detail.repo] || 'var(--primary)'
   const relativeTime = timeAgo(detail.started, detail.durationMinutes)
+  const statusColor = st.borderColor || 'var(--primary)'
 
   const canAct = (detail.validation === 'needs_validation' || detail.validation === 'none') &&
     !(detail.validation === 'validated' || detail.validation === 'rejected')
 
+  const isResolved = detail.validation === 'validated' || detail.validation === 'rejected'
+
   return (
-    <div className="animate-fade-up">
-      <div className="flex items-start gap-3 mb-5">
-        <div className={cn('w-10 h-10 rounded-lg flex items-center justify-center shrink-0', st.bg)}>
-          <StatusIcon size={20} className={cn(st.color, detail.status === 'in_progress' && 'animate-spin-slow')} />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <h2 className="text-base font-semibold text-foreground">{detail.taskName || detail.id}</h2>
-            <span
-              className="text-[10px] font-medium px-1.5 py-0.5 rounded capitalize"
-              style={{ background: `${repoColor}15`, color: repoColor, border: `1px solid ${repoColor}30` }}
-            >
-              {detail.repo}
-            </span>
-            {val && (
-              <span className={cn('text-[10px] px-2 py-0.5 rounded-full border font-medium', val.bg, val.color, val.border)}>
-                {val.label}
-              </span>
-            )}
+    <div className="animate-fade-up space-y-6">
+      {/* ━━━ ZONE 1: VERDICT ━━━ */}
+      <div className={cn('rounded-xl p-5', getHeroBg(detail.status, detail.validation), getHeroStyle(detail.status, detail.validation))}>
+        {/* Compact hero header */}
+        <div className="flex items-start gap-3">
+          <div className={cn('w-9 h-9 rounded-lg flex items-center justify-center shrink-0', st.bg)}>
+            <StatusIcon size={18} className={cn(st.color, detail.status === 'in_progress' && 'animate-spin-slow')} />
           </div>
-          {detail.branch && detail.branch !== '(merged)' && (
-            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-              <CopyChip icon={<GitBranch size={9} />} text={detail.branch} label="branch name" />
-              {detail.worktreePath && detail.worktreePath !== '(merged)' && (
-                <CopyChip icon={null} text={detail.worktreePath} label="worktree path" />
+          <div className="flex-1 min-w-0">
+            <h2 className="text-base font-semibold text-foreground leading-tight">{detail.taskName || detail.id}</h2>
+            <div className="flex items-center gap-2.5 mt-1.5 text-xs text-muted-foreground flex-wrap">
+              <span
+                className="text-[10px] font-medium px-1.5 py-0.5 rounded capitalize"
+                style={{ background: `${repoColor}15`, color: repoColor, border: `1px solid ${repoColor}30` }}
+              >
+                {detail.repo}
+              </span>
+              <span className={cn('font-medium', st.color)}>{st.label}</span>
+              {relativeTime && (
+                <span
+                  className="flex items-center gap-1 font-mono"
+                  style={{ fontFamily: 'var(--font-mono)' }}
+                  title={detail.started || undefined}
+                >
+                  <Clock size={10} />
+                  {relativeTime}
+                </span>
+              )}
+              {val && (
+                <span className={cn('text-[10px] px-2 py-0.5 rounded-full border font-medium', val.bg, val.color, val.border)}>
+                  {val.label}
+                </span>
               )}
             </div>
-          )}
-          <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-            <span className={cn('font-medium', st.color)}>{st.label}</span>
-            {relativeTime && (
-              <span
-                className="flex items-center gap-1 font-mono"
-                style={{ fontFamily: 'var(--font-mono)' }}
-                title={detail.started || undefined}
+
+            {/* Collapsible branch/worktree details */}
+            <CollapsibleDetails branch={detail.branch} worktreePath={detail.worktreePath} />
+          </div>
+
+          {/* Top-right controls: Resume / Stop */}
+          <div className="flex items-center gap-2 shrink-0">
+            {!hasLiveTerminal && (
+              <button
+                onClick={handleResume}
+                disabled={actionLoading}
+                className="px-3 py-1.5 rounded-md text-xs font-medium border border-border text-muted-foreground hover:text-foreground hover:bg-card-hover transition-all disabled:opacity-50"
               >
-                <Clock size={10} />
-                {relativeTime}
-              </span>
+                <span className="flex items-center gap-1.5"><RotateCcw size={12} /> Resume</span>
+              </button>
             )}
-            {detail.progressCount > 0 && (
-              <span className="font-mono" style={{ fontFamily: 'var(--font-mono)' }}>
-                {detail.progressCount} steps
-              </span>
+            {detail.status === 'in_progress' && hasLiveTerminal && (
+              <button
+                onClick={handleKill}
+                className={cn(
+                  'px-3 py-1.5 rounded-md text-xs font-medium transition-all shrink-0',
+                  confirmKill
+                    ? 'bg-status-failed-bg text-status-failed border border-status-failed-border'
+                    : 'text-muted-foreground hover:text-status-failed hover:bg-status-failed-bg border border-transparent hover:border-status-failed-border'
+                )}
+                disabled={killing}
+              >
+                {killing ? <Loader size={12} className="animate-spin-slow" /> : confirmKill ? 'Confirm Stop?' : <span className="flex items-center gap-1.5"><Square size={12} /> Stop</span>}
+              </button>
             )}
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
-          {!hasLiveTerminal && (
-            <button
-              onClick={handleResume}
-              disabled={actionLoading}
-              className="px-3 py-1.5 rounded-md text-xs font-medium border border-border text-muted-foreground hover:text-foreground hover:bg-card-hover transition-all disabled:opacity-50"
-            >
-              <span className="flex items-center gap-1.5"><RotateCcw size={12} /> Resume</span>
-            </button>
-          )}
-          {detail.status === 'in_progress' && hasLiveTerminal && (
-            <button
-              onClick={handleKill}
-              className={cn(
-                'px-3 py-1.5 rounded-md text-xs font-medium transition-all shrink-0',
-                confirmKill
-                  ? 'bg-status-failed-bg text-status-failed border border-status-failed-border'
-                  : 'text-muted-foreground hover:text-status-failed hover:bg-status-failed-bg border border-transparent hover:border-status-failed-border'
+        {/* Results summary — visually dominant with accent bar */}
+        {detail.results && (
+          <div className="mt-4">
+            <ResultsSummary text={detail.results} statusColor={statusColor} />
+          </div>
+        )}
+
+        {/* Action bar — Approve / Request Changes / Mark Done — right here in Zone 1 */}
+        {(canAct || (!taskMarked && detail.status === 'completed')) && (
+          <div className="mt-4 space-y-2">
+            <div className="flex items-center gap-2">
+              {canAct && (
+                <>
+                  <button
+                    onClick={handleValidate}
+                    disabled={actionLoading}
+                    className={cn(
+                      'flex items-center gap-1.5 px-4 py-2 rounded-md text-xs font-semibold transition-all',
+                      'bg-status-active/90 text-background',
+                      'hover:bg-status-active disabled:opacity-50 disabled:cursor-not-allowed'
+                    )}
+                  >
+                    {actionLoading ? <Loader size={13} className="animate-spin" /> : <CheckCircle size={13} />}
+                    Approve Changes
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowRejectInput(!showRejectInput)
+                      setRejectNotes('')
+                    }}
+                    disabled={actionLoading}
+                    className={cn(
+                      'flex items-center gap-1.5 px-4 py-2 rounded-md text-xs font-medium transition-colors',
+                      'border border-border text-muted-foreground',
+                      'hover:text-status-failed hover:border-status-failed-border hover:bg-status-failed-bg/50',
+                      'disabled:opacity-50 disabled:cursor-not-allowed'
+                    )}
+                  >
+                    <XCircle size={13} />
+                    Request Changes
+                  </button>
+                </>
               )}
-              disabled={killing}
-            >
-              {killing ? <Loader size={12} className="animate-spin-slow" /> : confirmKill ? 'Confirm Stop?' : <span className="flex items-center gap-1.5"><Square size={12} /> Stop</span>}
-            </button>
-          )}
-        </div>
+
+              {!taskMarked && detail.status === 'completed' && (
+                <button
+                  onClick={handleMarkDone}
+                  disabled={markingDone}
+                  className={cn(
+                    'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
+                    canAct ? 'ml-auto' : '',
+                    'border border-border bg-card text-foreground/80 hover:bg-card-hover disabled:opacity-50'
+                  )}
+                  title="Mark matching task as done in todo"
+                >
+                  {markingDone ? <Loader size={13} className="animate-spin-slow" /> : <ListChecks size={13} />}
+                  Mark Task Done
+                </button>
+              )}
+            </div>
+
+            {showRejectInput && (
+              <div className="flex items-center gap-2 animate-slide-in">
+                <input
+                  value={rejectNotes}
+                  onChange={(e) => setRejectNotes(e.target.value)}
+                  placeholder="What needs to change?"
+                  className="flex-1 h-8 rounded-md border border-border bg-card px-2.5 text-xs text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-status-review/40"
+                  onKeyDown={(e) => { if (e.key === 'Enter' && rejectNotes.trim()) handleReject() }}
+                />
+                <button
+                  onClick={handleReject}
+                  disabled={!rejectNotes.trim() || actionLoading}
+                  className="h-8 px-3 rounded-md text-xs font-medium bg-status-failed text-white disabled:opacity-50"
+                >
+                  Submit
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Feedback message */}
+        {feedback && (
+          <div className={cn('mt-3 rounded-md px-3 py-2 text-xs font-medium animate-fade-up', feedback.isError
+            ? 'bg-status-failed-bg text-status-failed border border-status-failed-border'
+            : 'bg-status-active-bg text-status-active border border-status-active-border')}>
+            {feedback.msg}
+          </div>
+        )}
+
+        {/* Review queue continuity — after action */}
+        {isResolved && reviewQueue && (
+          <div className="mt-3 flex items-center gap-3 text-xs">
+            {reviewQueue.total > 0 ? (
+              <button
+                onClick={onBack}
+                className="flex items-center gap-1.5 text-primary hover:text-foreground transition-colors font-medium"
+              >
+                <ChevronRight size={12} />
+                {reviewQueue.total} more to review
+              </button>
+            ) : (
+              <span className="text-muted-foreground/60">All caught up</span>
+            )}
+          </div>
+        )}
       </div>
 
-      {detail.results && (
-        <div className="mb-5">
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">Results</p>
-          <ResultsSummary text={detail.results} />
-        </div>
-      )}
+      {/* ━━━ ZONE 2: EVIDENCE ━━━ */}
+      <div className="space-y-5">
+        <DiffSummary diffData={diffData} diffLoading={diffLoading} />
 
-      <ProgressTimeline entries={detail.progressEntries} />
+        <ProgressTimeline entries={detail.progressEntries} />
 
-      {detail.rawContent && (
-        <div className="mb-5">
-          <button
-            type="button"
-            onClick={() => setShowFullOutput(v => !v)}
-            className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2 hover:text-foreground/70 transition-colors"
-          >
-            <ChevronRight size={12} className={cn('transition-transform duration-200', showFullOutput && 'rotate-90')} />
-            Full Job Output
-          </button>
-          {showFullOutput && <FullJobOutput rawContent={detail.rawContent} />}
-        </div>
-      )}
-
-      <DiffSummary diffData={diffData} diffLoading={diffLoading} />
-
-      {detail.validationNotes && (
-        <div className="mb-5">
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">Validation</p>
-          <div className="rounded-lg border border-status-review-border bg-status-review-bg px-4 py-3 text-xs text-foreground/80 leading-relaxed">
-            <Markdown remarkPlugins={[remarkGfm]} components={mdComponents}>{formatTimestampsInText(detail.validationNotes)}</Markdown>
+        {detail.rawContent && (
+          <div>
+            <button
+              type="button"
+              onClick={() => setShowFullOutput(v => !v)}
+              className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2 hover:text-foreground/70 transition-colors"
+            >
+              <ChevronRight size={12} className={cn('transition-transform duration-200', showFullOutput && 'rotate-90')} />
+              Full Job Output
+            </button>
+            {showFullOutput && <FullJobOutput rawContent={detail.rawContent} />}
           </div>
-        </div>
-      )}
+        )}
 
-      {feedback && (
-        <div className={cn('rounded-md px-3 py-2 text-xs font-medium animate-fade-up mb-4', feedback.isError
-          ? 'bg-status-failed-bg text-status-failed border border-status-failed-border'
-          : 'bg-status-active-bg text-status-active border border-status-active-border')}>
-          {feedback.msg}
-        </div>
-      )}
-
-      {(canAct || (!taskMarked && detail.status === 'completed')) && (
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            {canAct && (
-              <>
-                <button
-                  onClick={handleValidate}
-                  disabled={actionLoading}
-                  className={cn(
-                    'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
-                    'border border-status-active-border bg-status-active-bg text-status-active',
-                    'hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed'
-                  )}
-                >
-                  <CheckCircle size={13} />
-                  Validate
-                </button>
-                <button
-                  onClick={() => {
-                    setShowRejectInput(!showRejectInput)
-                    setRejectNotes('')
-                  }}
-                  disabled={actionLoading}
-                  className={cn(
-                    'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
-                    'border border-status-failed-border bg-status-failed-bg text-status-failed',
-                    'hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed'
-                  )}
-                >
-                  <XCircle size={13} />
-                  Reject
-                </button>
-              </>
-            )}
-
-            {!taskMarked && detail.status === 'completed' && (
-              <button
-                onClick={handleMarkDone}
-                disabled={markingDone}
-                className={cn(
-                  'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ml-auto',
-                  'border border-border bg-card text-foreground/80 hover:bg-card-hover disabled:opacity-50'
-                )}
-                title="Mark matching task as done in todo"
-              >
-                {markingDone ? <Loader size={13} className="animate-spin-slow" /> : <ListChecks size={13} />}
-                Mark Task Done
-              </button>
-            )}
-          </div>
-
-          {showRejectInput && (
-            <div className="flex items-center gap-2 animate-slide-in">
-              <input
-                value={rejectNotes}
-                onChange={(e) => setRejectNotes(e.target.value)}
-                placeholder="Reason for rejection..."
-                className="flex-1 h-8 rounded-md border border-border bg-card px-2.5 text-xs text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-status-review/40"
-              />
-              <button
-                onClick={handleReject}
-                disabled={!rejectNotes.trim() || actionLoading}
-                className="h-8 px-3 rounded-md text-xs font-medium bg-status-failed text-white disabled:opacity-50"
-              >
-                Submit
-              </button>
+        {detail.validationNotes && (
+          <div>
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">Validation Notes</p>
+            <div className="rounded-lg border border-status-review-border bg-status-review-bg px-4 py-3 text-xs text-foreground/80 leading-relaxed">
+              <Markdown remarkPlugins={[remarkGfm]} components={mdComponents}>{formatTimestampsInText(detail.validationNotes)}</Markdown>
             </div>
-          )}
-        </div>
-      )}
+          </div>
+        )}
+      </div>
 
-      <AgentActions
-        detail={detail}
-        agentId={agentId}
-        diffData={diffData}
-        onJobsRefresh={onJobsRefresh}
-        onOverviewRefresh={onOverviewRefresh}
-        onStartTask={onStartTask}
-        onBack={onBack}
-        onRemoveSession={onRemoveSession}
-        showToast={showToast}
-        showFeedbackMsg={showFeedbackMsg}
-      />
+      {/* ━━━ ZONE 3: NEXT STEPS ━━━ */}
+      <div className="pt-5 border-t border-border">
+        <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-4">Next Steps</p>
+        <AgentActions
+          detail={detail}
+          agentId={agentId}
+          diffData={diffData}
+          onJobsRefresh={onJobsRefresh}
+          onOverviewRefresh={onOverviewRefresh}
+          onStartTask={onStartTask}
+          onBack={onBack}
+          onRemoveSession={onRemoveSession}
+          showToast={showToast}
+          showFeedbackMsg={showFeedbackMsg}
+        />
+      </div>
     </div>
   )
 }
