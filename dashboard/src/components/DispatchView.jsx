@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Send, Loader, Bot, Sparkles } from 'lucide-react'
+import { Send, Bot, Sparkles } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { repoIdentityColors, AGENT_OPTIONS } from '../lib/constants'
 import { useAgentModels } from '../lib/useAgentModels'
@@ -36,6 +36,7 @@ export default function DispatchView({ overview, onDispatch, initialRepo, initia
   const [autoMerge, setAutoMerge] = useState(s.autoMerge ?? false)
   const [plainOutput, setPlainOutput] = useState(s.plainOutput ?? false)
   const [dispatching, setDispatching] = useState(false)
+  const [btnPhase, setBtnPhase] = useState('idle') // idle | shaking | sliding | hidden | returning
 
   const isCodex = agent === 'codex'
   const models = useAgentModels(agent)
@@ -88,7 +89,13 @@ export default function DispatchView({ overview, onDispatch, initialRepo, initia
 
   async function handleDispatch(e) {
     e.preventDefault()
-    if (!prompt.trim() || !repo || dispatching) return
+    if (!prompt.trim() || !repo || btnPhase !== 'idle') return
+
+    // Kick off button animation — disable only after content slides out
+    setBtnPhase('shaking')
+    setTimeout(() => setBtnPhase('sliding'), 400)
+    setTimeout(() => setBtnPhase('hidden'), 800)
+
     setDispatching(true)
     try {
       await onDispatch?.({
@@ -108,6 +115,8 @@ export default function DispatchView({ overview, onDispatch, initialRepo, initia
       console.error('Dispatch failed:', err)
     } finally {
       setDispatching(false)
+      setTimeout(() => setBtnPhase('returning'), 1800)
+      setTimeout(() => setBtnPhase('idle'), 2400)
     }
   }
 
@@ -278,16 +287,26 @@ export default function DispatchView({ overview, onDispatch, initialRepo, initia
             <div aria-hidden="true" className="text-[11px] mb-1 invisible select-none">·</div>
             <button
               type="submit"
-              disabled={!prompt.trim() || !repo || dispatching}
-              style={{ background: 'linear-gradient(135deg, #8bab8f 0%, #6d9472 100%)', color: '#1a1b1e' }}
+              style={{
+                background: 'linear-gradient(135deg, #8bab8f 0%, #6d9472 100%)',
+                color: '#1a1b1e',
+                boxShadow: btnPhase !== 'idle'
+                  ? '0 0 18px 4px rgba(139,171,143,0.45)'
+                  : '0 0 8px 2px rgba(139,171,143,0.18)',
+                transition: 'box-shadow 400ms ease',
+                opacity: (!prompt.trim() || !repo) && btnPhase === 'idle' ? 0.4 : 1,
+                cursor: (!prompt.trim() || !repo) && btnPhase === 'idle' ? 'not-allowed' : 'pointer',
+                ...(btnPhase === 'hidden' && { transform: 'translateX(400px)' }),
+              }}
               className={cn(
                 'inline-flex items-center gap-2.5 pl-5 pr-6 h-10 rounded-full text-[13px] font-semibold shrink-0',
-                'transition-transform duration-150 ease-out',
-                'hover:scale-105 active:scale-[0.97]',
-                'disabled:opacity-40 disabled:cursor-not-allowed disabled:scale-100'
+                btnPhase === 'idle' && 'transition-transform duration-150 ease-out hover:scale-105 active:scale-[0.97]',
+                btnPhase === 'shaking' && 'animate-dispatch-shake',
+                btnPhase === 'sliding' && 'animate-dispatch-btn-out',
+                btnPhase === 'returning' && 'animate-dispatch-btn-in',
               )}
             >
-              {dispatching ? <Loader size={15} className="animate-spin" /> : <Send size={15} />}
+              <Send size={15} />
               Dispatch
             </button>
           </div>

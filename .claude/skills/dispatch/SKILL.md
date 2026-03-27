@@ -1,9 +1,9 @@
 ---
-name: workdown
-description: A CLI view of your markdown files. Shows open tasks, recent activity, and active jobs across all connected repos. Recommends what to work on next. Use when the user asks "what should I work on?", wants a status overview, or invokes /workdown.
+name: dispatch
+description: A CLI view of your markdown files. Shows open tasks, recent activity, and active jobs across all connected repos. Recommends what to work on next. Use when the user asks "what should I work on?", wants a status overview, or invokes /dispatch.
 ---
 
-# /workdown — Cross-Repo Status and Priorities
+# /dispatch — Cross-Repo Status and Priorities
 
 Provides a unified view of tasks, activity, and active jobs across all configured repos. Helps you decide what to work on next.
 
@@ -11,7 +11,7 @@ Provides a unified view of tasks, activity, and active jobs across all configure
 
 - User asks "what should I work on?"
 - User wants a status overview across repos
-- User invokes `/workdown`
+- User invokes `/dispatch`
 
 ## Instructions
 

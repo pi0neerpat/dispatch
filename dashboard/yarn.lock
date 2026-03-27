@@ -1440,6 +1440,33 @@ __metadata:
   languageName: node
   linkType: hard
 
+"dispatch-dashboard@workspace:.":
+  version: 0.0.0-use.local
+  resolution: "dispatch-dashboard@workspace:."
+  dependencies:
+    "@tailwindcss/vite": "npm:4.1.12"
+    "@vitejs/plugin-react": "npm:4.7.0"
+    "@xterm/addon-fit": "npm:^0.10.0"
+    "@xterm/addon-web-links": "npm:^0.11.0"
+    "@xterm/xterm": "npm:^5.5.0"
+    clsx: "npm:2.1.1"
+    concurrently: "npm:^9.0.0"
+    cors: "npm:^2.8.5"
+    express: "npm:^4.21.0"
+    lucide-react: "npm:0.487.0"
+    node-pty: "npm:^1.0.0"
+    react: "npm:^18.3.1"
+    react-dom: "npm:^18.3.1"
+    react-markdown: "npm:^10.1.0"
+    react-router-dom: "npm:^7.13.2"
+    remark-gfm: "npm:^4.0.1"
+    tailwind-merge: "npm:3.2.0"
+    tailwindcss: "npm:4.1.12"
+    vite: "npm:6.3.5"
+    ws: "npm:^8.18.0"
+  languageName: unknown
+  linkType: soft
+
 "dunder-proto@npm:^1.0.1":
   version: 1.0.1
   resolution: "dunder-proto@npm:1.0.1"
@@ -3445,33 +3472,6 @@ __metadata:
   checksum: 10c0/26383305e249651d4c58e6705d5f8425f153211aef95f15161c151f7b8de885f24751b377e4a0b3dd42cce09aad3f87a61dab7636859c0d89b7daf1a1e2a5c78
   languageName: node
   linkType: hard
-
-"scribular-hub-dashboard@workspace:.":
-  version: 0.0.0-use.local
-  resolution: "scribular-hub-dashboard@workspace:."
-  dependencies:
-    "@tailwindcss/vite": "npm:4.1.12"
-    "@vitejs/plugin-react": "npm:4.7.0"
-    "@xterm/addon-fit": "npm:^0.10.0"
-    "@xterm/addon-web-links": "npm:^0.11.0"
-    "@xterm/xterm": "npm:^5.5.0"
-    clsx: "npm:2.1.1"
-    concurrently: "npm:^9.0.0"
-    cors: "npm:^2.8.5"
-    express: "npm:^4.21.0"
-    lucide-react: "npm:0.487.0"
-    node-pty: "npm:^1.0.0"
-    react: "npm:^18.3.1"
-    react-dom: "npm:^18.3.1"
-    react-markdown: "npm:^10.1.0"
-    react-router-dom: "npm:^7.13.2"
-    remark-gfm: "npm:^4.0.1"
-    tailwind-merge: "npm:3.2.0"
-    tailwindcss: "npm:4.1.12"
-    vite: "npm:6.3.5"
-    ws: "npm:^8.18.0"
-  languageName: unknown
-  linkType: soft
 
 "semver@npm:^6.3.1":
   version: 6.3.1

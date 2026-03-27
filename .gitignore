@@ -36,9 +36,6 @@ notes/swarm/
 # Plans (project-specific work-in-progress)
 plans/
 
-# Clauffice (removed — now installed globally)
-.claude/skills/agent-cribs/
-
 # Agent runtime
 .agents/
 
@@ -47,3 +44,16 @@ plans/
 
 # Claude references (strategy docs, not committed)
 .claude/references/
+
+# Only keep selected skills (cannot use .claude/skills/ alone — negations do not
+# re-include files inside an ignored parent directory)
+.claude/skills/*
+!.claude/skills/dispatch/
+!.claude/skills/dispatch/**
+!.claude/skills/add-repo/
+!.claude/skills/add-repo/**
+!.claude/skills/done/
+!.claude/skills/done/**
+
+# Hide personal notes
+notes/

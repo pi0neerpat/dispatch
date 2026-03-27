@@ -1,6 +1,6 @@
 AGENT_CRIBS_SLUG: scribular
 
-# Claude Agent Hub
+# Dispatch
 
 A multi-repo coordination hub for Claude Code agent workflows. Aggregates tasks, activity, and agent job progress across multiple repos. Includes a CLI, terminal dashboard, and web dashboard.
 
@@ -63,9 +63,9 @@ Separate Node.js project with its own `package.json` (ESM, `"type": "module"`).
 
 Project-specific skills and hooks committed to this repo:
 
-- **`dot-claude/skills/workdown/`** -- Cross-repo task view and work prioritization.
+- **`dot-claude/skills/dispatch/`** -- Cross-repo task view and work prioritization.
 - **`dot-claude/skills/done/`** -- Mark a task done and log activity.
-- **`dot-claude/skills/add-repo/`** -- Connect a new repo to Work.Down.
+- **`dot-claude/skills/add-repo/`** -- Connect a new repo to Dispatch.
 - **`dot-claude/hooks/protect-env.js`** -- Blocks Claude from reading/editing `.env` files.
 - **`dot-claude/hooks/hub-stop.js`** -- Signals the dashboard when a dispatched Claude session ends.
 

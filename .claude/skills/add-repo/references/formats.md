@@ -1,4 +1,4 @@
-# Work.Down File Formats
+# Dispatch File Formats
 
 ## config.json repo entry
 
@@ -81,7 +81,7 @@ The `hub` entry (path `.`) must always remain in the list and should not be modi
 
 ## YYYY-MM-DD
 
-- **Initial setup** — added to Work.Down hub
+- **Initial setup** — added to Dispatch hub
 
 ```
 

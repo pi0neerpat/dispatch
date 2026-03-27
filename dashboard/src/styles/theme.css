@@ -118,6 +118,36 @@
   }
 }
 
+/* Dispatch button animations */
+@keyframes dispatch-shake {
+  0%   { transform: rotate(0deg); }
+  7%   { transform: rotate(2deg); }
+  14%  { transform: rotate(-2deg); }
+  21%  { transform: rotate(2deg); }
+  28%  { transform: rotate(-2deg); }
+  35%  { transform: rotate(2deg); }
+  42%  { transform: rotate(-2deg); }
+  49%  { transform: rotate(2deg); }
+  56%  { transform: rotate(-2deg); }
+  63%  { transform: rotate(2deg); }
+  70%  { transform: rotate(-2deg); }
+  77%  { transform: rotate(2deg); }
+  84%  { transform: rotate(-2deg); }
+  91%  { transform: rotate(2deg); }
+  100% { transform: rotate(0deg); }
+}
+@keyframes dispatch-btn-out {
+  from { transform: translateX(0); }
+  to   { transform: translateX(400px); }
+}
+@keyframes dispatch-btn-in {
+  from { transform: translateX(0); opacity: 0; }
+  to   { transform: translateX(0); opacity: 0.4; }
+}
+.animate-dispatch-shake   { animation: dispatch-shake 400ms linear; }
+.animate-dispatch-btn-out { animation: dispatch-btn-out 400ms ease-in forwards; }
+.animate-dispatch-btn-in  { animation: dispatch-btn-in 600ms ease-out forwards; }
+
 /* Animations */
 @keyframes fade-up {
   from { opacity: 0; transform: translateY(6px) scale(0.99); }

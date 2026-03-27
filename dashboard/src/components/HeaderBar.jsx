@@ -43,7 +43,7 @@ export default function HeaderBar({
     <header className="sticky top-0 z-50 bg-background border-b border-border">
       <div className="px-6 py-2 flex items-center gap-4">
         <h1 className="text-sm font-medium leading-none tracking-wider shrink-0" style={{ fontFamily: 'var(--font-display)', color: '#8bab8f' }}>
-          Work↓Down
+          Dispatch
         </h1>
         <div className="relative flex-1 max-w-lg" ref={searchContainerRef}>
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-border bg-card">

@@ -1,6 +1,6 @@
 ---
 name: add-repo
-description: Add a new repository to the Work.Down hub. Updates config.json, scaffolds todo.md, bugs.md, and activity-log.md in the target repo, and installs the hub-stop hook so the dashboard can track job completion. Use when someone says "add a repo", "track a new repo", "connect a repo", or invokes /add-repo.
+description: Add a new repository to the Dispatch hub. Updates config.json, scaffolds todo.md, bugs.md, and activity-log.md in the target repo, and installs the hub-stop hook so the dashboard can track job completion. Use when someone says "add a repo", "track a new repo", "connect a repo", or invokes /add-repo.
 argument-hint: [repo-name or path]
 allowed-tools: Read, Write, Edit, Bash(ls *), Bash(test *), Bash(mkdir *), Bash(cp *), Bash(node *)
 ---
@@ -105,7 +105,7 @@ Create any that are missing using the exact formats from [references/formats.md]
 ## Step 7: Install hooks
 
 Two hooks get installed in every connected repo:
-- **`hub-stop.js`** — signals the dashboard when a dispatched job finishes. No-op when Work.Down isn't running.
+- **`hub-stop.js`** — signals the dashboard when a dispatched job finishes. No-op when Dispatch isn't running.
 - **`protect-env.js`** — blocks Claude from reading or modifying `.env` files.
 
 **7a. Create the hooks directory and copy both hook files:**

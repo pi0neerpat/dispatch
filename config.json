@@ -11,7 +11,7 @@
       "cleanupScript": "rm -rf dist"
     },
     {
-      "name": "work-down",
+      "name": "dispatch",
       "path": ".",
       "taskFile": "todo.md",
       "bugsFile": "bugs.md",

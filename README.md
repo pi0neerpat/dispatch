@@ -1,9 +1,9 @@
-# Work↓Down
+# Dispatch
 
 **Agents for your Markdown Files, not the other way around.**
 
 
-Markdown-based coordination for Claude Code, Codex, and other AI agents. Tasks live in plain markdown files you already have. Work.Down gives you a dashboard to dispatch agents, track their progress, and automatically close out the work when you validate it — without touching your existing setup.
+Markdown-based coordination for Claude Code, Codex, and other AI agents. Tasks live in plain markdown files you already have. Dispatch gives you a dashboard to dispatch agents, track their progress, and automatically close out the work when you validate it — without touching your existing setup.
 
 <img src="docs/app.png" alt="app overview" width="500">
 
@@ -11,7 +11,7 @@ Markdown-based coordination for Claude Code, Codex, and other AI agents. Tasks l
 
 ## Principles
 
-- Work↓Down doesn't interfere with your existing setup. Simple and lightweight.
+- Dispatch doesn't interfere with your existing setup. Simple and lightweight.
 - Markdown files (.md) are the source of truth. No new file formats or data structures.
 - Each task is worked on by a single agent. No parallelization or sub-agents.
 
@@ -58,7 +58,7 @@ When the agent finishes, the job moves to the review queue. Open the job to read
 
 **5. Validate**
 
-Click Validate in the dashboard. Work.Down automatically:
+Click Validate in the dashboard. Dispatch automatically:
 - Marks the task done in `todo.md`
 - Logs an entry to `activity-log.md`
 
@@ -73,13 +73,13 @@ The job file in `notes/jobs/` stays as a permanent record.
 
 The full list. Nothing is installed globally. 
 
-**In the Work.Down directory:**
+**In the Dispatch directory:**
 
 | What | Path |
 |------|------|
 | Dashboard (React + Express) | `dashboard/` |
 | CLI + parsers | `cli.js`, `parsers.js` |
-| Claude skills (`/workdown`, `/add-repo`, `/done`) | `.claude/skills/` |
+| Claude skills (`/dispatch`, `/add-repo`, `/done`) | `.claude/skills/` |
 
 **In each repo you connect (via `/add-repo`):**
 
@@ -90,7 +90,7 @@ The full list. Nothing is installed globally.
 | Hook registration | `.claude/settings.json` (merged with any existing config) |
 | `todo.md`, `bugs.md`, `activity-log.md` | repo root (only created if missing) |
 
-`hub-stop.js` is a no-op unless Work.Down dispatched that Claude session. It won't affect normal Claude usage in your repos.
+`hub-stop.js` is a no-op unless Dispatch dispatched that Claude session. It won't affect normal Claude usage in your repos.
 
 ---
 
@@ -108,13 +108,13 @@ brew install tmux
 sudo apt install tmux
 ```
 
-Work.Down automatically uses tmux when available and falls back gracefully if it isn't installed.
+Dispatch automatically uses tmux when available and falls back gracefully if it isn't installed.
 
 ### 1. Clone and install
 
 ```bash
-git clone https://github.com/your-org/workdown
-cd workdown/dashboard && yarn install && cd ..
+git clone https://github.com/your-org/dispatch
+cd dispatch/dashboard && yarn install && cd ..
 ```
 
 ### 2. Open in Claude Code
@@ -148,7 +148,7 @@ Open [http://localhost:5173](http://localhost:5173).
 1. Open tasks in your repos' `todo.md` files appear in the dashboard
 2. Click a task to dispatch a Claude Code agent — it opens a terminal session in that repo
 3. The agent writes progress to `notes/jobs/YYYY-MM-DD-slug.md` as it works
-4. When you validate the job in the dashboard, Work.Down automatically:
+4. When you validate the job in the dashboard, Dispatch automatically:
    - Marks the task done in `todo.md`
    - Logs an entry to `activity-log.md`
 
@@ -158,7 +158,7 @@ Your markdown files stay the source of truth throughout. The dashboard is a lens
 
 ## File formats
 
-Work.Down reads and writes standard markdown. If you already have these files, they'll be picked up as-is.
+Dispatch reads and writes standard markdown. If you already have these files, they'll be picked up as-is.
 
 ### Tasks — `todo.md`
 
@@ -218,12 +218,12 @@ All output is JSON — designed for scripting and agent consumption.
 
 ## Claude skills
 
-Three skills are active when Claude Code is opened in the Work.Down directory:
+Three skills are active when Claude Code is opened in the Dispatch directory:
 
 | Skill | Invoke | What it does |
 |-------|--------|--------------|
-| `/workdown` | `/workdown` or "what should I work on?" | A CLI view of your markdown files — tasks, activity, and what to work on next |
-| `/add-repo` | `/add-repo` | Connect a new repo to Work.Down |
+| `/dispatch` | `/dispatch` or "what should I work on?" | A CLI view across all your markdown files — tasks, activity, and what to work on next |
+| `/add-repo` | `/add-repo` | Connect a new repo to Dispatch |
 | `/done` | `/done` or "we're done" | Mark a task done and log activity manually |
 
 `/done` is for work done outside the dashboard — manual sessions, ad-hoc fixes, anything not dispatched through the UI.
