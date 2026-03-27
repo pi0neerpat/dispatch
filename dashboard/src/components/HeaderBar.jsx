@@ -1,6 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { Activity, AlertCircle, ShieldOff, Shield, Search, Command } from 'lucide-react'
-import { cn } from '../lib/utils'
+import { Activity, AlertCircle, Search, Command } from 'lucide-react'
 
 function ConnectionDot({ connected }) {
   return (
@@ -18,8 +17,6 @@ export default function HeaderBar({
   activeJobCount = 0,
   reviewCount = 0,
   error,
-  skipPermissions,
-  onToggleSkipPermissions,
   searchQuery,
   onSearchQueryChange,
   searchResults,
@@ -98,24 +95,6 @@ export default function HeaderBar({
               <span className="opacity-60 hidden sm:inline">review</span>
             </span>
           )}
-          <button
-            onClick={onToggleSkipPermissions}
-            className={cn(
-              'flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded transition-all',
-              skipPermissions
-                ? 'bg-status-review-bg text-status-review/70'
-                : 'bg-status-active-bg text-status-active/70'
-            )}
-            title={skipPermissions
-              ? 'Permissions are skipped (--dangerously-skip-permissions). Click to require permissions.'
-              : 'Permissions required. Click to skip permissions.'
-            }
-          >
-            {skipPermissions
-              ? <><ShieldOff size={10} strokeWidth={2.5} /><span className="hidden sm:inline">YOLO</span></>
-              : <><Shield size={10} strokeWidth={2.5} /><span className="hidden sm:inline">Safe</span></>
-            }
-          </button>
           <ConnectionDot connected={!error} />
         </div>
       </div>

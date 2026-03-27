@@ -1,52 +1,94 @@
 import { useState, useEffect, useRef } from 'react'
-import { Send, Loader } from 'lucide-react'
+import { Send, Loader, Bot, Sparkles } from 'lucide-react'
 import { cn } from '../lib/utils'
-import { repoIdentityColors, MODEL_OPTIONS } from '../lib/constants'
+import { repoIdentityColors, AGENT_OPTIONS } from '../lib/constants'
+import { useAgentModels } from '../lib/useAgentModels'
+import Toggle from './Toggle'
 
-export default function DispatchView({ overview, onDispatch, initialRepo, initialPrompt, onDispatchComplete }) {
+const AGENT_ICONS = { claude: Bot, codex: Sparkles }
+
+function readSaved() {
+  try { return JSON.parse(localStorage.getItem('dispatch-settings')) || {} }
+  catch { return {} }
+}
+
+function writeSaved(patch) {
+  try {
+    const prev = readSaved()
+    localStorage.setItem('dispatch-settings', JSON.stringify({ ...prev, ...patch }))
+  } catch {}
+}
+
+export default function DispatchView({ overview, onDispatch, initialRepo, initialPrompt, onDispatchComplete, settings }) {
   const repos = overview?.repos || []
 
-  // Read saved settings synchronously so useState gets correct initial values.
-  // Previously a restore useEffect ran after mount, but the save useEffect also
-  // fired on mount with default values — overwriting localStorage before the
-  // queued state updates from the restore could trigger a second save.
+  // Read from localStorage once on mount (sync, before useState defaults)
   const saved = useRef(null)
-  if (saved.current === null) {
-    try { saved.current = JSON.parse(localStorage.getItem('dispatch-settings')) || {} }
-    catch { saved.current = {} }
-  }
+  if (saved.current === null) saved.current = readSaved()
+  const s = saved.current
 
-  const [repo, setRepo] = useState(initialRepo || saved.current.repo || repos[0]?.name || '')
+  const agentSettings = settings?.agents || {}
+
+  const [agent, setAgent] = useState(s.agent || 'claude')
+  const [repo, setRepo] = useState(initialRepo || s.repo || repos[0]?.name || '')
   const [baseBranch, setBaseBranch] = useState('')
   const [prompt, setPrompt] = useState(initialPrompt || '')
-  const [model, setModel] = useState(saved.current.model || MODEL_OPTIONS[0].value)
-  const [maxTurns, setMaxTurns] = useState(saved.current.maxTurns ?? 10)
-  const [autoMerge, setAutoMerge] = useState(saved.current.autoMerge ?? false)
+  const [autoMerge, setAutoMerge] = useState(s.autoMerge ?? false)
+  const [plainOutput, setPlainOutput] = useState(s.plainOutput ?? false)
   const [dispatching, setDispatching] = useState(false)
 
-  // Persist settings on change so they survive route navigation / refresh
+  const isCodex = agent === 'codex'
+  const models = useAgentModels(agent)
+
+  // Model: restore saved model, else use settings default (live list will snap if needed)
+  const [model, setModel] = useState(() =>
+    s.model || agentSettings[s.agent || 'claude']?.defaultModel || ''
+  )
+
+  // Turns: restore saved, else use settings default
+  const [maxTurns, setMaxTurns] = useState(() => {
+    if (s.maxTurns != null) return s.maxTurns
+    return agentSettings[s.agent || 'claude']?.defaultMaxTurns ?? 10
+  })
+
+  // When models list loads and current model isn't in it, snap to first
   useEffect(() => {
-    try {
-      localStorage.setItem('dispatch-settings', JSON.stringify({ repo, model, maxTurns, autoMerge }))
-    } catch {}
-  }, [repo, model, maxTurns, autoMerge])
+    if (models.length > 0 && !models.find(m => m.value === model)) {
+      const newModel = agentSettings[agent]?.defaultModel || models[0].value
+      setModel(newModel)
+      writeSaved({ model: newModel })
+    }
+  }, [models])
+
+  function switchAgent(newAgent) {
+    setAgent(newAgent)
+    const defaults = agentSettings[newAgent] || {}
+    const newModel = defaults.defaultModel || ''
+    const newTurns = defaults.defaultMaxTurns ?? (newAgent === 'claude' ? 10 : null)
+    setModel(newModel)
+    setMaxTurns(newTurns)
+    writeSaved({ agent: newAgent, model: newModel, maxTurns: newTurns })
+  }
+
+  // Persist individual fields immediately on change
+  useEffect(() => { writeSaved({ agent }) }, [agent])
+  useEffect(() => { writeSaved({ repo }) }, [repo])
+  useEffect(() => { writeSaved({ model }) }, [model])
+  useEffect(() => { writeSaved({ maxTurns }) }, [maxTurns])
+  useEffect(() => { writeSaved({ autoMerge }) }, [autoMerge])
+  useEffect(() => { writeSaved({ plainOutput }) }, [plainOutput])
 
   // Apply pre-fill when props change
-  useEffect(() => {
-    if (initialRepo) setRepo(initialRepo)
-  }, [initialRepo])
-
-  useEffect(() => {
-    if (initialPrompt) setPrompt(initialPrompt)
-  }, [initialPrompt])
+  useEffect(() => { if (initialRepo) setRepo(initialRepo) }, [initialRepo])
+  useEffect(() => { if (initialPrompt) setPrompt(initialPrompt) }, [initialPrompt])
 
   const selectedRepo = repos.find(r => r.name === repo)
   const defaultBranch = selectedRepo?.git?.branch || 'main'
+  const branchOptions = selectedRepo?.git?.branches || []
 
   async function handleDispatch(e) {
     e.preventDefault()
     if (!prompt.trim() || !repo || dispatching) return
-
     setDispatching(true)
     try {
       await onDispatch?.({
@@ -55,8 +97,10 @@ export default function DispatchView({ overview, onDispatch, initialRepo, initia
         originalTask: initialPrompt || null,
         baseBranch: baseBranch.trim() || defaultBranch,
         model,
-        maxTurns,
+        maxTurns: isCodex ? null : maxTurns,
         autoMerge,
+        plainOutput: !isCodex && plainOutput,
+        agent,
       })
       setPrompt('')
       onDispatchComplete?.()
@@ -67,12 +111,10 @@ export default function DispatchView({ overview, onDispatch, initialRepo, initia
     }
   }
 
-  const branchOptions = selectedRepo?.git?.branches || []
-
   return (
     <div>
-
       <form onSubmit={handleDispatch} className="space-y-3">
+
         {/* Repo + Branch row */}
         <div className="flex items-end gap-3">
           <div className="flex-1">
@@ -143,8 +185,36 @@ export default function DispatchView({ overview, onDispatch, initialRepo, initia
           />
         </div>
 
-        {/* Model + Max Turns + Auto-merge — single row */}
-        <div className="flex items-end gap-3">
+        {/* Agent + Model + Turns + Plain + Merge + Submit */}
+        <div className="flex items-start gap-3">
+          {/* Agent selector — vertical stack */}
+          <div>
+            <label className="block text-[11px] font-medium text-muted-foreground mb-1">Agent</label>
+            <div className="flex flex-col gap-1">
+              {AGENT_OPTIONS.map(opt => {
+                const Icon = AGENT_ICONS[opt.id] || Bot
+                const isSelected = agent === opt.id
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => switchAgent(opt.id)}
+                    style={isSelected ? { color: '#8bab8f', borderColor: '#8bab8f40', backgroundColor: '#8bab8f18' } : undefined}
+                    className={cn(
+                      'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[12px] font-medium border transition-colors',
+                      isSelected
+                        ? 'border-transparent'
+                        : 'border-border bg-card text-muted-foreground hover:text-foreground hover:bg-card-hover'
+                    )}
+                  >
+                    <Icon size={13} />
+                    {opt.label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
           <div className="w-44">
             <label htmlFor="dispatch-model" className="block text-[11px] font-medium text-muted-foreground mb-1">
               Model
@@ -155,7 +225,7 @@ export default function DispatchView({ overview, onDispatch, initialRepo, initia
               onChange={(e) => setModel(e.target.value)}
               className="w-full h-8 px-2.5 rounded-md border border-border bg-card text-[12px] text-foreground focus:outline-none focus:border-primary/30"
             >
-              {MODEL_OPTIONS.map(opt => (
+              {models.map(opt => (
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
               ))}
             </select>
@@ -170,55 +240,57 @@ export default function DispatchView({ overview, onDispatch, initialRepo, initia
               type="number"
               min={1}
               max={200}
-              value={maxTurns}
+              value={isCodex ? '' : (maxTurns ?? '')}
+              disabled={isCodex}
               onChange={(e) => setMaxTurns(parseInt(e.target.value) || 10)}
-              className="w-full h-8 px-2.5 rounded-md border border-border bg-card text-[12px] text-foreground font-mono focus:outline-none focus:border-primary/30"
+              placeholder={isCodex ? 'N/A' : '10'}
+              title={isCodex ? 'N/A for Codex' : undefined}
+              className={cn(
+                'w-full h-8 px-2.5 rounded-md border border-border bg-card text-[12px] text-foreground font-mono focus:outline-none focus:border-primary/30',
+                isCodex && 'opacity-40 cursor-not-allowed'
+              )}
               style={{ fontFamily: 'var(--font-mono)' }}
             />
           </div>
 
-          <div className="flex items-center gap-2 pb-0.5">
-            <button
-              type="button"
-              onClick={() => setAutoMerge(v => !v)}
-              className={cn(
-                'w-7 h-[16px] rounded-full border transition-colors relative shrink-0 overflow-hidden',
-                autoMerge
-                  ? 'bg-primary/20 border-primary/40'
-                  : 'bg-card border-border'
-              )}
-            >
-              <span
-                className={cn(
-                  'absolute top-[2px] left-[2px] w-2.5 h-2.5 rounded-full transition-transform duration-200',
-                  autoMerge
-                    ? 'translate-x-[11px] bg-primary'
-                    : 'translate-x-0 bg-muted-foreground/40'
-                )}
+          <div>
+            <label className="block text-[11px] font-medium text-muted-foreground mb-1">Plain</label>
+            <div className="h-8 flex items-center">
+              <Toggle
+                checked={!isCodex && plainOutput}
+                onChange={setPlainOutput}
+                disabled={isCodex}
+                title={isCodex ? 'Codex always runs in quiet mode' : 'Disable TUI (-p flag)'}
               />
-            </button>
-            <span className="text-[11px] text-foreground/70 whitespace-nowrap">Auto-merge</span>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-medium text-muted-foreground mb-1">Merge</label>
+            <div className="h-8 flex items-center">
+              <Toggle checked={autoMerge} onChange={setAutoMerge} />
+            </div>
           </div>
 
           <div className="flex-1" />
 
-          {/* Submit — right-aligned */}
-          <button
-            type="submit"
-            disabled={!prompt.trim() || !repo || dispatching}
-            className={cn(
-              'inline-flex items-center gap-2 px-4 py-1.5 rounded-md text-[13px] font-semibold transition-all shrink-0',
-              'bg-primary text-primary-foreground hover:brightness-110',
-              'disabled:opacity-40 disabled:cursor-not-allowed'
-            )}
-          >
-            {dispatching ? (
-              <Loader size={14} className="animate-spin" />
-            ) : (
-              <Send size={14} />
-            )}
-            Dispatch
-          </button>
+          <div>
+            <div aria-hidden="true" className="text-[11px] mb-1 invisible select-none">·</div>
+            <button
+              type="submit"
+              disabled={!prompt.trim() || !repo || dispatching}
+              style={{ background: 'linear-gradient(135deg, #8bab8f 0%, #6d9472 100%)', color: '#1a1b1e' }}
+              className={cn(
+                'inline-flex items-center gap-2.5 pl-5 pr-6 h-10 rounded-full text-[13px] font-semibold shrink-0',
+                'transition-transform duration-150 ease-out',
+                'hover:scale-105 active:scale-[0.97]',
+                'disabled:opacity-40 disabled:cursor-not-allowed disabled:scale-100'
+              )}
+            >
+              {dispatching ? <Loader size={15} className="animate-spin" /> : <Send size={15} />}
+              Dispatch
+            </button>
+          </div>
         </div>
       </form>
     </div>

@@ -5,6 +5,7 @@ import { useSearch } from './lib/useSearch'
 import { useAppNavigation } from './lib/useAppNavigation'
 import { useSessionStore } from './lib/useSessionStore'
 import { useJobMetrics } from './lib/useJobMetrics'
+import { useSettings } from './lib/useSettings'
 import HeaderBar from './components/HeaderBar'
 import ActivityBar from './components/ActivityBar'
 import StatusView from './components/StatusView'
@@ -13,6 +14,7 @@ import JobDetailView from './components/JobDetailView'
 import AllTasksView from './components/AllTasksView'
 import DispatchView from './components/DispatchView'
 import SchedulesView from './components/SchedulesView'
+import SettingsView from './components/SettingsView'
 import CommandPalette from './components/CommandPalette'
 import Toast from './components/Toast'
 
@@ -55,8 +57,9 @@ export default function App() {
     closeJobDetail,
   } = useAppNavigation()
 
+  const { settings, updateAgent } = useSettings()
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
-  const [skipPermissions, setSkipPermissions] = useState(true)
   const [contextUsage, setContextUsage] = useState(null)
   const [contextResetInfo, setContextResetInfo] = useState(null)
   const [toast, setToast] = useState(null)
@@ -96,10 +99,12 @@ export default function App() {
   }, [activeTerminalSessionId])
 
   const handleStartTask = useCallback(async (taskText, repoName, dispatchOpts = {}) => {
+    const agent = dispatchOpts.agent || 'claude'
+    const skipPermissions = settings.agents[agent]?.skipPermissions ?? true
     const sessionId = await startTaskSession(taskText, repoName, { ...dispatchOpts, skipPermissions })
     openJobDetail(sessionId)
     return sessionId
-  }, [startTaskSession, openJobDetail, skipPermissions])
+  }, [startTaskSession, openJobDetail, settings])
 
   const handleStartWorker = useCallback((repoName) => {
     const sessionId = startWorkerSession(repoName)
@@ -112,18 +117,15 @@ export default function App() {
   }, [openDispatch])
 
   const handleDispatchComplete = useCallback(() => {
-    // Don't navigate here — handleStartTask already navigates to /jobs/:id.
-    // In the old overlay model setActiveNav('tasks') was harmless because
-    // drillDownJobId took priority, but with route-based navigation it would
-    // race and navigate away from the job detail.
     setDispatchPreFill(null)
     showToast('Worker dispatched', 'success')
   }, [showToast])
 
-  const handleDispatch = useCallback(async ({ repo, taskText, originalTask, baseBranch, model, maxTurns, autoMerge }) => {
-    // Start the session but DON'T navigate away from dispatch page
-    await startTaskSession(taskText, repo, { originalTask, baseBranch, model, maxTurns, autoMerge, skipPermissions })
-  }, [startTaskSession, skipPermissions])
+  const handleDispatch = useCallback(async ({ repo, taskText, originalTask, baseBranch, model, maxTurns, autoMerge, agent }) => {
+    const agentId = agent || 'claude'
+    const skipPermissions = settings.agents[agentId]?.skipPermissions ?? true
+    await startTaskSession(taskText, repo, { originalTask, baseBranch, model, maxTurns, autoMerge, skipPermissions, agent: agentId })
+  }, [startTaskSession, settings])
 
   const handleResumeJob = useCallback(async (jobId) => {
     const sessionId = await resumeJobSession(jobId)
@@ -171,7 +173,7 @@ export default function App() {
         agentTerminals={agentTerminals}
         jobFileToSession={jobFileToSession}
         swarm={jobs.data}
-        skipPermissions={skipPermissions}
+        skipPermissions={settings.agents.claude?.skipPermissions ?? true}
         onKillSession={killSession}
         onUpdateSessionId={updateSessionId}
         onPromptSent={markPromptSent}
@@ -194,8 +196,6 @@ export default function App() {
         activeJobCount={activeJobCount}
         reviewCount={reviewCount}
         error={error}
-        skipPermissions={skipPermissions}
-        onToggleSkipPermissions={() => setSkipPermissions(v => !v)}
         searchQuery={searchQuery}
         onSearchQueryChange={setSearchQuery}
         searchResults={searchResults}
@@ -209,64 +209,73 @@ export default function App() {
           onNavChange={handleNavChange}
           jobCount={activeJobCount}
           reviewCount={reviewCount}
+          settingsOpen={settingsOpen}
+          onToggleSettings={() => setSettingsOpen(v => !v)}
         />
 
         <main className="flex-1 min-w-0 min-h-0 flex flex-col relative">
-          <Routes>
-            <Route path="/jobs/:jobId" element={jobDetailElement} />
-            <Route path="/status" element={
-              <ScrollableView>
-                <StatusView
-                  overview={overview.data}
-                  swarm={jobs.data}
-                  error={error}
-                  lastRefresh={lastRefresh}
-                />
-              </ScrollableView>
-            } />
-            <Route path="/jobs" element={
-              <ScrollableView>
-                <JobsView
-                  swarm={jobs.data}
-                  jobFileToSession={jobFileToSession}
-                  sessionRecords={sessionRecordsForNav}
-                  overview={overview.data}
-                  onSelectJob={openJobDetail}
-                />
-              </ScrollableView>
-            } />
-            <Route path="/tasks" element={
-              <ScrollableView>
-                <AllTasksView
-                  overview={overview.data}
-                  onOverviewRefresh={overview.refresh}
-                  onNavigateToDispatch={handleNavigateToDispatch}
-                  onSelectJob={openJobDetail}
-                  swarm={jobs.data}
-                  agentTerminals={agentTerminals}
-                />
-              </ScrollableView>
-            } />
-            <Route path="/dispatch" element={
-              <ScrollableView>
-                <DispatchView
-                  overview={overview.data}
-                  onDispatch={handleDispatch}
-                  initialRepo={dispatchPreFill?.repo || null}
-                  initialPrompt={dispatchPreFill?.prompt || null}
-                  onDispatchComplete={handleDispatchComplete}
-                />
-              </ScrollableView>
-            } />
-            <Route path="/schedules" element={
-              <ScrollableView>
-                <SchedulesView
-                  overview={overview.data}
-                />
-              </ScrollableView>
-            } />
-            <Route path="*" element={<Navigate to="/tasks" replace />} />
-          </Routes>
+          {settingsOpen ? (
+            <ScrollableView>
+              <SettingsView settings={settings} onUpdateAgent={updateAgent} />
+            </ScrollableView>
+          ) : (
+            <Routes>
+              <Route path="/jobs/:jobId" element={jobDetailElement} />
+              <Route path="/status" element={
+                <ScrollableView>
+                  <StatusView
+                    overview={overview.data}
+                    swarm={jobs.data}
+                    error={error}
+                    lastRefresh={lastRefresh}
+                  />
+                </ScrollableView>
+              } />
+              <Route path="/jobs" element={
+                <ScrollableView>
+                  <JobsView
+                    swarm={jobs.data}
+                    jobFileToSession={jobFileToSession}
+                    sessionRecords={sessionRecordsForNav}
+                    overview={overview.data}
+                    onSelectJob={openJobDetail}
+                  />
+                </ScrollableView>
+              } />
+              <Route path="/tasks" element={
+                <ScrollableView>
+                  <AllTasksView
+                    overview={overview.data}
+                    onOverviewRefresh={overview.refresh}
+                    onNavigateToDispatch={handleNavigateToDispatch}
+                    onSelectJob={openJobDetail}
+                    swarm={jobs.data}
+                    agentTerminals={agentTerminals}
+                  />
+                </ScrollableView>
+              } />
+              <Route path="/dispatch" element={
+                <ScrollableView>
+                  <DispatchView
+                    overview={overview.data}
+                    onDispatch={handleDispatch}
+                    initialRepo={dispatchPreFill?.repo || null}
+                    initialPrompt={dispatchPreFill?.prompt || null}
+                    onDispatchComplete={handleDispatchComplete}
+                    settings={settings}
+                  />
+                </ScrollableView>
+              } />
+              <Route path="/schedules" element={
+                <ScrollableView>
+                  <SchedulesView
+                    overview={overview.data}
+                  />
+                </ScrollableView>
+              } />
+              <Route path="*" element={<Navigate to="/tasks" replace />} />
+            </Routes>
+          )}
         </main>
       </div>
 

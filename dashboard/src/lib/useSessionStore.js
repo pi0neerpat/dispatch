@@ -107,6 +107,9 @@ export function useSessionStore() {
         autoMerge: dispatchOpts.autoMerge || undefined,
         baseBranch: dispatchOpts.baseBranch || undefined,
         skipPermissions: dispatchOpts.skipPermissions === true,
+        agent: dispatchOpts.agent || undefined,
+        extraFlags: dispatchOpts.extraFlags || undefined,
+        plainOutput: dispatchOpts.plainOutput || undefined,
       }),
     })
     if (!res.ok) {

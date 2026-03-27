@@ -20,6 +20,27 @@ export const MODEL_OPTIONS = [
 ]
 
 /**
+ * Available Codex models. Keep in sync with server.js FALLBACK_CODEX_MODELS.
+ */
+export const CODEX_MODEL_OPTIONS = [
+  { value: 'gpt-5.4', label: 'GPT-5.4' },
+  { value: 'gpt-5.4-mini', label: 'GPT-5.4 Mini' },
+  { value: 'o4-mini', label: 'o4 Mini' },
+  { value: 'o3', label: 'o3' },
+  { value: 'o3-mini', label: 'o3 Mini' },
+  { value: 'gpt-4o', label: 'GPT-4o' },
+  { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
+]
+
+/**
+ * Supported agent providers.
+ */
+export const AGENT_OPTIONS = [
+  { id: 'claude', label: 'Claude' },
+  { id: 'codex', label: 'Codex' },
+]
+
+/**
  * Follow-up dispatch template prompts.
  * Each template receives the swarm detail object and returns a pre-filled prompt string.
  */

@@ -3,6 +3,7 @@ import { execFileSync, execSync } from 'child_process'
 import express from 'express'
 import cors from 'cors'
 import path from 'path'
+import os from 'os'
 import { fileURLToPath } from 'url'
 import fs from 'fs'
 import { randomUUID } from 'crypto'
@@ -240,21 +241,44 @@ function buildTrackedClaudeCommand({
   model = null,
   maxTurns = null,
   skipPermissions = false,
+  plainOutput = false,
   resumeId = null,
   sessionId = null,
   jobId = null,
   repoName = null,
+  extraFlags = '',
 } = {}) {
   if (!promptFilePath && !resumeId) return null
   let flags = ''
   if (skipPermissions) flags += ' --dangerously-skip-permissions'
   if (model) flags += ` --model ${shellQuote(model)}`
   if (maxTurns) flags += ` --max-turns ${shellQuote(maxTurns)}`
+  if (plainOutput) flags += ' -p'
+  if (extraFlags) flags += ` ${extraFlags}`
   const envPrefix = buildClaudeEnvPrefix({ sessionId, jobId, repoName })
   const claudeCommand = resumeId
     ? `${envPrefix}${buildResumeClaudeCommand(resumeId, flags)}`
     : `${envPrefix}claude${flags} "$(cat ${shellQuote(promptFilePath)})"`
   return `${claudeCommand}; __hub_code=$?; echo "__HUB_CLAUDE_EXIT_CODE:\${__hub_code}__"; exit $__hub_code`
+}
+
+function buildTrackedCodexCommand({
+  promptFilePath = null,
+  model = null,
+  skipPermissions = false,
+  sessionId = null,
+  jobId = null,
+  repoName = null,
+  extraFlags = '',
+} = {}) {
+  if (!promptFilePath) return null
+  let flags = '--quiet'
+  if (skipPermissions) flags += ' --yolo'
+  if (model) flags += ` --model ${shellQuote(model)}`
+  if (extraFlags) flags += ` ${extraFlags}`
+  const envPrefix = buildClaudeEnvPrefix({ sessionId, jobId, repoName })
+  const cmd = `cat ${shellQuote(promptFilePath)} | ${envPrefix}codex exec ${flags} -`
+  return `${cmd}; __hub_code=$?; echo "__HUB_CLAUDE_EXIT_CODE:\${__hub_code}__"; exit $__hub_code`
 }
 
 // Strip ANSI escape sequences for clean log output
@@ -617,6 +641,80 @@ app.get('/api/activity', (req, res) => {
   res.json({ entries: allEntries.slice(0, limit) })
 })
 
+// ── Agent models endpoint ─────────────────────────────────
+
+const FALLBACK_CLAUDE_MODELS = [
+  { value: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
+  { value: 'claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4.5' },
+  { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
+]
+
+function readCodexModelsCache() {
+  const cachePath = path.join(os.homedir(), '.codex', 'models_cache.json')
+  try {
+    const raw = fs.readFileSync(cachePath, 'utf8')
+    const data = JSON.parse(raw)
+    const models = (data.models || [])
+      .filter(m => m.visibility === 'list')
+      .sort((a, b) => (a.priority || 99) - (b.priority || 99))
+      .map(m => ({ value: m.slug, label: m.display_name || m.slug, description: m.description || '' }))
+    return models.length > 0 ? models : null
+  } catch {
+    return null
+  }
+}
+
+function readClaudeOAuthToken() {
+  try {
+    // Claude Code stores its OAuth credentials in the macOS keychain.
+    // security outputs the password line to stderr, so merge with 2>&1.
+    const raw = execSync(
+      'security find-generic-password -s "Claude Code-credentials" -g 2>&1',
+      { encoding: 'utf8' }
+    )
+    const match = raw.match(/password: "(.+)"/)
+    if (!match) return null
+    const creds = JSON.parse(match[1])
+    return creds?.claudeAiOauth?.accessToken || null
+  } catch {
+    return null
+  }
+}
+
+app.get('/api/agents/models', async (req, res) => {
+  const { agent = 'claude' } = req.query
+  try {
+    if (agent === 'claude') {
+      // Prefer env API key, fall back to Claude Code's stored OAuth token
+      const apiKey = process.env.ANTHROPIC_API_KEY || readClaudeOAuthToken()
+      if (!apiKey) return res.json({ models: FALLBACK_CLAUDE_MODELS, source: 'fallback' })
+      const response = await fetch('https://api.anthropic.com/v1/models?limit=100', {
+        headers: {
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-beta': 'oauth-2023-09-01',
+        },
+      })
+      if (!response.ok) return res.json({ models: FALLBACK_CLAUDE_MODELS, source: 'fallback' })
+      const data = await response.json()
+      const models = (data.data || [])
+        .filter(m => m.id.startsWith('claude') && !m.id.endsWith('-latest'))
+        .sort((a, b) => b.id.localeCompare(a.id))
+        .map(m => ({ value: m.id, label: m.display_name || m.id }))
+      return res.json({ models: models.length > 0 ? models : FALLBACK_CLAUDE_MODELS, source: 'api' })
+    }
+    if (agent === 'codex') {
+      // Read directly from Codex's own models cache — same source as the Codex TUI
+      const cached = readCodexModelsCache()
+      if (cached) return res.json({ models: cached, source: 'codex-cache' })
+      return res.json({ models: FALLBACK_CLAUDE_MODELS, source: 'fallback' })
+    }
+    return res.json({ models: [], source: 'unknown' })
+  } catch {
+    return res.json({ models: FALLBACK_CLAUDE_MODELS, source: 'fallback' })
+  }
+})
+
 // ── Write endpoints ──────────────────────────────────────
 
 function findRepoConfig(name) {
@@ -624,7 +722,7 @@ function findRepoConfig(name) {
 }
 
 app.post(['/api/jobs/init', '/api/swarm/init'], (req, res) => {
-  const { repo, taskText, originalTask, sessionId, ai, model, maxTurns, autoMerge, baseBranch, skipPermissions } = req.body
+  const { repo, taskText, originalTask, sessionId, ai, model, maxTurns, autoMerge, baseBranch, skipPermissions, agent, extraFlags, plainOutput } = req.body
   if (!repo || !taskText) return res.status(400).json({ error: 'repo and taskText required' })
   // Validate baseBranch if provided — reject shell metacharacters and path traversal
   const validBranchRe = /^[a-zA-Z0-9._\-/]+$/
@@ -665,6 +763,7 @@ app.post(['/api/jobs/init', '/api/swarm/init'], (req, res) => {
   }
   lines.push(`Session: ${assignedSessionId}`)
   lines.push(`SkipPermissions: ${Boolean(skipPermissions)}`)
+  if (agent && agent !== 'claude') lines.push(`Agent: ${agent}`)
   if (model) lines.push(`Model: ${model}`)
   if (maxTurns) lines.push(`MaxTurns: ${maxTurns}`)
   if (autoMerge) lines.push('AutoMerge: true')
@@ -710,11 +809,14 @@ app.post(['/api/jobs/init', '/api/swarm/init'], (req, res) => {
       {
         promptFilePath,
         model,
-        maxTurns,
+        maxTurns: agent === 'codex' ? null : maxTurns,
         skipPermissions: Boolean(skipPermissions),
+        plainOutput: Boolean(plainOutput),
         sessionId: assignedSessionId,
         jobId,
         repoName: repo,
+        agent: agent || 'claude',
+        extraFlags: extraFlags || '',
       }
     )
   } catch (err) {
@@ -1555,7 +1657,10 @@ function garbageCollectSessions() {
 
 function startPendingLaunch(session) {
   if (!session || session.launchStarted || !session.pendingLaunch) return
-  const command = buildTrackedClaudeCommand(session.pendingLaunch)
+  const launch = session.pendingLaunch
+  const command = launch.agent === 'codex'
+    ? buildTrackedCodexCommand(launch)
+    : buildTrackedClaudeCommand(launch)
   if (!command) return
   session.launchStarted = true
   // Transition run to RUNNING now that the command is being written to the PTY

@@ -6,6 +6,7 @@ import { cn, timeAgo } from '../lib/utils'
 import { statusConfig, validationConfig } from '../lib/statusConfig'
 import { repoIdentityColors, MODEL_OPTIONS, FOLLOWUP_TEMPLATES } from '../lib/constants'
 import { mdComponents } from './mdComponents'
+import Toggle from './Toggle'
 
 function parseFrontMatter(raw) {
   const text = String(raw || '')
@@ -734,25 +735,7 @@ function FollowUpChat({ repoName, detail, onDispatch, dispatching }) {
           ))}
         </select>
 
-        <button
-          type="button"
-          onClick={() => setChatAutoMerge(v => !v)}
-          className={cn(
-            'w-7 h-[16px] rounded-full border transition-colors relative shrink-0 overflow-hidden',
-            chatAutoMerge
-              ? 'bg-primary/20 border-primary/40'
-              : 'bg-card border-border'
-          )}
-        >
-          <span
-            className={cn(
-              'absolute top-[2px] left-[2px] w-2.5 h-2.5 rounded-full transition-transform duration-200',
-              chatAutoMerge
-                ? 'translate-x-[11px] bg-primary'
-                : 'translate-x-0 bg-muted-foreground/40'
-            )}
-          />
-        </button>
+        <Toggle checked={chatAutoMerge} onChange={setChatAutoMerge} />
         <span className="text-[11px] text-foreground/70">Auto-merge</span>
       </div>
 
@@ -873,7 +856,6 @@ export default function ResultsPanel({ agentId, hasLiveTerminal = false, onJobsR
     setTaskMarked(false)
     setMarkingDone(false)
     setShowFullOutput(false)
-    setReviewQueue(null)
 
     async function fetchDetail() {
       try {

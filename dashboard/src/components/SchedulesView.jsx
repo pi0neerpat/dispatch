@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { CalendarClock, Plus, Pencil, Trash2, Loader, X } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { repoIdentityColors, MODEL_OPTIONS } from '../lib/constants'
+import Toggle from './Toggle'
 
 function ScheduleForm({ repos, initial, onSave, onCancel, saving }) {
   const [name, setName] = useState(initial?.name || '')
@@ -253,24 +254,11 @@ export default function SchedulesView({ overview }) {
               >
                 <div className="flex items-center gap-3">
                   {/* Toggle */}
-                  <button
-                    onClick={() => handleToggle(schedule.id)}
-                    className={cn(
-                      'w-8 h-[18px] rounded-full border transition-all relative shrink-0',
-                      schedule.enabled
-                        ? 'bg-primary/20 border-primary/40'
-                        : 'bg-card border-border'
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        'absolute top-[2px] w-3 h-3 rounded-full transition-all',
-                        schedule.enabled
-                          ? 'left-[15px] bg-primary'
-                          : 'left-[2px] bg-muted-foreground/40'
-                      )}
-                    />
-                  </button>
+                  <Toggle
+                    checked={schedule.enabled}
+                    onChange={() => handleToggle(schedule.id)}
+                    size="md"
+                  />
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">

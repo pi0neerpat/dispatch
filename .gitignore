@@ -44,3 +44,6 @@ plans/
 
 # Claude local settings (personal permissions, not committed)
 .claude/settings.local.json
+
+# Claude references (strategy docs, not committed)
+.claude/references/
