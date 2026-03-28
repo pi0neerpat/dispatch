@@ -430,7 +430,6 @@ export default function AllTasksView({
 
           const renderTask = (task, i) => {
             const repoColor = repoIdentityColors[task.repoName] || 'var(--primary)'
-            const sc = STATUS_COLORS[task.status]
             const isClickable = (task.status === 'in_progress' || task.status === 'review') && task.jobId
             const taskKey = `${task.repoName}-${task.section}-${task.status}-${i}`
             const isEditing = editingTaskKey === taskKey
@@ -440,10 +439,13 @@ export default function AllTasksView({
                 key={taskKey}
                 onClick={isClickable && !isEditing ? () => onSelectJob?.(task.jobId) : undefined}
                 className={cn(
-                  'flex items-start gap-3 px-3.5 py-2.5 rounded-lg border border-border bg-card hover:bg-card-hover transition-colors group',
+                  'flex items-start gap-3 px-3.5 py-2.5 rounded-lg border bg-card hover:bg-card-hover transition-colors group',
                   isClickable && !isEditing && 'cursor-pointer',
                   isEditing && 'ring-1 ring-primary/30 border-primary/40'
                 )}
+                style={!isEditing ? { borderColor: 'rgba(255,255,255,0.05)' } : undefined}
+                onMouseEnter={!isEditing ? e => e.currentTarget.style.borderColor = 'rgba(139,171,143,0.35)' : undefined}
+                onMouseLeave={!isEditing ? e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.05)' : undefined}
               >
                 {/* Checkbox */}
                 <button
@@ -491,7 +493,7 @@ export default function AllTasksView({
                         🪲 Bug
                       </span>
                     ) : task.section ? (
-                      <span className="text-[11px] text-muted-foreground/50 truncate">
+                      <span className="text-[11px] truncate" style={{ color: 'var(--foreground-secondary)' }}>
                         {task.section}
                       </span>
                     ) : null}
@@ -507,9 +509,6 @@ export default function AllTasksView({
                 <div className="flex items-center gap-1.5 shrink-0 self-center">
                   <span className="text-[9px] px-1.5 py-0.5 rounded-full border border-border bg-card text-muted-foreground/60 capitalize">
                     {task.timeframe}
-                  </span>
-                  <span className={cn('text-[9px] px-1.5 py-0.5 rounded-full border font-medium', sc.bg, sc.border, sc.text)}>
-                    {STATUS_LABELS[task.status]}
                   </span>
                   <span
                     className="text-[9px] px-1.5 py-0.5 rounded-full border capitalize"

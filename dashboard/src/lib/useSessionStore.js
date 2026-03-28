@@ -105,6 +105,7 @@ export function useSessionStore() {
         model: dispatchOpts.model || undefined,
         maxTurns: dispatchOpts.maxTurns || undefined,
         autoMerge: dispatchOpts.autoMerge || undefined,
+        useWorktree: dispatchOpts.useWorktree || undefined,
         baseBranch: dispatchOpts.baseBranch || undefined,
         skipPermissions: dispatchOpts.skipPermissions === true,
         agent: dispatchOpts.agent || undefined,
@@ -133,6 +134,7 @@ export function useSessionStore() {
         launchToken,
         model: dispatchOpts.model || null,
         maxTurns: dispatchOpts.maxTurns || null,
+        plainOutput: dispatchOpts.plainOutput || false,
       })
       return next
     })

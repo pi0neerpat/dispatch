@@ -91,13 +91,14 @@ function parseActivityLog(filePath, options = {}) {
 }
 
 function getGitInfo(repoPath) {
+  const opts = { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 5000 }
   try {
-    const branch = execSync(`git -C "${repoPath}" branch --show-current`, { encoding: 'utf8' }).trim();
-    const porcelain = execSync(`git -C "${repoPath}" status --porcelain`, { encoding: 'utf8' }).trim();
+    const branch = execSync(`git -C "${repoPath}" branch --show-current`, opts).trim();
+    const porcelain = execSync(`git -C "${repoPath}" status --porcelain`, opts).trim();
     const dirtyCount = porcelain ? porcelain.split('\n').length : 0;
     let branches = [];
     try {
-      const raw = execSync(`git -C "${repoPath}" branch --format="%(refname:short)"`, { encoding: 'utf8' }).trim();
+      const raw = execSync(`git -C "${repoPath}" branch --format="%(refname:short)"`, opts).trim();
       if (raw) branches = raw.split('\n').filter(Boolean);
     } catch { /* ignore */ }
     return { branch, dirtyCount, branches };

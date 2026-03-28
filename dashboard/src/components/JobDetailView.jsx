@@ -34,7 +34,7 @@ export default function JobDetailView({
     if (!jobId) return
     const info = agentTerminals.get(jobId)
     if (info && info.ptySessionId) {
-      setView('terminal')
+      setView(info.plainOutput ? 'review' : 'terminal')
     } else if (!hasTerminal) {
       setView('review')
     }

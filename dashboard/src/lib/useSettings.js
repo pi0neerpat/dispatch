@@ -4,8 +4,8 @@ const STORAGE_KEY = 'hub-settings'
 
 const DEFAULT_SETTINGS = {
   agents: {
-    claude: { defaultModel: 'claude-opus-4-6', defaultMaxTurns: 10, skipPermissions: true, tuiMode: false, extraFlags: '' },
-    codex:  { defaultModel: 'gpt-5.4',          defaultMaxTurns: null, skipPermissions: false, tuiMode: false, extraFlags: '' },
+    claude: { defaultModel: 'claude-opus-4-6', defaultMaxTurns: 10, skipPermissions: false, tuiMode: true, extraFlags: '' },
+    codex: { defaultModel: 'gpt-5.4', defaultMaxTurns: null, skipPermissions: false, tuiMode: false, extraFlags: '' },
   },
 }
 
@@ -22,7 +22,7 @@ function loadSettings() {
         ...DEFAULT_SETTINGS.agents,
         ...(parsed.agents || {}),
         claude: { ...DEFAULT_SETTINGS.agents.claude, ...(parsed.agents?.claude || {}) },
-        codex:  { ...DEFAULT_SETTINGS.agents.codex,  ...(parsed.agents?.codex  || {}) },
+        codex: { ...DEFAULT_SETTINGS.agents.codex, ...(parsed.agents?.codex || {}) },
       },
     }
   } catch {
@@ -33,7 +33,7 @@ function loadSettings() {
 function saveSettings(settings) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(settings))
-  } catch {}
+  } catch { }
 }
 
 export function useSettings() {

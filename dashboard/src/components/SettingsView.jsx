@@ -73,7 +73,9 @@ function AgentCard({ agentId, label, icon: Icon, agentSettings, onUpdate, showMa
           />
           <div>
             <span className="text-[12px] text-foreground/80">TUI Mode</span>
-            <p className="text-[10px] text-muted-foreground/50">-p (plain output to terminal)</p>
+            <p className="text-[10px] text-muted-foreground/50">
+              {agentId === 'claude' ? 'Off: adds -p, runs headless' : 'Off: adds --quiet, runs headless'}
+            </p>
           </div>
         </div>
       )}
@@ -85,7 +87,7 @@ function AgentCard({ agentId, label, icon: Icon, agentSettings, onUpdate, showMa
           type="text"
           value={extraFlags}
           onChange={(e) => onUpdate(agentId, { extraFlags: e.target.value })}
-          placeholder="e.g. --verbose"
+          placeholder="e.g. --add-dir ../shared"
           className="w-full h-8 px-2.5 rounded-md border border-border bg-background text-[12px] text-foreground font-mono focus:outline-none focus:border-primary/30"
           style={{ fontFamily: 'var(--font-mono)' }}
         />
@@ -119,6 +121,7 @@ export default function SettingsView({ settings, onUpdateAgent }) {
           agentSettings={settings.agents.codex}
           onUpdate={onUpdateAgent}
           showMaxTurns={false}
+          showTuiMode={true}
         />
       </div>
     </div>

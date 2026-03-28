@@ -10,5 +10,17 @@
     "created": "2026-03-20T23:41:28.452Z",
     "lastRun": null,
     "nextRun": null
+  },
+  {
+    "id": "sched-1774658382692",
+    "name": "Test Cron Job",
+    "repo": "dispatch",
+    "cron": "0 9 * * *",
+    "prompt": "Check status and report",
+    "model": "claude-opus-4-6",
+    "enabled": true,
+    "created": "2026-03-28T00:39:42.692Z",
+    "lastRun": null,
+    "nextRun": null
   }
 ]

@@ -266,13 +266,14 @@ function buildTrackedCodexCommand({
   promptFilePath = null,
   model = null,
   skipPermissions = false,
+  plainOutput = true,
   sessionId = null,
   jobId = null,
   repoName = null,
   extraFlags = '',
 } = {}) {
   if (!promptFilePath) return null
-  let flags = '--quiet'
+  let flags = plainOutput ? '--quiet' : ''
   if (skipPermissions) flags += ' --yolo'
   if (model) flags += ` --model ${shellQuote(model)}`
   if (extraFlags) flags += ` ${extraFlags}`
@@ -722,7 +723,7 @@ function findRepoConfig(name) {
 }
 
 app.post(['/api/jobs/init', '/api/swarm/init'], (req, res) => {
-  const { repo, taskText, originalTask, sessionId, ai, model, maxTurns, autoMerge, baseBranch, skipPermissions, agent, extraFlags, plainOutput } = req.body
+  const { repo, taskText, originalTask, sessionId, ai, model, maxTurns, autoMerge, useWorktree, baseBranch, skipPermissions, agent, extraFlags, plainOutput } = req.body
   if (!repo || !taskText) return res.status(400).json({ error: 'repo and taskText required' })
   // Validate baseBranch if provided — reject shell metacharacters and path traversal
   const validBranchRe = /^[a-zA-Z0-9._\-/]+$/
@@ -772,14 +773,16 @@ app.post(['/api/jobs/init', '/api/swarm/init'], (req, res) => {
   const relativePath = `notes/jobs/${fileName}`
   const jobId = fileName.replace(/\.md$/, '')
 
-  // Create a git worktree so this job runs in an isolated branch
+  // Create a git worktree if requested
   let worktreeInfo = null
-  try {
-    worktreeInfo = createJobWorktree(repoConfig.resolvedPath, jobId, baseBranch || 'main')
-    lines.push(`Branch: ${worktreeInfo.branchName}`)
-    lines.push(`WorktreePath: ${worktreeInfo.worktreePath}`)
-  } catch (err) {
-    console.warn(`[worktree] Failed to create worktree for ${jobId}, falling back to main repo: ${err.message}`)
+  if (useWorktree) {
+    try {
+      worktreeInfo = createJobWorktree(repoConfig.resolvedPath, jobId, baseBranch || 'main')
+      lines.push(`Branch: ${worktreeInfo.branchName}`)
+      lines.push(`WorktreePath: ${worktreeInfo.worktreePath}`)
+    } catch (err) {
+      console.warn(`[worktree] Failed to create worktree for ${jobId}, falling back to main repo: ${err.message}`)
+    }
   }
 
   lines.push('', '## Progress', `- [${timestamp}] Task initiated from dashboard`, '', '## Results', '')
@@ -1287,6 +1290,10 @@ app.post(['/api/jobs/:id/reject', '/api/swarm/:id/reject'], (req, res) => {
     if (latestRun) {
       transitionRun(latestRun, RUN_STATE.REJECTED, { validation: 'rejected', reason: 'user_rejected', force: latestRun.state === RUN_STATE.REJECTED })
     }
+    // Clean up worktree and branch — rejected changes are discarded
+    if (detail.worktreePath) {
+      try { removeJobWorktree(found.repo.resolvedPath, req.params.id, { deleteBranch: true }) } catch {}
+    }
     invalidateGitInfoCache(found.repo.resolvedPath)
     emitJobsChanged({ repo: found.repo.name, id: req.params.id, reason: 'rejected' })
     return res.json(result)
@@ -1321,6 +1328,10 @@ app.post(['/api/jobs/:id/kill', '/api/swarm/:id/kill'], (req, res) => {
       try { transitionRun(getLatestRunBySessionId(detail.session), RUN_STATE.STOPPING, { reason: 'user_kill_requested', force: true }) } catch {}
       if (s.tmuxName) killTmuxSession(s.tmuxName)
       try { s?.shell?.kill() } catch {}
+    }
+    // Clean up worktree and branch — killed jobs are abandoned
+    if (detail.worktreePath) {
+      try { removeJobWorktree(found.repo.resolvedPath, req.params.id, { deleteBranch: true }) } catch {}
     }
     invalidateGitInfoCache(found.repo.resolvedPath)
     emitJobsChanged({ repo: found.repo.name, id: req.params.id, reason: 'killed' })
@@ -1790,6 +1801,9 @@ function createPtySession(sessionId, cwd, repoName, jobFilePath, initialScrollba
             }
             if (session.repo) {
               const repoConfig = findRepoConfig(session.repo)
+              if (agent.worktreePath) {
+                try { removeJobWorktree(repoConfig?.resolvedPath, agent.id, { deleteBranch: true }) } catch {}
+              }
               invalidateGitInfoCache(repoConfig?.resolvedPath)
             }
             emitJobsChanged({ repo: session.repo, id: agent.id, reason: `${reason}_killed` })
@@ -1802,6 +1816,9 @@ function createPtySession(sessionId, cwd, repoName, jobFilePath, initialScrollba
             }
             if (session.repo) {
               const repoConfig = findRepoConfig(session.repo)
+              if (agent.worktreePath) {
+                try { removeJobWorktree(repoConfig?.resolvedPath, agent.id, { deleteBranch: true }) } catch {}
+              }
               invalidateGitInfoCache(repoConfig?.resolvedPath)
             }
             emitJobsChanged({ repo: session.repo, id: agent.id, reason: `${reason}_failed` })

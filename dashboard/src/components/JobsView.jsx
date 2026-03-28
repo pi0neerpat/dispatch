@@ -191,7 +191,10 @@ export default function JobsView({
                     <button
                       key={worker.key}
                       onClick={() => onSelectJob?.(worker.jobId || worker.id)}
-                      className="w-full text-left px-4 py-3 rounded-lg border border-card-border bg-card hover:bg-card-hover/40 hover:border-card-border-hover transition-all group animate-fade-up"
+                      className="w-full text-left px-4 py-3 rounded-lg border bg-card hover:bg-card-hover/40 transition-all group animate-fade-up"
+                      style={{ borderColor: 'rgba(255,255,255,0.05)' }}
+                      onMouseEnter={e => e.currentTarget.style.borderColor = 'rgba(139,171,143,0.35)'}
+                      onMouseLeave={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.05)'}
                     >
                       <div className="flex items-center gap-3">
                         <span className={cn('w-2 h-2 rounded-full shrink-0', group.dotClass, worker.status === 'in_progress' && 'animate-pulse-soft')} />

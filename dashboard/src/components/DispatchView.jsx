@@ -34,7 +34,8 @@ export default function DispatchView({ overview, onDispatch, initialRepo, initia
   const [baseBranch, setBaseBranch] = useState('')
   const [prompt, setPrompt] = useState(initialPrompt || '')
   const [autoMerge, setAutoMerge] = useState(s.autoMerge ?? false)
-  const [plainOutput, setPlainOutput] = useState(s.plainOutput ?? agentSettings[s.agent || 'claude']?.tuiMode ?? false)
+  const [useWorktree, setUseWorktree] = useState(s.useWorktree ?? false)
+  const [plainOutput, setPlainOutput] = useState(s.plainOutput ?? !(agentSettings[s.agent || 'claude']?.tuiMode ?? true))
   const [dispatching, setDispatching] = useState(false)
   const [btnPhase, setBtnPhase] = useState('idle') // idle | shaking | sliding | hidden | returning
 
@@ -66,7 +67,7 @@ export default function DispatchView({ overview, onDispatch, initialRepo, initia
     const defaults = agentSettings[newAgent] || {}
     const newModel = defaults.defaultModel || ''
     const newTurns = defaults.defaultMaxTurns ?? (newAgent === 'claude' ? 10 : null)
-    const newPlainOutput = defaults.tuiMode ?? false
+    const newPlainOutput = !(defaults.tuiMode ?? true)
     setModel(newModel)
     setMaxTurns(newTurns)
     setPlainOutput(newPlainOutput)
@@ -79,6 +80,7 @@ export default function DispatchView({ overview, onDispatch, initialRepo, initia
   useEffect(() => { writeSaved({ model }) }, [model])
   useEffect(() => { writeSaved({ maxTurns }) }, [maxTurns])
   useEffect(() => { writeSaved({ autoMerge }) }, [autoMerge])
+  useEffect(() => { writeSaved({ useWorktree }) }, [useWorktree])
   useEffect(() => { writeSaved({ plainOutput }) }, [plainOutput])
 
   // Apply pre-fill when props change
@@ -108,7 +110,8 @@ export default function DispatchView({ overview, onDispatch, initialRepo, initia
         model,
         maxTurns: isCodex ? null : maxTurns,
         autoMerge,
-        plainOutput: !isCodex && plainOutput,
+        useWorktree,
+        plainOutput,
         agent,
       })
       setPrompt('')
@@ -126,35 +129,36 @@ export default function DispatchView({ overview, onDispatch, initialRepo, initia
     <div>
       <form onSubmit={handleDispatch} className="space-y-3">
 
-        {/* Repo + Branch row */}
-        <div className="flex items-end gap-3">
-          <div className="flex-1">
-            <label className="block text-[11px] font-medium text-muted-foreground mb-1">Repository</label>
-            <div className="flex gap-1.5 flex-wrap">
-              {repos.map(r => {
-                const color = repoIdentityColors[r.name] || 'var(--primary)'
-                const isSelected = repo === r.name
-                return (
-                  <button
-                    key={r.name}
-                    type="button"
-                    onClick={() => { setRepo(r.name); setBaseBranch('') }}
-                    className={cn(
-                      'px-2.5 py-1 rounded-md text-[12px] font-medium capitalize border transition-all',
-                      isSelected
-                        ? 'border-primary/40 bg-primary/10 text-foreground'
-                        : 'border-border bg-card text-muted-foreground hover:text-foreground hover:bg-card-hover'
-                    )}
-                    style={isSelected ? { borderColor: `${color}40`, backgroundColor: `${color}10` } : undefined}
-                  >
-                    <span className="inline-block w-1.5 h-1.5 rounded-full mr-1.5" style={{ background: color }} />
-                    {r.name}
-                  </button>
-                )
-              })}
-            </div>
+        {/* Repo row */}
+        <div>
+          <label className="block text-[11px] font-medium text-muted-foreground mb-1">Repository</label>
+          <div className="flex gap-1.5 flex-wrap">
+            {repos.map(r => {
+              const color = repoIdentityColors[r.name] || 'var(--primary)'
+              const isSelected = repo === r.name
+              return (
+                <button
+                  key={r.name}
+                  type="button"
+                  onClick={() => { setRepo(r.name); setBaseBranch('') }}
+                  className={cn(
+                    'px-2.5 py-1 rounded-md text-[12px] font-medium capitalize border transition-all',
+                    isSelected
+                      ? 'border-primary/40 bg-primary/10 text-foreground'
+                      : 'border-border bg-card text-muted-foreground hover:text-foreground hover:bg-card-hover'
+                  )}
+                  style={isSelected ? { borderColor: `${color}40`, backgroundColor: `${color}10` } : undefined}
+                >
+                  <span className="inline-block w-1.5 h-1.5 rounded-full mr-1.5" style={{ background: color }} />
+                  {r.name}
+                </button>
+              )
+            })}
           </div>
+        </div>
 
+        {/* Branch + Worktree row */}
+        <div className="flex items-end gap-3">
           <div className="w-44 shrink-0">
             <label htmlFor="dispatch-branch" className="block text-[11px] font-medium text-muted-foreground mb-1">
               Branch
@@ -173,6 +177,13 @@ export default function DispatchView({ overview, onDispatch, initialRepo, initia
                 <option value={defaultBranch}>{defaultBranch}</option>
               )}
             </select>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-medium text-muted-foreground mb-1">Worktree</label>
+            <div className="h-8 flex items-center">
+              <Toggle checked={useWorktree} onChange={setUseWorktree} title="Run in an isolated git worktree" />
+            </div>
           </div>
         </div>
 
@@ -268,10 +279,9 @@ export default function DispatchView({ overview, onDispatch, initialRepo, initia
             <label className="block text-[11px] font-medium text-muted-foreground mb-1">TUI</label>
             <div className="h-8 flex items-center">
               <Toggle
-                checked={!isCodex && plainOutput}
-                onChange={setPlainOutput}
-                disabled={isCodex}
-                title={isCodex ? 'Codex always runs in quiet mode' : 'Disable TUI (-p flag)'}
+                checked={!plainOutput}
+                onChange={(val) => setPlainOutput(!val)}
+                title={isCodex ? 'TUI mode — off adds --quiet' : 'TUI mode — off adds -p (headless)'}
               />
             </div>
           </div>
@@ -287,30 +297,50 @@ export default function DispatchView({ overview, onDispatch, initialRepo, initia
 
           <div>
             <div aria-hidden="true" className="text-[11px] mb-1 invisible select-none">·</div>
-            <button
-              type="submit"
-              style={{
-                background: 'linear-gradient(135deg, #8bab8f 0%, #6d9472 100%)',
-                color: '#1a1b1e',
-                boxShadow: btnPhase !== 'idle'
-                  ? '0 0 18px 4px rgba(139,171,143,0.45)'
-                  : '0 0 8px 2px rgba(139,171,143,0.18)',
-                transition: 'box-shadow 400ms ease',
-                opacity: (!prompt.trim() || !repo) && btnPhase === 'idle' ? 0.4 : 1,
-                cursor: (!prompt.trim() || !repo) && btnPhase === 'idle' ? 'not-allowed' : 'pointer',
-                ...(btnPhase === 'hidden' && { transform: 'translateX(400px)' }),
-              }}
+            {/* Wrapper carries glow + button together through animations */}
+            <div
               className={cn(
-                'inline-flex items-center gap-2.5 pl-5 pr-6 h-10 rounded-full text-[13px] font-semibold shrink-0',
-                btnPhase === 'idle' && 'transition-transform duration-150 ease-out hover:scale-105 active:scale-[0.97]',
+                'relative inline-flex items-center justify-center',
+                btnPhase === 'idle' && 'transition-opacity duration-200',
                 btnPhase === 'shaking' && 'animate-dispatch-shake',
                 btnPhase === 'sliding' && 'animate-dispatch-btn-out',
                 btnPhase === 'returning' && 'animate-dispatch-btn-in',
               )}
+              style={{
+                opacity: (!prompt.trim() || !repo) && btnPhase === 'idle' ? 0.4 : 1,
+                ...(btnPhase === 'hidden' && { transform: 'translateX(400px)' }),
+              }}
             >
-              <Send size={15} />
-              Dispatch
-            </button>
+              {/* Glow layers — fade in when button is ready, out when disabled */}
+              <div
+                className="absolute inset-0 pointer-events-none transition-opacity duration-500"
+                style={{ opacity: (prompt.trim() && repo) || btnPhase !== 'idle' ? 1 : 0 }}
+              >
+                <div className="absolute pointer-events-none animate-loading-halo" style={{ width: '204px', height: '66px', background: '#8bab8f', borderRadius: '50%', filter: 'blur(35px)', top: 'calc(50% - 33px)', left: 'calc(50% - 102px)' }} />
+                <div className="absolute pointer-events-none animate-loading-glow" style={{ width: '108px', height: '38px', background: '#8bab8f', borderRadius: '50%', filter: 'blur(19px)', top: 'calc(50% - 19px)', left: 'calc(50% - 54px)' }} />
+                <div className="absolute pointer-events-none animate-loading-glow-shift" style={{ width: '90px', height: '32px', background: '#7ea89a', borderRadius: '50%', filter: 'blur(17px)', top: 'calc(50% - 16px)', left: 'calc(50% - 45px)' }} />
+              </div>
+
+              <button
+                type="submit"
+                style={{
+                  background: 'linear-gradient(135deg, #8bab8f 0%, #6d9472 100%)',
+                  color: '#1a1b1e',
+                  boxShadow: btnPhase !== 'idle'
+                    ? '0 0 18px 4px rgba(139,171,143,0.45)'
+                    : '0 0 8px 2px rgba(139,171,143,0.18)',
+                  transition: 'box-shadow 400ms ease',
+                  cursor: (!prompt.trim() || !repo) && btnPhase === 'idle' ? 'not-allowed' : 'pointer',
+                }}
+                className={cn(
+                  'inline-flex items-center gap-2.5 pl-5 pr-6 h-10 rounded-full text-[13px] font-semibold shrink-0 relative z-10',
+                  btnPhase === 'idle' && 'transition-transform duration-150 ease-out hover:scale-105 active:scale-[0.97]',
+                )}
+              >
+                <Send size={15} />
+                Dispatch
+              </button>
+            </div>
           </div>
         </div>
       </form>

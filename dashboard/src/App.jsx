@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { usePolling } from './lib/usePolling'
 import { useSearch } from './lib/useSearch'
 import { useAppNavigation } from './lib/useAppNavigation'
@@ -17,6 +17,7 @@ import SchedulesView from './components/SchedulesView'
 import SettingsView from './components/SettingsView'
 import CommandPalette from './components/CommandPalette'
 import Toast from './components/Toast'
+import LoadingView from './components/LoadingView'
 
 function ScrollableView({ children }) {
   return (
@@ -29,6 +30,9 @@ function ScrollableView({ children }) {
 }
 
 export default function App() {
+  const location = useLocation()
+  if (location.pathname === '/loading') return <LoadingView />
+
   const overview = usePolling('/api/overview', 10000)
   const jobs = usePolling('/api/jobs', 5000)
   const {
@@ -121,10 +125,10 @@ export default function App() {
     showToast('Worker dispatched', 'success')
   }, [showToast])
 
-  const handleDispatch = useCallback(async ({ repo, taskText, originalTask, baseBranch, model, maxTurns, autoMerge, agent }) => {
+  const handleDispatch = useCallback(async ({ repo, taskText, originalTask, baseBranch, model, maxTurns, autoMerge, useWorktree, plainOutput, agent }) => {
     const agentId = agent || 'claude'
     const skipPermissions = settings.agents[agentId]?.skipPermissions ?? true
-    await startTaskSession(taskText, repo, { originalTask, baseBranch, model, maxTurns, autoMerge, skipPermissions, agent: agentId })
+    await startTaskSession(taskText, repo, { originalTask, baseBranch, model, maxTurns, autoMerge, useWorktree, plainOutput, skipPermissions, agent: agentId })
   }, [startTaskSession, settings])
 
   const handleResumeJob = useCallback(async (jobId) => {
