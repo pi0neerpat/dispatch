@@ -1,10 +1,11 @@
-import { Activity, Bot, ListTodo, Send, CalendarClock, Settings, ArrowLeft } from 'lucide-react'
+import { Activity, Bot, ListTodo, Send, CalendarClock, Settings, ArrowLeft, Map } from 'lucide-react'
 import { cn } from '../lib/utils'
 
 const NAV_ITEMS = [
   { id: 'status', label: 'Status', icon: Activity },
   { id: 'jobs', label: 'Jobs', icon: Bot },
   { id: 'tasks', label: 'Tasks', icon: ListTodo },
+  { id: 'plans', label: 'Plans', icon: Map },
   { id: 'dispatch', label: 'Dispatch', icon: Send },
   { id: 'schedules', label: 'Schedules', icon: CalendarClock },
 ]

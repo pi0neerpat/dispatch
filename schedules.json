@@ -6,7 +6,7 @@
     "cron": "*/30 * * * *",
     "prompt": "Run an E2E verification ping task",
     "model": "claude-opus-4-6",
-    "enabled": false,
+    "enabled": true,
     "created": "2026-03-20T23:41:28.452Z",
     "lastRun": null,
     "nextRun": null

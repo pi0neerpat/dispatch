@@ -13,6 +13,7 @@ import JobsView from './components/JobsView'
 import JobDetailView from './components/JobDetailView'
 import AllTasksView from './components/AllTasksView'
 import DispatchView from './components/DispatchView'
+import PlansView from './components/PlansView'
 import SchedulesView from './components/SchedulesView'
 import SettingsView from './components/SettingsView'
 import CommandPalette from './components/CommandPalette'
@@ -115,8 +116,8 @@ export default function App() {
     openJobDetail(sessionId)
   }, [startWorkerSession, openJobDetail])
 
-  const handleNavigateToDispatch = useCallback((repo, prompt) => {
-    setDispatchPreFill({ repo, prompt })
+  const handleNavigateToDispatch = useCallback((repo, prompt, planSlug = null) => {
+    setDispatchPreFill({ repo, prompt, planSlug })
     openDispatch()
   }, [openDispatch])
 
@@ -125,10 +126,10 @@ export default function App() {
     showToast('Worker dispatched', 'success')
   }, [showToast])
 
-  const handleDispatch = useCallback(async ({ repo, taskText, originalTask, baseBranch, model, maxTurns, autoMerge, useWorktree, plainOutput, agent }) => {
+  const handleDispatch = useCallback(async ({ repo, taskText, originalTask, baseBranch, model, maxTurns, autoMerge, useWorktree, plainOutput, agent, planSlug }) => {
     const agentId = agent || 'claude'
     const skipPermissions = settings.agents[agentId]?.skipPermissions ?? true
-    await startTaskSession(taskText, repo, { originalTask, baseBranch, model, maxTurns, autoMerge, useWorktree, plainOutput, skipPermissions, agent: agentId })
+    await startTaskSession(taskText, repo, { originalTask, baseBranch, model, maxTurns, autoMerge, useWorktree, plainOutput, skipPermissions, agent: agentId, planSlug })
   }, [startTaskSession, settings])
 
   const handleResumeJob = useCallback(async (jobId) => {
@@ -258,6 +259,15 @@ export default function App() {
                   />
                 </ScrollableView>
               } />
+              <Route path="/plans" element={
+                <ScrollableView>
+                  <PlansView
+                    overview={overview.data}
+                    swarm={jobs.data}
+                    onNavigateToDispatch={handleNavigateToDispatch}
+                  />
+                </ScrollableView>
+              } />
               <Route path="/dispatch" element={
                 <ScrollableView>
                   <DispatchView
@@ -265,6 +275,7 @@ export default function App() {
                     onDispatch={handleDispatch}
                     initialRepo={dispatchPreFill?.repo || null}
                     initialPrompt={dispatchPreFill?.prompt || null}
+                    initialPlanSlug={dispatchPreFill?.planSlug || null}
                     onDispatchComplete={handleDispatchComplete}
                     settings={settings}
                   />

@@ -963,12 +963,57 @@ function writeActivityEntry(filePath, title, body) {
   return { success: true, date: today };
 }
 
+function parsePlansDir(dirPath) {
+  const plans = []
+  try {
+    if (!fs.existsSync(dirPath)) return plans
+    const files = fs.readdirSync(dirPath)
+      .filter(f => f.endsWith('.md'))
+      .sort((a, b) => b.localeCompare(a))
+    for (const file of files) {
+      const filePath = path.join(dirPath, file)
+      let stat
+      try { stat = fs.statSync(filePath) } catch { continue }
+      let content = ''
+      try { content = fs.readFileSync(filePath, 'utf8') } catch { continue }
+      const slug = file.replace(/\.md$/, '')
+      // Parse metadata lines that appear before the first # heading
+      let dispatched = null;
+      let jobSlug = null;
+      for (const line of content.split('\n')) {
+        if (line.startsWith('# ')) break;
+        const dm = line.match(/^Dispatched:\s*(.+)/);
+        if (dm) dispatched = dm[1].trim();
+        const jm = line.match(/^Job:\s*(.+)/);
+        if (jm) jobSlug = jm[1].trim();
+      }
+      const titleMatch = content.match(/^#\s+(.+)/m)
+      const title = titleMatch
+        ? titleMatch[1].trim()
+        : slug.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/-/g, ' ')
+      plans.push({ slug, title, content, lastModified: stat.mtime.toISOString(), dispatched, jobSlug })
+    }
+  } catch { /* dir unreadable */ }
+  return plans
+}
+
+function writePlanDispatch(filePath, date, jobId) {
+  let content = '';
+  try { content = fs.readFileSync(filePath, 'utf8'); } catch {}
+  // Remove any existing Dispatched/Job header lines (idempotent)
+  const lines = content.split('\n').filter(l => !l.match(/^Dispatched:\s*/) && !l.match(/^Job:\s*/));
+  const newContent = [`Dispatched: ${date}`, `Job: ${jobId}`, ...lines].join('\n');
+  fs.writeFileSync(filePath, newContent, 'utf8');
+}
+
 module.exports = {
   parseTaskFile,
   parseActivityLog,
   getGitInfo,
   parseJobFile,
   parseJobDir,
+  parsePlansDir,
+  writePlanDispatch,
   // Legacy aliases for compatibility during migration
   parseSwarmFile: parseJobFile,
   parseSwarmDir: parseJobDir,

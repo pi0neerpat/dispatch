@@ -519,7 +519,49 @@ Applied via CSS custom properties `--font-body` and `--font-mono`.
 
 ---
 
-## 10. Testing and Validation
+## 10. UI State Persistence
+
+### Rule: Persist view filter and tab state to localStorage
+
+Any view that has a filter, active tab, or repo selector **must** persist that
+selection to `localStorage` and restore it on mount. Users navigate between
+tabs frequently; losing their filter state on every return is friction.
+
+**Pattern:**
+
+```js
+const FILTER_KEY = 'myView:repoFilter'   // namespaced key
+
+// Read once synchronously at init (pass function to useState)
+const [repoFilter, setRepoFilter] = useState(
+  () => { try { return localStorage.getItem(FILTER_KEY) || null } catch { return null } }
+)
+
+// Wrapper that persists every change
+function setRepoFilterPersisted(val) {
+  try {
+    if (val) localStorage.setItem(FILTER_KEY, val)
+    else localStorage.removeItem(FILTER_KEY)
+  } catch {}
+  setRepoFilter(val)
+}
+```
+
+**Key naming convention:** `<viewName>:<stateKey>` — e.g.,
+`allTasksView:filters`, `plansView:repoFilter`, `dispatchView:settings`.
+
+This applies to:
+- Repo filter pills
+- Active tab / section selections
+- Expanded/collapsed toggles that affect primary content visibility
+- Any multi-value filter (status, timeframe, type)
+
+Does **not** apply to ephemeral UI like hover states, open dropdowns, or
+loading indicators.
+
+---
+
+## 11. Testing and Validation
 
 There is currently no automated test suite. Validation is manual:
 

@@ -14,6 +14,7 @@
 - [ ] Implement OpenClaw agent feature in ./plans/openclaw-agent.md
 - [ ] Quality of life improvements: brainstorm ideas for how to switch between tabs/jobs/task more easily. use behavioral product design skill.
 - [ ] Job view is not actively updated. check polling logic and lets make this consistent across the app. Not having a consistently up-to-date dashboard is leading to bad UX /plan
+- [ ] follow up for a job needs to have all the same options as the dispatch (minus changing repo)
 
 ## Features
 

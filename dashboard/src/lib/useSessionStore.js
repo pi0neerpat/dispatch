@@ -112,6 +112,7 @@ export function useSessionStore() {
         agent: dispatchOpts.agent || undefined,
         extraFlags: dispatchOpts.extraFlags || undefined,
         plainOutput: dispatchOpts.plainOutput || undefined,
+        planSlug: dispatchOpts.planSlug || undefined,
       }),
     })
     if (!res.ok) {

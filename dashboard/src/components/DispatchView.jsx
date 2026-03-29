@@ -19,7 +19,7 @@ function writeSaved(patch) {
   } catch {}
 }
 
-export default function DispatchView({ overview, onDispatch, initialRepo, initialPrompt, onDispatchComplete, settings }) {
+export default function DispatchView({ overview, onDispatch, initialRepo, initialPrompt, initialPlanSlug, onDispatchComplete, settings }) {
   const repos = overview?.repos || []
 
   // Read from localStorage once on mount (sync, before useState defaults)
@@ -113,6 +113,7 @@ export default function DispatchView({ overview, onDispatch, initialRepo, initia
         useWorktree,
         plainOutput,
         agent,
+        planSlug: initialPlanSlug || undefined,
       })
       setPrompt('')
       onDispatchComplete?.()

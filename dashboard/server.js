@@ -20,10 +20,11 @@ const require = createRequire(import.meta.url)
 const pty = require('node-pty')
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const {
-  parseTaskFile, parseActivityLog, getGitInfo, parseJobFile, parseJobDir, loadConfig,
+  parseTaskFile, parseActivityLog, getGitInfo, parseJobFile, parseJobDir, parsePlansDir, loadConfig,
   writeTaskDone, writeTaskDoneByText, writeTaskReopenByText, writeTaskAdd, writeTaskEdit, writeTaskMove,
   writeActivityEntry, writeJobValidation, writeJobKill, writeJobStatus, writeJobResults,
   createCheckpoint, revertCheckpoint, dismissCheckpoint, listCheckpoints,
+  writePlanDispatch,
 } = require('../parsers')
 
 const HUB_DIR = path.resolve(__dirname, '..')
@@ -646,6 +647,43 @@ app.get('/api/activity', (req, res) => {
   res.json({ entries: allEntries.slice(0, limit) })
 })
 
+// ── Plans endpoints ───────────────────────────────────────
+
+app.get('/api/plans', (req, res) => {
+  const config = getConfig()
+  const result = []
+  for (const repo of config.repos) {
+    const plans = parsePlansDir(path.join(repo.resolvedPath, 'plans'))
+    for (const plan of plans) result.push({ ...plan, repo: repo.name })
+  }
+  res.json(result)
+})
+
+app.get('/api/plans/:repoName/:slug', (req, res) => {
+  const config = getConfig()
+  const repo = config.repos.find(r => r.name === req.params.repoName)
+  if (!repo) return res.status(404).json({ error: 'Repo not found' })
+  const filePath = path.join(repo.resolvedPath, 'plans', `${req.params.slug}.md`)
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Plan not found' })
+  const content = fs.readFileSync(filePath, 'utf8')
+  const stat = fs.statSync(filePath)
+  const titleMatch = content.match(/^#\s+(.+)/m)
+  const title = titleMatch ? titleMatch[1].trim() : req.params.slug.replace(/-/g, ' ')
+  res.json({ slug: req.params.slug, title, content, lastModified: stat.mtime.toISOString(), repo: repo.name })
+})
+
+app.put('/api/plans/:repoName/:slug', express.json(), (req, res) => {
+  const config = getConfig()
+  const repo = config.repos.find(r => r.name === req.params.repoName)
+  if (!repo) return res.status(404).json({ error: 'Repo not found' })
+  const { content } = req.body || {}
+  if (typeof content !== 'string') return res.status(400).json({ error: 'content required' })
+  const plansDir = path.join(repo.resolvedPath, 'plans')
+  fs.mkdirSync(plansDir, { recursive: true })
+  fs.writeFileSync(path.join(plansDir, `${req.params.slug}.md`), content, 'utf8')
+  res.json({ ok: true })
+})
+
 // ── Agent models endpoint ─────────────────────────────────
 
 const FALLBACK_CLAUDE_MODELS = [
@@ -727,7 +765,7 @@ function findRepoConfig(name) {
 }
 
 app.post(['/api/jobs/init', '/api/swarm/init'], (req, res) => {
-  const { repo, taskText, originalTask, sessionId, ai, model, maxTurns, autoMerge, useWorktree, baseBranch, skipPermissions, agent, extraFlags, plainOutput } = req.body
+  const { repo, taskText, originalTask, sessionId, ai, model, maxTurns, autoMerge, useWorktree, baseBranch, skipPermissions, agent, extraFlags, plainOutput, planSlug } = req.body
   if (!repo || !taskText) return res.status(400).json({ error: 'repo and taskText required' })
   // Validate baseBranch if provided — reject shell metacharacters and path traversal
   const validBranchRe = /^[a-zA-Z0-9._\-/]+$/
@@ -837,6 +875,15 @@ app.post(['/api/jobs/init', '/api/swarm/init'], (req, res) => {
       try { removeJobWorktree(repoConfig.resolvedPath, jobId, { deleteBranch: true }) } catch {}
     }
     return res.status(500).json({ error: `Failed to start job session: ${err.message}` })
+  }
+  // Write plan linkage metadata if this dispatch originated from a plan
+  if (planSlug) {
+    const planFilePath = path.join(repoConfig.resolvedPath, 'plans', `${planSlug}.md`)
+    if (fs.existsSync(planFilePath)) {
+      try { writePlanDispatch(planFilePath, date, jobId) } catch (err) {
+        console.warn(`[plans] Failed to write dispatch metadata to ${planSlug}: ${err.message}`)
+      }
+    }
   }
   invalidateGitInfoCache(repoConfig.resolvedPath)
   emitJobsChanged({ repo, id: jobId, reason: 'init' })
