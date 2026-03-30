@@ -44,6 +44,9 @@ function buildSessionEntries(activeWorkers, sessionRecords) {
       validation: s.validation || 'none',
       alive: s.alive !== false,
       jobIds: Array.isArray(s.jobIds) ? s.jobIds : [],
+      planSlug: s.planSlug || null,
+      planTitle: s.planTitle || null,
+      planRepo: s.planRepo || s.repo || null,
     }))
   }
 
@@ -60,10 +63,18 @@ function buildSessionEntries(activeWorkers, sessionRecords) {
       validation: 'none',
       alive: true,
       jobIds: [],
+      planSlug: null,
+      planTitle: null,
+      planRepo: null,
     }))
   }
 
   return []
+}
+
+function hasActiveWorktree(worktreePath) {
+  if (!worktreePath) return false
+  return String(worktreePath).trim().toLowerCase() !== '(merged)'
 }
 
 function buildWorkerItemsCore(jobAgents, activeWorkers, jobFileToSession, sessionRecords) {
@@ -72,6 +83,7 @@ function buildWorkerItemsCore(jobAgents, activeWorkers, jobFileToSession, sessio
   const sessionEntries = buildSessionEntries(activeWorkers, sessionRecords)
   const liveSessionIds = new Set(sessionEntries.filter(s => s.alive !== false).map(s => s.sessionId))
   const allAgents = jobAgents || []
+  const agentsById = new Map(allAgents.map(agent => [agent.id, agent]))
 
   // Phase 1: session-owned entries.
   for (const session of sessionEntries) {
@@ -83,6 +95,16 @@ function buildWorkerItemsCore(jobAgents, activeWorkers, jobFileToSession, sessio
     for (const agent of allAgents) {
       if (agent.session === sessionId) seen.add(agent.id)
     }
+    const candidateIds = [session.jobId, session.initJobId, ...(session.jobIds || [])].filter(Boolean)
+    const candidateAgents = candidateIds
+      .map(id => agentsById.get(id))
+      .filter(Boolean)
+    const sessionAgents = allAgents.filter(agent => agent.session === sessionId)
+    const linkedAgent = candidateAgents.find(agent => hasActiveWorktree(agent.worktreePath))
+      || candidateAgents[0]
+      || sessionAgents.find(agent => hasActiveWorktree(agent.worktreePath))
+      || sessionAgents[0]
+      || null
 
     items.push({
       key: `session:${sessionId}`,
@@ -97,6 +119,10 @@ function buildWorkerItemsCore(jobAgents, activeWorkers, jobFileToSession, sessio
       created: session.created,
       jobId: session.jobId || session.initJobId || null,
       alive: session.alive !== false,
+      usesWorktree: hasActiveWorktree(linkedAgent?.worktreePath),
+      planSlug: session.planSlug || linkedAgent?.planSlug || null,
+      planTitle: session.planTitle || linkedAgent?.planTitle || null,
+      planRepo: session.planRepo || linkedAgent?.planRepo || session.repo || null,
     })
   }
 
@@ -123,6 +149,10 @@ function buildWorkerItemsCore(jobAgents, activeWorkers, jobFileToSession, sessio
       jobId: agent.id,
       alive: isLive,
       isActive,
+      usesWorktree: hasActiveWorktree(agent.worktreePath),
+      planSlug: agent.planSlug || null,
+      planTitle: agent.planTitle || null,
+      planRepo: agent.planRepo || agent.repo || null,
     })
   }
 

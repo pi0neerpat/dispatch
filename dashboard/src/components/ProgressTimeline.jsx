@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react'
 import { Clock, Loader } from 'lucide-react'
 import { timeAgo } from '../lib/utils'
 import { statusConfig } from '../lib/statusConfig'
+import { usePolling } from '../lib/usePolling'
+import { POLL_INTERVALS } from '../lib/pollingIntervals'
 
 function formatEntryTime(date) {
   const now = new Date()
@@ -29,28 +30,7 @@ function parseProgressEntry(entry) {
 }
 
 export default function ProgressTimeline({ agentId }) {
-  const [detail, setDetail] = useState(null)
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    if (!agentId) { setDetail(null); setLoading(false); return }
-    let cancelled = false
-    setLoading(true)
-
-    async function fetchDetail() {
-      try {
-        const res = await fetch(`/api/jobs/${agentId}`)
-        if (!res.ok) throw new Error(`${res.status}`)
-        const data = await res.json()
-        if (!cancelled) setDetail(data)
-      } catch {}
-      if (!cancelled) setLoading(false)
-    }
-
-    fetchDetail()
-    const id = setInterval(fetchDetail, 8000)
-    return () => { cancelled = true; clearInterval(id) }
-  }, [agentId])
+  const { data: detail, loading } = usePolling(agentId ? `/api/jobs/${agentId}` : null, POLL_INTERVALS.jobDetail)
 
   if (loading && !detail) {
     return (

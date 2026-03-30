@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { ArrowLeft, Pencil, Check, Play, AlertTriangle, RotateCcw, Wrench } from 'lucide-react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useAgentModels } from '../lib/useAgentModels'
 import DispatchSettingsRow from './DispatchSettingsRow'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { cn } from '../lib/utils'
+import { cn, truncateWithEllipsis } from '../lib/utils'
 import { repoIdentityColors } from '../lib/constants'
 import { mdComponents } from './mdComponents'
 
@@ -27,12 +28,13 @@ function stripMetadata(content) {
     .replace(/^\n+/, '')
 }
 
-const JOB_STATUS_CHIP = {
-  in_progress: { label: 'running', color: 'var(--status-active)' },
-  needs_validation: { label: 'review', color: 'var(--status-review)' },
-  completed: { label: 'done', color: 'var(--status-complete)' },
-  failed: { label: 'failed', color: 'var(--status-failed)' },
-}
+const PLAN_LIST_GROUPS = [
+  { key: 'in_review', label: 'In review' },
+  { key: 'ready', label: 'Ready' },
+  { key: 'done', label: 'Done' },
+]
+
+const PLAN_HEADER_JOB_MAX = 48
 
 function resolveJobStatus(plan, swarm) {
   if (!plan.jobSlug) return plan.dispatched ? 'dispatched' : null
@@ -40,12 +42,38 @@ function resolveJobStatus(plan, swarm) {
   return agent?.status || 'dispatched'
 }
 
-function PlanCard({ plan, onSelect, swarm }) {
-  const color = repoIdentityColors[plan.repo] || 'var(--primary)'
+function getLinkedJobStatusChip(job) {
+  if (!job) return { label: 'dispatched', color: 'var(--muted-foreground)' }
+  if (job.validation === 'needs_validation') return { label: 'review', color: 'var(--status-review)' }
+  if (job.validation === 'validated') return { label: 'validated', color: 'var(--status-complete)' }
+  if (job.validation === 'rejected') return { label: 'rejected', color: 'var(--status-failed)' }
+  if (job.status === 'in_progress') return { label: 'running', color: 'var(--status-active)' }
+  if (job.status === 'completed') return { label: 'completed', color: 'var(--status-complete)' }
+  if (job.status === 'failed' || job.status === 'killed') return { label: 'failed', color: 'var(--status-failed)' }
+  return { label: job.status || 'dispatched', color: 'var(--muted-foreground)' }
+}
+
+function getPlanListGroup(plan, swarm) {
+  const linkedJob = plan.jobSlug ? (swarm?.agents?.find(a => a.id === plan.jobSlug) || null) : null
   const jobStatus = resolveJobStatus(plan, swarm)
-  // Job execution state takes priority; fall back to user-set readiness
-  const jobChip = jobStatus ? JOB_STATUS_CHIP[jobStatus] : null
-  const showReady = !jobChip && jobStatus !== 'dispatched' && plan.planStatus === 'ready'
+
+  if (linkedJob?.validation === 'needs_validation' || jobStatus === 'needs_validation') return 'in_review'
+  if (jobStatus === 'completed' && (!linkedJob?.validation || linkedJob.validation === 'none')) return 'in_review'
+  if (linkedJob?.validation === 'validated' || jobStatus === 'completed') return 'done'
+  if (plan.planStatus === 'ready') return 'ready'
+  return null
+}
+
+function CountBadge({ n }) {
+  return (
+    <span className="inline-flex items-center justify-center min-w-4 h-4 px-1 rounded-full text-[10px] font-medium bg-card border border-border text-muted-foreground/80">
+      {n}
+    </span>
+  )
+}
+
+function PlanCard({ plan, onSelect }) {
+  const color = repoIdentityColors[plan.repo] || 'var(--primary)'
 
   return (
     <button
@@ -56,21 +84,6 @@ function PlanCard({ plan, onSelect, swarm }) {
         <span className="flex-1 min-w-0 text-[13px] font-medium text-foreground truncate">
           {plan.title}
         </span>
-        {jobChip ? (
-          <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium"
-            style={{ color: jobChip.color, background: `${jobChip.color}18` }}>
-            {jobChip.label}
-          </span>
-        ) : jobStatus === 'dispatched' ? (
-          <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium text-muted-foreground border border-border">
-            dispatched
-          </span>
-        ) : showReady ? (
-          <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium"
-            style={{ color: '#8bab8f', background: '#8bab8f18' }}>
-            ready
-          </span>
-        ) : null}
         <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium"
           style={{ color, background: `${color}18` }}>
           {plan.repo}
@@ -93,7 +106,7 @@ function writeDispatchSaved(patch) {
   } catch {}
 }
 
-function PlanDispatchBar({ plan, swarm, settings: appSettings, onDispatch }) {
+function PlanDispatchBar({ plan, swarm, settings: appSettings, onNavigateToDispatch }) {
   const isFinished = ['completed', 'failed'].includes(resolveJobStatus(plan, swarm))
 
   // Share state with dispatch-settings so preferences stay consistent across views
@@ -114,8 +127,6 @@ function PlanDispatchBar({ plan, swarm, settings: appSettings, onDispatch }) {
   const models = useAgentModels(agent)
 
   const [editInstructions, setEditInstructions] = useState('')
-  const [implementDispatching, setImplementDispatching] = useState(false)
-  const [editDispatching, setEditDispatching] = useState(false)
 
   const setModel = v => { setModelRaw(v); writeDispatchSaved({ model: v }) }
   const setMaxTurns = v => { setMaxTurnsRaw(v) }
@@ -139,7 +150,6 @@ function PlanDispatchBar({ plan, swarm, settings: appSettings, onDispatch }) {
     }
   }, [models])
 
-  const isCodex = agent === 'codex'
   const sharedSettings = {
     agent, onSwitchAgent: switchAgent,
     model, setModel, models,
@@ -149,28 +159,13 @@ function PlanDispatchBar({ plan, swarm, settings: appSettings, onDispatch }) {
     plainOutput, setPlainOutput,
   }
 
-  async function handleImplement() {
-    setImplementDispatching(true)
-    try {
-      await onDispatch({
-        repo: plan.repo, taskText: `plans/${plan.slug}.md`,
-        agent, model, maxTurns: isCodex ? null : maxTurns,
-        useWorktree, autoMerge, plainOutput, planSlug: plan.slug,
-      })
-    } finally { setImplementDispatching(false) }
+  function handleImplement() {
+    onNavigateToDispatch?.(plan.repo, '', plan.slug)
   }
 
-  async function handleEdit() {
+  function handleEdit() {
     const basePrompt = 'Expand and refine this plan in place. Research any open questions, fill in implementation details, and update the file.'
-    const taskText = `plans/${plan.slug}.md\n\n${editInstructions.trim() || basePrompt}`
-    setEditDispatching(true)
-    try {
-      await onDispatch({
-        repo: plan.repo, taskText,
-        agent, model, maxTurns: isCodex ? null : maxTurns,
-        useWorktree, autoMerge, plainOutput, planSlug: plan.slug,
-      })
-    } finally { setEditDispatching(false) }
+    onNavigateToDispatch?.(plan.repo, editInstructions.trim() || basePrompt, plan.slug)
   }
 
   return (
@@ -198,12 +193,11 @@ function PlanDispatchBar({ plan, swarm, settings: appSettings, onDispatch }) {
             <div className="absolute pointer-events-none animate-loading-halo" style={{ width: '160px', height: '52px', background: '#8bab8f', borderRadius: '50%', filter: 'blur(26px)', top: 'calc(50% - 26px)', left: 'calc(50% - 80px)', opacity: 0.5 }} />
             <button
               onClick={handleImplement}
-              disabled={implementDispatching}
               style={{ background: 'linear-gradient(135deg, #8bab8f 0%, #6d9472 100%)', color: '#1a1b1e', boxShadow: '0 0 8px 2px rgba(139,171,143,0.2)' }}
               className="relative z-10 inline-flex items-center gap-1.5 pl-4 pr-5 h-9 rounded-full text-[12px] font-semibold transition-transform duration-150 hover:scale-105 active:scale-[0.97] disabled:opacity-60 disabled:scale-100"
             >
               <Play size={13} fill="currentColor" />
-              {implementDispatching ? 'Starting…' : 'Dispatch'}
+              Dispatch
             </button>
           </div>
         </div>
@@ -227,11 +221,10 @@ function PlanDispatchBar({ plan, swarm, settings: appSettings, onDispatch }) {
         <div className="flex justify-end">
           <button
             onClick={handleEdit}
-            disabled={editDispatching}
             className="inline-flex items-center gap-1.5 px-3.5 h-8 rounded-full text-[12px] font-medium border border-border bg-card text-muted-foreground hover:text-foreground hover:bg-card-hover transition-colors disabled:opacity-60"
           >
             <Wrench size={12} />
-            {editDispatching ? 'Starting…' : 'Start Edit'}
+            Start Edit
           </button>
         </div>
       </div>
@@ -240,7 +233,7 @@ function PlanDispatchBar({ plan, swarm, settings: appSettings, onDispatch }) {
   )
 }
 
-function PlanDetail({ plan: initialPlan, onBack, onDispatch, settings, swarm }) {
+function PlanDetail({ plan: initialPlan, onBack, onNavigateToDispatch, settings, swarm }) {
   const [plan, setPlan] = useState(initialPlan)
   const [isEditing, setIsEditing] = useState(false)
   const [editContent, setEditContent] = useState('')
@@ -251,6 +244,11 @@ function PlanDetail({ plan: initialPlan, onBack, onDispatch, settings, swarm }) 
   const jobStatus = resolveJobStatus(plan, swarm)
   const isRunning = jobStatus === 'in_progress'
   const isReady = plan.planStatus === 'ready'
+  const linkedJob = plan.jobSlug ? (swarm?.agents?.find(a => a.id === plan.jobSlug) || null) : null
+  const linkedJobStatus = getLinkedJobStatusChip(linkedJob)
+  const linkedJobNameRaw = linkedJob?.taskName || plan.jobSlug || ''
+  const linkedJobName = truncateWithEllipsis(linkedJobNameRaw, PLAN_HEADER_JOB_MAX)
+  const linkedJobHref = plan.jobSlug ? `/jobs/${encodeURIComponent(plan.jobSlug)}` : null
 
   function enterEdit() {
     setEditContent(stripMetadata(plan.content))
@@ -304,6 +302,32 @@ function PlanDetail({ plan: initialPlan, onBack, onDispatch, settings, swarm }) 
           style={{ color, background: `${color}18` }}>
           {plan.repo}
         </span>
+        {plan.jobSlug && (
+          <>
+            {linkedJobHref ? (
+              <a
+                href={linkedJobHref}
+                className="max-w-[18rem] shrink min-w-0 px-1.5 py-0.5 rounded text-[10px] font-medium border border-border text-muted-foreground hover:text-foreground transition-colors truncate"
+                title={linkedJobNameRaw}
+              >
+                Job: {linkedJobName}
+              </a>
+            ) : (
+              <span
+                className="max-w-[18rem] shrink min-w-0 px-1.5 py-0.5 rounded text-[10px] font-medium border border-border text-muted-foreground truncate"
+                title={linkedJobNameRaw}
+              >
+                Job: {linkedJobName}
+              </span>
+            )}
+            <span
+              className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium"
+              style={{ color: linkedJobStatus.color, background: `${linkedJobStatus.color}18` }}
+            >
+              {linkedJobStatus.label}
+            </span>
+          </>
+        )}
 
         {/* Ready toggle */}
         {!isEditing && (
@@ -383,7 +407,7 @@ function PlanDetail({ plan: initialPlan, onBack, onDispatch, settings, swarm }) 
           plan={plan}
           swarm={swarm}
           settings={settings}
-          onDispatch={onDispatch}
+          onNavigateToDispatch={onNavigateToDispatch}
         />
       )}
     </div>
@@ -396,7 +420,9 @@ function readSavedFilter() {
   try { return localStorage.getItem(FILTER_KEY) || null } catch { return null }
 }
 
-export default function PlansView({ overview, swarm, onDispatch, settings }) {
+export default function PlansView({ overview, swarm, onNavigateToDispatch, settings }) {
+  const location = useLocation()
+  const navigate = useNavigate()
   const [plans, setPlans] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedPlan, setSelectedPlan] = useState(null)
@@ -423,17 +449,37 @@ export default function PlansView({ overview, swarm, onDispatch, settings }) {
 
   useEffect(() => { fetchPlans() }, [fetchPlans])
 
+  useEffect(() => {
+    const params = new URLSearchParams(location.search)
+    const targetRepo = params.get('repo')
+    const targetPlanSlug = params.get('plan')
+
+    if (targetRepo && repoFilter !== targetRepo) {
+      setRepoFilter(targetRepo)
+    }
+
+    if (!targetPlanSlug || plans.length === 0) return
+    const match = plans.find(p => p.slug === targetPlanSlug && (!targetRepo || p.repo === targetRepo))
+    if (!match) return
+    setSelectedPlan(prev => (
+      prev && prev.repo === match.repo && prev.slug === match.slug
+        ? prev
+        : match
+    ))
+  }, [location.search, plans, repoFilter])
+
   const handleBack = useCallback(() => {
     setSelectedPlan(null)
+    if (location.search) navigate('/plans', { replace: true })
     fetchPlans() // refresh in case edits were made
-  }, [fetchPlans])
+  }, [fetchPlans, location.search, navigate])
 
   if (selectedPlan) {
     return (
       <PlanDetail
         plan={selectedPlan}
         onBack={handleBack}
-        onDispatch={onDispatch}
+        onNavigateToDispatch={onNavigateToDispatch}
         settings={settings}
         swarm={swarm}
       />
@@ -441,6 +487,18 @@ export default function PlansView({ overview, swarm, onDispatch, settings }) {
   }
 
   const visiblePlans = repoFilter ? plans.filter(p => p.repo === repoFilter) : plans
+  const groupedPlans = PLAN_LIST_GROUPS.reduce((acc, group) => {
+    acc[group.key] = []
+    return acc
+  }, {})
+  for (const plan of visiblePlans) {
+    const groupKey = getPlanListGroup(plan, swarm)
+    if (groupKey && groupedPlans[groupKey]) groupedPlans[groupKey].push(plan)
+  }
+  for (const group of PLAN_LIST_GROUPS) {
+    groupedPlans[group.key].sort((a, b) => new Date(b.lastModified).getTime() - new Date(a.lastModified).getTime())
+  }
+  const hasGroupedPlans = PLAN_LIST_GROUPS.some(group => groupedPlans[group.key].length > 0)
 
   return (
     <div className="flex flex-col gap-4">
@@ -493,15 +551,28 @@ export default function PlansView({ overview, swarm, onDispatch, settings }) {
           </p>
         </div>
       ) : (
-        <div className="flex flex-col gap-1.5">
-          {visiblePlans.map(plan => (
-            <PlanCard
-              key={`${plan.repo}/${plan.slug}`}
-              plan={plan}
-              onSelect={setSelectedPlan}
-              swarm={swarm}
-            />
+        <div className="flex flex-col gap-4">
+          {PLAN_LIST_GROUPS.map(group => (
+            groupedPlans[group.key].length > 0 ? (
+              <div key={group.key} className="flex flex-col gap-1.5">
+                <h3 className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-muted-foreground/60 font-semibold pt-1 pb-0.5">
+                  {group.label} <CountBadge n={groupedPlans[group.key].length} />
+                </h3>
+                {groupedPlans[group.key].map(plan => (
+                  <PlanCard
+                    key={`${plan.repo}/${plan.slug}`}
+                    plan={plan}
+                    onSelect={setSelectedPlan}
+                  />
+                ))}
+              </div>
+            ) : null
           ))}
+          {!hasGroupedPlans && (
+            <div className="py-8 text-center">
+              <p className="text-[13px] text-muted-foreground/60">No plans in review, ready, or done.</p>
+            </div>
+          )}
         </div>
       )}
     </div>

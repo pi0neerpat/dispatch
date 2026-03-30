@@ -1,9 +1,9 @@
-import { Bot, Sparkles } from 'lucide-react'
 import { useAgentModels } from '../lib/useAgentModels'
 import { getAgentBrandColor } from '../lib/constants'
 import Toggle from './Toggle'
+import AgentIcon from './AgentIcon'
 
-function AgentCard({ agentId, label, icon: Icon, agentSettings, onUpdate, showMaxTurns = true, showTuiMode = false }) {
+function AgentCard({ agentId, label, agentSettings, onUpdate, showMaxTurns = true, showTuiMode = false }) {
   const { defaultModel, defaultMaxTurns, skipPermissions, tuiMode, extraFlags } = agentSettings
   const models = useAgentModels(agentId)
   const brandColor = getAgentBrandColor(agentId)
@@ -11,7 +11,7 @@ function AgentCard({ agentId, label, icon: Icon, agentSettings, onUpdate, showMa
   return (
     <div className="rounded-lg border border-border bg-card p-4 space-y-3">
       <div className="flex items-center gap-2">
-        <Icon size={15} style={{ color: brandColor }} />
+        <AgentIcon agent={agentId} size={15} color={brandColor} />
         <span className="text-[13px] font-medium" style={{ color: brandColor }}>{label}</span>
       </div>
 
@@ -108,7 +108,6 @@ export default function SettingsView({ settings, onUpdateAgent }) {
         <AgentCard
           agentId="claude"
           label="Claude"
-          icon={Bot}
           agentSettings={settings.agents.claude}
           onUpdate={onUpdateAgent}
           showMaxTurns={true}
@@ -117,7 +116,6 @@ export default function SettingsView({ settings, onUpdateAgent }) {
         <AgentCard
           agentId="codex"
           label="Codex"
-          icon={Sparkles}
           agentSettings={settings.agents.codex}
           onUpdate={onUpdateAgent}
           showMaxTurns={false}

@@ -1,9 +1,10 @@
 import { useState, useMemo, useEffect } from 'react'
-import { Bot, Sparkles, AlertCircle, CheckCircle2, XCircle, Clock } from 'lucide-react'
-import { cn, timeAgo } from '../lib/utils'
+import { Bot, Sparkles, AlertCircle, CheckCircle2, XCircle, Clock, GitBranch } from 'lucide-react'
+import { cn, timeAgo, truncateWithEllipsis } from '../lib/utils'
 import { repoIdentityColors, normalizeAgentId, getAgentBrandColor } from '../lib/constants'
 import { buildWorkerNavItems } from '../lib/workerUtils'
 import { FilterChip, toggleFilter, BUG_COLOR, loadFilters, saveFilters } from '../lib/filterUtils.jsx'
+import AgentIcon, { getAgentLabel } from './AgentIcon'
 
 const JOB_STATUSES = ['review', 'active', 'completed', 'failed', 'rejected']
 const STORAGE_KEY = 'jobsView:filters'
@@ -16,10 +17,7 @@ const STATUS_LABELS = {
   failed: 'Failed',
 }
 
-const AGENT_ICONS = {
-  claude: Bot,
-  codex: Sparkles,
-}
+const JOB_CARD_PLAN_MAX = 36
 
 function classifyItem(worker) {
   if (worker.validation === 'validated' || worker.runState === 'validated') return 'completed'
@@ -30,6 +28,17 @@ function classifyItem(worker) {
   if (worker.status === 'completed') return 'completed'
   if (worker.status === 'failed' || worker.status === 'killed') return 'failed'
   return 'active'
+}
+
+function buildPlanHref(worker) {
+  if (!worker?.planSlug) return null
+  const repo = worker.planRepo || worker.repo
+  if (!repo) return null
+  const params = new URLSearchParams({
+    repo,
+    plan: worker.planSlug,
+  })
+  return `/plans?${params.toString()}`
 }
 
 export default function JobsView({
@@ -193,7 +202,7 @@ export default function JobsView({
                 {group.items.map(worker => {
                   const repoColor = repoIdentityColors[worker.repo] || 'var(--primary)'
                   const normalizedAgent = normalizeAgentId(worker.agent)
-                  const AgentIcon = AGENT_ICONS[normalizedAgent] || Bot
+                  const agentLabel = getAgentLabel(normalizedAgent)
                   const agentColor = getAgentBrandColor(normalizedAgent)
                   const duration = worker.durationMinutes != null
                     ? timeAgo(null, worker.durationMinutes)
@@ -201,11 +210,23 @@ export default function JobsView({
                       ? timeAgo(new Date(worker.created).toISOString())
                       : null
 
+                  const planHref = buildPlanHref(worker)
+                  const planLabelRaw = worker.planTitle || worker.planSlug || ''
+                  const planLabel = truncateWithEllipsis(planLabelRaw, JOB_CARD_PLAN_MAX)
+
                   return (
-                    <button
+                    <div
                       key={worker.key}
+                      role="button"
+                      tabIndex={0}
                       onClick={() => onSelectJob?.(worker.jobId || worker.id)}
-                      className="w-full text-left px-3.5 py-2.5 rounded-lg border bg-card hover:bg-card-hover transition-colors group animate-fade-up"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          onSelectJob?.(worker.jobId || worker.id)
+                        }
+                      }}
+                      className="w-full text-left px-3.5 py-2.5 rounded-lg border bg-card hover:bg-card-hover transition-colors group animate-fade-up cursor-pointer"
                       style={{ borderColor: 'rgba(255,255,255,0.05)' }}
                       onMouseEnter={e => e.currentTarget.style.borderColor = 'rgba(139,171,143,0.35)'}
                       onMouseLeave={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.05)'}
@@ -217,18 +238,51 @@ export default function JobsView({
                             worker.status === 'in_progress' && 'animate-pulse-soft'
                           )}
                           style={{ color: agentColor, background: `${agentColor}12`, borderColor: `${agentColor}30` }}
-                          title={normalizedAgent === 'codex' ? 'Codex' : 'Claude'}
+                          title={agentLabel}
                         >
-                          <AgentIcon size={11} />
+                          <AgentIcon agent={normalizedAgent} size={11} title={agentLabel} />
                         </span>
 
                         <div className="flex-1 min-w-0">
                           <p className="text-[13px] font-medium text-foreground truncate">{worker.label}</p>
-                          {duration && (
+                          {(duration || worker.usesWorktree) && (
                             <span className="text-[10px] text-muted-foreground/40 flex items-center gap-1 mt-0.5 font-mono" style={{ fontFamily: 'var(--font-mono)' }}>
-                              <Clock size={9} />
-                              {duration}
+                              {duration && (
+                                <>
+                                  <Clock size={9} />
+                                  {duration}
+                                </>
+                              )}
+                              {duration && worker.usesWorktree && (
+                                <span className="text-muted-foreground/25">•</span>
+                              )}
+                              {worker.usesWorktree && (
+                                <>
+                                  <GitBranch size={9} />
+                                  worktree
+                                </>
+                              )}
                             </span>
+                          )}
+                          {worker.planSlug && (
+                            <div className="mt-1 flex items-center gap-1 text-[10px] text-muted-foreground/70 min-w-0">
+                              <span className="shrink-0">Plan:</span>
+                              {planHref ? (
+                                <a
+                                  href={planHref}
+                                  onClick={e => e.stopPropagation()}
+                                  onKeyDown={e => e.stopPropagation()}
+                                  className="min-w-0 truncate hover:text-foreground underline underline-offset-2"
+                                  title={planLabelRaw}
+                                >
+                                  {planLabel}
+                                </a>
+                              ) : (
+                                <span className="min-w-0 truncate" title={planLabelRaw}>
+                                  {planLabel}
+                                </span>
+                              )}
+                            </div>
                           )}
                         </div>
 
@@ -244,7 +298,7 @@ export default function JobsView({
                           </span>
                         </div>
                       </div>
-                    </button>
+                    </div>
                   )
                 })}
               </div>

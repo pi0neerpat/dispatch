@@ -36,7 +36,7 @@ Dispatch reads your files as-is. Dispatch agents from a dashboard, watch them wo
 
 - Doesn't touch your existing setup
 - Markdown is the truth. No new file formats, no database, no sync
-- One agent per task
+- One agent per task, many tasks in parallel — each dispatched task gets its own agent session. Enable worktrees to isolate branches and run jobs concurrently without git conflicts
 
 ## Security
 

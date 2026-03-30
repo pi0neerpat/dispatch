@@ -14,6 +14,7 @@ const {
   parseActivityLog,
   parseJobFile,
   parseJobDir,
+  parsePlansDir,
   loadConfig,
   writeTaskDone,
   writeTaskDoneByText,
@@ -244,6 +245,7 @@ describe('parseJobFile', () => {
       'Status: In progress',
       'Validation: Needs validation',
       'Repo: app',
+      'OriginalPrompt: Build login page\\nwith tests',
       'Session: sess-123',
       'SkipPermissions: true',
       'ResumeId: resume-456',
@@ -269,6 +271,7 @@ describe('parseJobFile', () => {
     assert.equal(result.status, 'in_progress');
     assert.equal(result.validation, 'needs_validation');
     assert.equal(result.repo, 'app');
+    assert.equal(result.originalPrompt, 'Build login page\\nwith tests');
     assert.equal(result.session, 'sess-123');
     assert.equal(result.skipPermissions, true);
     assert.equal(result.resumeId, 'resume-456');
@@ -369,6 +372,58 @@ describe('parseJobDir', () => {
 
   it('returns empty array for missing directory', () => {
     assert.deepEqual(parseJobDir('/nonexistent/dir'), []);
+  });
+});
+
+// ── parsePlansDir ────────────────────────────────────────────
+
+describe('parsePlansDir', () => {
+  beforeEach(setup);
+  afterEach(teardown);
+
+  it('parses plan metadata with full content by default', () => {
+    const dir = path.join(tmpDir, 'plans');
+    fs.mkdirSync(dir);
+    const file = path.join(dir, '2026-03-30-example-plan.md');
+    fs.writeFileSync(file, [
+      'Dispatched: 2026-03-30',
+      'Job: 2026-03-30-address-findings',
+      'Status: ready',
+      '',
+      '# Example Plan',
+      '',
+      'Body content',
+    ].join('\n'), 'utf8');
+
+    const result = parsePlansDir(dir);
+    assert.equal(result.length, 1);
+    assert.equal(result[0].slug, '2026-03-30-example-plan');
+    assert.equal(result[0].title, 'Example Plan');
+    assert.equal(result[0].jobSlug, '2026-03-30-address-findings');
+    assert.equal(result[0].planStatus, 'ready');
+    assert.equal(result[0].dispatched, '2026-03-30');
+    assert.ok(result[0].content.includes('Body content'));
+  });
+
+  it('supports includeContent=false for lightweight lookups', () => {
+    const dir = path.join(tmpDir, 'plans');
+    fs.mkdirSync(dir);
+    fs.writeFileSync(path.join(dir, '2026-03-30-lookup-plan.md'), [
+      'Dispatched: 2026-03-30',
+      'Job: 2026-03-30-lightweight',
+      'Status: in_progress',
+      '',
+      '# Lightweight Plan',
+      '',
+      'Long body line '.repeat(2000),
+    ].join('\n'), 'utf8');
+
+    const result = parsePlansDir(dir, { includeContent: false });
+    assert.equal(result.length, 1);
+    assert.equal(result[0].title, 'Lightweight Plan');
+    assert.equal(result[0].jobSlug, '2026-03-30-lightweight');
+    assert.equal(result[0].planStatus, 'in_progress');
+    assert.equal('content' in result[0], false);
   });
 });
 

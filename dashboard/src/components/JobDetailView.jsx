@@ -1,7 +1,8 @@
 import { useState, useMemo, useEffect } from 'react'
 import { ArrowLeft, TerminalSquare, ClipboardCheck } from 'lucide-react'
 import { cn } from '../lib/utils'
-import { repoIdentityColors } from '../lib/constants'
+import { repoIdentityColors, normalizeAgentId, getAgentBrandColor } from '../lib/constants'
+import AgentIcon, { getAgentLabel } from './AgentIcon'
 import TerminalPanel from './TerminalPanel'
 import ResultsPanel from './ResultsPanel'
 
@@ -26,6 +27,7 @@ export default function JobDetailView({
   settings,
 }) {
   const [view, setView] = useState('review')
+  const [runDevSession, setRunDevSession] = useState(null)
 
   const hasTerminal = agentTerminals.has(jobId)
   const taskInfo = hasTerminal ? agentTerminals.get(jobId) : null
@@ -41,17 +43,89 @@ export default function JobDetailView({
       setView('review')
     }
   }, [jobId, hasTerminal, activePlainOutput]) // eslint-disable-line react-hooks/exhaustive-deps
-  const repoName = taskInfo?.repoName || ''
+
+  useEffect(() => {
+    setRunDevSession(null)
+  }, [jobId])
+
+  const linkedJob = useMemo(() => {
+    const jobs = swarm?.agents || []
+    if (jobs.length === 0) return null
+
+    const candidateIds = [
+      taskInfo?.jobFile?.fileName?.replace(/\.md$/, '') || null,
+      jobId,
+    ].filter(Boolean)
+
+    for (const candidateId of candidateIds) {
+      const matched = jobs.find(agent => agent.id === candidateId)
+      if (matched) return matched
+    }
+
+    return jobs.find(agent => agent.session === jobId) || null
+  }, [swarm, taskInfo?.jobFile?.fileName, jobId])
+
+  const repoName = taskInfo?.repoName || runDevSession?.repoName || linkedJob?.repo || ''
   const repoColor = repoIdentityColors[repoName] || 'var(--primary)'
 
   const swarmFileId = taskInfo?.jobFile?.fileName?.replace(/\.md$/, '') || null
   const reviewAgentId = swarmFileId || (hasTerminal ? null : jobId)
 
-  const jobLabel = taskInfo?.taskText || 'Worker session'
+  const jobLabel = taskInfo?.taskText || runDevSession?.taskText || linkedJob?.taskName || 'Worker session'
+  const normalizedAgent = normalizeAgentId(taskInfo?.agent || linkedJob?.agent || 'claude')
+  const agentLabel = getAgentLabel(normalizedAgent)
+  const agentColor = getAgentBrandColor(normalizedAgent)
 
-  const activeTerminalSessionId = hasTerminal ? jobId : (jobFileToSession?.[jobId] || null)
-  const activeTerminalInfo = activeTerminalSessionId ? agentTerminals.get(activeTerminalSessionId) : null
+  const sessionsForTerminal = useMemo(() => {
+    if (!runDevSession) return agentTerminals
+    const merged = new Map(agentTerminals)
+    const existing = agentTerminals.get(runDevSession.sessionId) || {}
+    merged.set(runDevSession.sessionId, {
+      ...existing,
+      ...runDevSession,
+      alive: existing.alive ?? runDevSession.alive,
+      serverStarted: true,
+    })
+    return merged
+  }, [agentTerminals, runDevSession])
+
+  const activeTerminalSessionId = runDevSession?.sessionId || (hasTerminal ? jobId : (jobFileToSession?.[jobId] || null))
+  const activeTerminalInfo = activeTerminalSessionId ? sessionsForTerminal.get(activeTerminalSessionId) : null
   const hasLiveTerminal = Boolean(activeTerminalInfo && activeTerminalInfo.alive !== false)
+
+  const handleRunDev = async () => {
+    if (!reviewAgentId) return
+    try {
+      const res = await fetch(`/api/jobs/${reviewAgentId}/run-dev`, { method: 'POST' })
+      if (!res.ok) {
+        showToast?.('No startScript configured')
+        return
+      }
+      const { sessionId, shellCommand, repoName: responseRepoName } = await res.json()
+      setRunDevSession({
+        sessionId,
+        repoName: responseRepoName || repoName,
+        taskText: 'Run dev server',
+        shellCommand,
+        ptySessionId: sessionId,
+        alive: true,
+      })
+      setView('terminal')
+    } catch {
+      showToast?.('Failed to start run session')
+    }
+  }
+
+  const handleKillTerminalSession = (sessionId) => {
+    if (runDevSession?.sessionId && sessionId === runDevSession.sessionId) {
+      fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }).catch(() => {})
+      setRunDevSession(prev => (
+        prev?.sessionId === sessionId ? { ...prev, alive: false } : prev
+      ))
+      return
+    }
+    onKillSession?.(sessionId)
+  }
 
   return (
     <div className="h-full flex flex-col">
@@ -69,6 +143,14 @@ export default function JobDetailView({
 
         <div className="flex-1 min-w-0 flex items-center gap-2">
           <p className="text-[13px] font-medium text-foreground truncate">{jobLabel}</p>
+          <span
+            className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded shrink-0"
+            style={{ background: `${agentColor}10`, color: agentColor, border: `1px solid ${agentColor}30` }}
+            title={agentLabel}
+          >
+            <AgentIcon agent={normalizedAgent} size={10} title={agentLabel} />
+            {agentLabel}
+          </span>
           <span
             className="text-[10px] font-medium px-1.5 py-0.5 rounded capitalize shrink-0"
             style={{ background: `${repoColor}15`, color: repoColor, border: `1px solid ${repoColor}30` }}
@@ -109,11 +191,11 @@ export default function JobDetailView({
       <div className="flex-1 min-h-0 relative">
         <div className="absolute inset-0" style={{ display: view === 'terminal' ? 'block' : 'none' }}>
           <TerminalPanel
-            sessions={agentTerminals}
+            sessions={sessionsForTerminal}
             activeSessionId={activeTerminalSessionId}
             isVisible={view === 'terminal'}
             skipPermissions={skipPermissions}
-            onKillSession={onKillSession}
+            onKillSession={handleKillTerminalSession}
             onUpdateSessionId={onUpdateSessionId}
             onPromptSent={onPromptSent}
             onContextUsage={onContextUsage}
@@ -132,6 +214,7 @@ export default function JobDetailView({
               onResumeJob={onResumeJob}
               onBack={onBack}
               onRemoveSession={() => onRemoveSession?.(jobId)}
+              onRunDev={handleRunDev}
               showToast={showToast}
               settings={settings}
             />

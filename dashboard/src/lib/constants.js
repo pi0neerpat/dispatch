@@ -44,11 +44,11 @@ export const AGENT_OPTIONS = [
 
 /**
  * Agent brand colors.
- * Claude: Anthropic orange. Codex: OpenAI green.
+ * Claude: Anthropic accent-brand. Codex: OpenAI discovery purple.
  */
 export const AGENT_BRAND_COLORS = {
   claude: '#D97757',
-  codex: '#10A37F',
+  codex: '#924FF7',
 }
 
 /**

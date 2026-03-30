@@ -3,6 +3,7 @@ import { Clock, Loader, CheckCircle2, PlayCircle, XCircle, ListChecks } from 'lu
 import { cn } from '../lib/utils'
 import { repoIdentityColors } from '../lib/constants'
 import { usePolling } from '../lib/usePolling'
+import { POLL_INTERVALS } from '../lib/pollingIntervals'
 
 function formatRelativeDate(dateStr) {
   if (!dateStr) return ''
@@ -35,7 +36,7 @@ function typeMeta(type) {
 }
 
 export default function ActivityFeed() {
-  const { data, loading } = usePolling('/api/activity?limit=20', 10000)
+  const { data, loading } = usePolling('/api/activity?limit=20', POLL_INTERVALS.activity)
   const entries = data?.entries || []
 
   const grouped = useMemo(() => {

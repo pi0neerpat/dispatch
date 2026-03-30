@@ -31,7 +31,7 @@ Primary naming has moved from "swarm" to "job". The parser exports the new `pars
 | `parseTaskFile(filePath)` | Path to `todo.md` | `{ sections: [{ name, tasks: [{ text, done }] }], openCount, doneCount }` | Markdown `## Section` headers + `- [ ]`/`- [x]` checkboxes |
 | `parseActivityLog(filePath)` | Path to `activity-log.md` | `{ stage, entries: [{ date, bullet }] }` | `**Current stage:**` line + `## YYYY-MM-DD` headers + first bullet per date |
 | `getGitInfo(repoPath)` | Repo directory path | `{ branch, dirtyCount }` | `git branch --show-current` + `git status --porcelain` |
-| `parseJobFile(filePath)` | Path to job `.md` file | `{ id, taskName, started, status, validation, session, skipPermissions, resumeId, resumeCommand, ... }` | Job/swarm file header metadata + `## Progress`, `## Results`, `## Validation` sections |
+| `parseJobFile(filePath)` | Path to job `.md` file | `{ id, taskName, started, status, validation, originalPrompt, session, skipPermissions, resumeId, resumeCommand, ... }` | Job/swarm file header metadata + `## Progress`, `## Results`, `## Validation` sections |
 | `parseJobDir(dirPath)` | Path to `notes/jobs/` or legacy `notes/swarm/` dir | `[parseJobFile result, ...]` | All `.md` files in the directory |
 | `parseSwarmFile(filePath)` | Legacy alias of `parseJobFile` | Same as `parseJobFile` | Backward compatibility for older callers |
 | `parseSwarmDir(dirPath)` | Legacy alias of `parseJobDir` | Same as `parseJobDir` | Backward compatibility for older callers |

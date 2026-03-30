@@ -11,6 +11,8 @@ import {
 } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { useTerminal } from '../lib/useTerminal'
+import { usePolling } from '../lib/usePolling'
+import { POLL_INTERVALS } from '../lib/pollingIntervals'
 
 function parseProgressText(entry) {
   if (!entry) return ''
@@ -67,42 +69,8 @@ function buildClaudeCommand({ taskInfo, skipPermissions }) {
 
 
 function AgentHeader({ taskInfo }) {
-  const [detail, setDetail] = useState(null)
-  const [loading, setLoading] = useState(false)
-
   const jobFileId = taskInfo?.jobFile?.fileName?.replace(/\.md$/, '') || null
-
-  useEffect(() => {
-    if (!jobFileId) {
-      setDetail(null)
-      return
-    }
-
-    let cancelled = false
-    let firstRun = true
-
-    async function fetchDetail() {
-      if (!cancelled && firstRun) setLoading(true)
-      try {
-        const res = await fetch(`/api/jobs/${jobFileId}`)
-        if (!res.ok) throw new Error('failed')
-        const data = await res.json()
-        if (!cancelled) setDetail(data)
-      } catch {
-        if (!cancelled) setDetail(null)
-      } finally {
-        firstRun = false
-        if (!cancelled) setLoading(false)
-      }
-    }
-
-    fetchDetail()
-    const id = setInterval(fetchDetail, 6000)
-    return () => {
-      cancelled = true
-      clearInterval(id)
-    }
-  }, [jobFileId])
+  const { data: detail, loading } = usePolling(jobFileId ? `/api/jobs/${jobFileId}` : null, POLL_INTERVALS.jobDetail)
 
   const status = detail?.status || (taskInfo?.promptSent ? 'in_progress' : 'starting')
   const currentStep = detail?.progressEntries?.length

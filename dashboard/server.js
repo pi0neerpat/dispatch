@@ -6,7 +6,7 @@ import path from 'path'
 import os from 'os'
 import { fileURLToPath } from 'url'
 import fs from 'fs'
-import { randomUUID } from 'crypto'
+import { createHash, randomUUID } from 'crypto'
 import { WebSocketServer } from 'ws'
 import {
   createSessionEventStore,
@@ -347,6 +347,7 @@ try {
 
 const GIT_CACHE_TTL_MS = 8000
 const gitInfoCache = new Map() // repoPath -> { value, expiresAt }
+const planLookupCache = { signature: null, lookup: null }
 
 function getConfig() {
   return loadConfig(HUB_DIR)
@@ -449,7 +450,70 @@ function collectJobAgents(config = getConfig()) {
       }
     }
   }
-  return allAgents
+  const planLookup = buildPlanLookup(config)
+  return allAgents.map(agent => enrichAgentWithPlanLink(agent, planLookup))
+}
+
+function getPlansSignature(repoPath) {
+  const plansDir = path.join(repoPath, 'plans')
+  try {
+    if (!fs.existsSync(plansDir)) return ''
+    const files = fs.readdirSync(plansDir)
+      .filter(f => f.endsWith('.md'))
+      .sort()
+    const parts = []
+    for (const file of files) {
+      try {
+        const stat = fs.statSync(path.join(plansDir, file))
+        parts.push(`${file}:${stat.mtimeMs}:${stat.size}`)
+      } catch {
+        // File may disappear while polling; ignore and continue.
+      }
+    }
+    return parts.join('|')
+  } catch {
+    return ''
+  }
+}
+
+function getPlanLookupSignature(config = getConfig()) {
+  return config.repos
+    .map(repo => `${repo.name}:${getPlansSignature(repo.resolvedPath)}`)
+    .join('||')
+}
+
+function buildPlanLookup(config = getConfig()) {
+  const signature = getPlanLookupSignature(config)
+  if (planLookupCache.signature === signature && planLookupCache.lookup) {
+    return planLookupCache.lookup
+  }
+
+  const byRepoJobId = new Map()
+  const byRepoSlug = new Map()
+  for (const repo of config.repos) {
+    const plans = parsePlansDir(path.join(repo.resolvedPath, 'plans'), { includeContent: false })
+    for (const plan of plans) {
+      const title = plan.title || plan.slug
+      byRepoSlug.set(`${repo.name}/${plan.slug}`, title)
+      if (plan.jobSlug) byRepoJobId.set(`${repo.name}/${plan.jobSlug}`, { slug: plan.slug, title, repo: repo.name })
+    }
+  }
+  const lookup = { byRepoJobId, byRepoSlug }
+  planLookupCache.signature = signature
+  planLookupCache.lookup = lookup
+  return lookup
+}
+
+function enrichAgentWithPlanLink(agent, lookup) {
+  if (!agent) return agent
+  const repoJobKey = agent.repo ? `${agent.repo}/${agent.id}` : null
+  const linkedByJob = repoJobKey ? (lookup?.byRepoJobId?.get(repoJobKey) || null) : null
+  const planSlug = agent.planSlug || linkedByJob?.slug || null
+  const planRepo = linkedByJob?.repo || agent.repo || null
+  const planTitle = planSlug && planRepo
+    ? (lookup?.byRepoSlug?.get(`${planRepo}/${planSlug}`) || linkedByJob?.title || null)
+    : null
+  return { ...agent, planSlug, planTitle, planRepo }
 }
 
 app.get(['/api/jobs', '/api/swarm'], (req, res) => {
@@ -494,6 +558,10 @@ app.get(['/api/jobs', '/api/swarm'], (req, res) => {
       session: latestRunByJob.get(a.id)?.sessionId || a.session,
       runState: latestRunByJob.get(a.id)?.state || null,
       branch: a.branch || null,
+      worktreePath: a.worktreePath || null,
+      planSlug: a.planSlug || null,
+      planTitle: a.planTitle || null,
+      planRepo: a.planRepo || a.repo || null,
     }))
   res.json({
     jobs,
@@ -551,6 +619,9 @@ function buildCanonicalSessionState() {
       status: canonicalAgent?.status || initAgent?.status || 'in_progress',
       validation: canonicalAgent?.validation || initAgent?.validation || 'none',
       label: canonicalAgent?.taskName || initAgent?.taskName || 'Manual worker',
+      planSlug: canonicalAgent?.planSlug || initAgent?.planSlug || null,
+      planTitle: canonicalAgent?.planTitle || initAgent?.planTitle || null,
+      planRepo: canonicalAgent?.planRepo || initAgent?.planRepo || canonicalAgent?.repo || initAgent?.repo || null,
       alive: Boolean(s.alive),
       serverStarted: Boolean(s.serverStarted),
       plainOutput: Boolean(s.plainOutput),
@@ -562,6 +633,7 @@ function buildCanonicalSessionState() {
 
 app.get(['/api/jobs/:id', '/api/swarm/:id'], (req, res) => {
   const config = getConfig()
+  const planLookup = buildPlanLookup(config)
   for (const repo of config.repos) {
     for (const dirName of ['jobs', 'swarm']) {
       const jobsDir = path.join(repo.resolvedPath, 'notes', dirName)
@@ -569,7 +641,7 @@ app.get(['/api/jobs/:id', '/api/swarm/:id'], (req, res) => {
       if (fs.existsSync(filePath)) {
         const agent = parseJobFile(filePath)
         agent.repo = repo.name
-        return res.json(agent)
+        return res.json(enrichAgentWithPlanLink(agent, planLookup))
       }
     }
   }
@@ -820,8 +892,14 @@ app.post(['/api/jobs/init', '/api/swarm/init'], (req, res) => {
   const _pad = n => String(n).padStart(2, '0')
   const timestamp = `${_now.getFullYear()}-${_pad(_now.getMonth()+1)}-${_pad(_now.getDate())} ${_pad(_now.getHours())}:${_pad(_now.getMinutes())}:${_pad(_now.getSeconds())}`
   const singleLine = (value) => String(value || '').replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim()
+  const escapeNewlines = (value) => String(value || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/\n/g, '\\n')
+    .trim()
   const headerTaskText = singleLine(taskText)
   const headerOriginalTask = singleLine(originalTask || '')
+  const headerOriginalPrompt = escapeNewlines(originalTask || taskText || '')
   const lines = [
     `# Job Task: ${headerTaskText}`,
     `Started: ${timestamp}`,
@@ -831,6 +909,7 @@ app.post(['/api/jobs/init', '/api/swarm/init'], (req, res) => {
   if (headerOriginalTask && headerOriginalTask !== headerTaskText) {
     lines.push(`OriginalTask: ${headerOriginalTask}`)
   }
+  if (headerOriginalPrompt) lines.push(`OriginalPrompt: ${headerOriginalPrompt}`)
   lines.push(`Session: ${assignedSessionId}`)
   lines.push(`SkipPermissions: ${Boolean(skipPermissions)}`)
   if (agent && agent !== 'claude') lines.push(`Agent: ${agent}`)
@@ -838,6 +917,7 @@ app.post(['/api/jobs/init', '/api/swarm/init'], (req, res) => {
   if (maxTurns) lines.push(`MaxTurns: ${maxTurns}`)
   if (autoMerge) lines.push('AutoMerge: true')
   if (baseBranch) lines.push(`BaseBranch: ${baseBranch}`)
+  if (planSlug) lines.push(`Plan: ${singleLine(planSlug)}`)
 
   const relativePath = `notes/jobs/${fileName}`
   const jobId = fileName.replace(/\.md$/, '')
@@ -1286,6 +1366,52 @@ app.post(['/api/jobs/:id/resume', '/api/swarm/:id/resume'], (req, res) => {
   }
 })
 
+app.post(['/api/jobs/:id/run-dev', '/api/swarm/:id/run-dev'], (req, res) => {
+  const found = findJobFileById(req.params.id)
+  if (!found) {
+    return res.status(404).json({ error: `Job "${req.params.id}" not found` })
+  }
+
+  try {
+    const detail = parseJobFile(found.filePath)
+    const startScript = String(found.repo?.startScript || '').trim()
+    if (!startScript) {
+      return res.status(400).json({ error: 'No startScript configured' })
+    }
+
+    const repoPath = found.repo.resolvedPath
+    const worktreeSetup = Array.isArray(found.repo?.worktreeSetup)
+      ? found.repo.worktreeSetup.map(cmd => String(cmd || '').trim().replace(/\{repoPath\}/g, shellQuote(repoPath))).filter(Boolean)
+      : []
+    const cwd = detail.worktreePath && detail.worktreePath !== '(merged)'
+      ? detail.worktreePath
+      : repoPath
+    const shellCommand = [...worktreeSetup, startScript].join(' && ')
+    const sessionId = `run-dev-${req.params.id}`
+
+    purgePtySessionHard(sessionId)
+
+    createPtySession(
+      sessionId,
+      cwd,
+      found.repo?.name || null,
+      null,
+      '',
+      null,
+      {
+        agent: 'shell',
+        shellCommand,
+        sessionId,
+        repoName: found.repo?.name || null,
+      }
+    )
+
+    return res.json({ sessionId, cwd, shellCommand, repoName: found.repo?.name || null })
+  } catch (err) {
+    return res.status(400).json({ error: err.message })
+  }
+})
+
 app.post('/api/hooks/stop-ready', (req, res) => {
   const { sessionId, jobId, reason } = req.body || {}
   if (!sessionId || !jobId) {
@@ -1325,6 +1451,7 @@ app.post(['/api/jobs/:id/validate', '/api/swarm/:id/validate'], (req, res) => {
       delete ptySessionsMeta[detail.session]
       savePtySessionsMeta()
     }
+    purgePtySessionHard(`run-dev-${req.params.id}`)
     if (latestRun) {
       transitionRun(latestRun, RUN_STATE.VALIDATED, { validation: 'validated', reason: 'user_validated', force: true })
     }
@@ -1368,6 +1495,7 @@ app.post(['/api/jobs/:id/reject', '/api/swarm/:id/reject'], (req, res) => {
     if (latestRun) {
       transitionRun(latestRun, RUN_STATE.REJECTED, { validation: 'rejected', reason: 'user_rejected', force: latestRun.state === RUN_STATE.REJECTED })
     }
+    purgePtySessionHard(`run-dev-${req.params.id}`)
     // Clean up worktree and branch — rejected changes are discarded
     if (detail.worktreePath) {
       try { removeJobWorktree(found.repo.resolvedPath, req.params.id, { deleteBranch: true }) } catch {}
@@ -1407,6 +1535,7 @@ app.post(['/api/jobs/:id/kill', '/api/swarm/:id/kill'], (req, res) => {
       if (s.tmuxName) killTmuxSession(s.tmuxName)
       try { s?.shell?.kill() } catch {}
     }
+    purgePtySessionHard(`run-dev-${req.params.id}`)
     // Clean up worktree and branch — killed jobs are abandoned
     if (detail.worktreePath) {
       try { removeJobWorktree(found.repo.resolvedPath, req.params.id, { deleteBranch: true }) } catch {}
@@ -1697,7 +1826,8 @@ function savePtySessionsMeta() {
 
 function makeTmuxName(sessionId) {
   // tmux names: max 50 chars, no dots, colons, or spaces
-  return `wd-${sessionId.replace('session-', '').slice(0, 12)}`
+  const digest = createHash('sha1').update(String(sessionId || '')).digest('hex').slice(0, 16)
+  return `wd-${digest}`
 }
 
 function tmuxSessionAlive(name) {
@@ -1706,6 +1836,27 @@ function tmuxSessionAlive(name) {
 
 function killTmuxSession(name) {
   try { execFileSync('tmux', ['kill-session', '-t', name], { stdio: 'ignore' }) } catch {}
+}
+
+function purgePtySessionHard(sessionId) {
+  if (!sessionId) return false
+  const session = ptySessions.get(sessionId)
+  if (session?.alive) {
+    session.killRequested = true
+    session.suppressFinalize = true
+    if (session.tmuxName) killTmuxSession(session.tmuxName)
+    try { session.shell.kill() } catch {}
+  }
+  ptySessions.delete(sessionId)
+  const meta = ptySessionsMeta[sessionId]
+  if (meta?.tmuxName && (!session?.tmuxName || meta.tmuxName !== session.tmuxName)) {
+    killTmuxSession(meta.tmuxName)
+  }
+  if (meta) {
+    delete ptySessionsMeta[sessionId]
+    savePtySessionsMeta()
+  }
+  return Boolean(session || meta)
 }
 
 function parseKindsParam(value) {
@@ -1747,21 +1898,26 @@ function garbageCollectSessions() {
 function startPendingLaunch(session) {
   if (!session || session.launchStarted || !session.pendingLaunch) return
   const launch = session.pendingLaunch
-  const command = launch.agent === 'codex'
-    ? buildTrackedCodexCommand(launch)
-    : buildTrackedClaudeCommand(launch)
+  const shellCommand = String(launch.shellCommand || '').trim()
+  const command = launch.agent === 'shell'
+    ? (shellCommand ? `${shellCommand}\n` : null)
+    : launch.agent === 'codex'
+      ? buildTrackedCodexCommand(launch)
+      : buildTrackedClaudeCommand(launch)
   if (!command) return
   session.launchStarted = true
-  // Transition run to RUNNING now that the command is being written to the PTY
-  const jobId = session.pendingLaunch?.jobId || (session.jobFilePath ? getJobIdFromPath(session.jobFilePath) : null)
-  if (jobId) {
-    const run = getLatestRunByJobId(jobId)
-    if (run && (run.state === RUN_STATE.STARTING || run.state === RUN_STATE.RUNNING)) {
-      try { transitionRun(run, RUN_STATE.RUNNING, { force: run.state === RUN_STATE.RUNNING }) } catch {}
+  if (launch.agent !== 'shell') {
+    // Transition run to RUNNING now that the command is being written to the PTY
+    const jobId = session.pendingLaunch?.jobId || (session.jobFilePath ? getJobIdFromPath(session.jobFilePath) : null)
+    if (jobId) {
+      const run = getLatestRunByJobId(jobId)
+      if (run && (run.state === RUN_STATE.STARTING || run.state === RUN_STATE.RUNNING)) {
+        try { transitionRun(run, RUN_STATE.RUNNING, { force: run.state === RUN_STATE.RUNNING }) } catch {}
+      }
     }
   }
   try {
-    session.shell.write(`${command}\r`)
+    session.shell.write(launch.agent === 'shell' ? command : `${command}\r`)
   } catch (err) {
     console.error(`Failed to start pending launch (${session?.eventStore?.sessionId || 'unknown'}):`, err?.message || err)
     if (typeof session.finalize === 'function') {
@@ -2131,18 +2287,7 @@ app.delete('/api/sessions/:id', (req, res) => {
 
 // Hard-delete a session record (used for explicit UI cleanup).
 app.delete('/api/sessions/:id/purge', (req, res) => {
-  const session = ptySessions.get(req.params.id)
-  if (session?.alive) {
-    session.killRequested = true
-    session.suppressFinalize = true
-    if (session.tmuxName) killTmuxSession(session.tmuxName)
-    try { session.shell.kill() } catch {}
-  }
-  ptySessions.delete(req.params.id)
-  // Also clean up any orphaned tmux session (e.g. after server restart)
-  const meta = ptySessionsMeta[req.params.id]
-  if (meta?.tmuxName && !session?.tmuxName) killTmuxSession(meta.tmuxName)
-  if (meta) { delete ptySessionsMeta[req.params.id]; savePtySessionsMeta() }
+  purgePtySessionHard(req.params.id)
   res.json({ ok: true, mode: 'purge' })
 })
 

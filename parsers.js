@@ -121,6 +121,8 @@ function parseJobFile(filePath) {
   const id = path.basename(filePath, '.md');
   let taskName = '', started = '', status = 'unknown', validation = 'none', agentId = null, skills = [];
   let originalTask = '', session = null, repo = null;
+  let originalPrompt = '';
+  let planSlug = null;
   let agent = 'claude';
   let skipPermissions = null;
   let resumeId = null, resumeCommand = null;
@@ -161,6 +163,9 @@ function parseJobFile(filePath) {
       const originalTaskMatch = line.match(/^OriginalTask:\s*(.+)/);
       if (originalTaskMatch) { originalTask = originalTaskMatch[1].trim(); continue; }
 
+      const originalPromptMatch = line.match(/^OriginalPrompt:\s*(.+)/);
+      if (originalPromptMatch) { originalPrompt = originalPromptMatch[1].trim(); continue; }
+
       const sessionMatch = line.match(/^Session:\s*(.+)/);
       if (sessionMatch) { session = sessionMatch[1].trim(); continue; }
 
@@ -182,6 +187,9 @@ function parseJobFile(filePath) {
 
       const repoMatch = line.match(/^Repo:\s*(.+)/);
       if (repoMatch) { repo = repoMatch[1].trim(); continue; }
+
+      const planMatch = line.match(/^Plan:\s*(.+)/);
+      if (planMatch) { planSlug = planMatch[1].trim(); continue; }
 
       const branchMatch = line.match(/^Branch:\s*(.+)/);
       if (branchMatch) { branch = branchMatch[1].trim(); continue; }
@@ -228,7 +236,7 @@ function parseJobFile(filePath) {
   return {
     id, taskName, started, status, validation, agentId, skills,
     agent,
-    originalTask, session, skipPermissions, resumeId, resumeCommand, repo,
+    originalTask, originalPrompt, session, skipPermissions, resumeId, resumeCommand, repo, planSlug,
     branch, worktreePath,
     lastProgress, progressCount, durationMinutes, resultsSummary,
     progressEntries, results, validationNotes, rawContent,
@@ -968,7 +976,45 @@ function writeActivityEntry(filePath, title, body) {
   return { success: true, date: today };
 }
 
-function parsePlansDir(dirPath) {
+function readFilePreview(filePath, maxBytes = 64 * 1024) {
+  let fd = null
+  try {
+    fd = fs.openSync(filePath, 'r')
+  } catch {
+    return null
+  }
+  try {
+    const buffer = Buffer.alloc(maxBytes)
+    const bytesRead = fs.readSync(fd, buffer, 0, maxBytes, 0)
+    return buffer.toString('utf8', 0, bytesRead)
+  } catch {
+    return null
+  } finally {
+    try { fs.closeSync(fd) } catch {}
+  }
+}
+
+function parsePlanHeader(text) {
+  let dispatched = null
+  let jobSlug = null
+  let planStatus = null
+  let title = null
+  for (const line of text.split('\n')) {
+    if (line.startsWith('# ')) {
+      title = line.slice(2).trim()
+      break
+    }
+    const dm = line.match(/^Dispatched:\s*(.+)/)
+    if (dm) dispatched = dm[1].trim()
+    const jm = line.match(/^Job:\s*(.+)/)
+    if (jm) jobSlug = jm[1].trim()
+    const sm = line.match(/^Status:\s*(.+)/)
+    if (sm) planStatus = sm[1].trim()
+  }
+  return { dispatched, jobSlug, planStatus, title }
+}
+
+function parsePlansDir(dirPath, { includeContent = true } = {}) {
   const plans = []
   try {
     if (!fs.existsSync(dirPath)) return plans
@@ -980,26 +1026,26 @@ function parsePlansDir(dirPath) {
       let stat
       try { stat = fs.statSync(filePath) } catch { continue }
       let content = ''
-      try { content = fs.readFileSync(filePath, 'utf8') } catch { continue }
-      const slug = file.replace(/\.md$/, '')
-      // Parse metadata lines that appear before the first # heading
-      let dispatched = null;
-      let jobSlug = null;
-      let planStatus = null;
-      for (const line of content.split('\n')) {
-        if (line.startsWith('# ')) break;
-        const dm = line.match(/^Dispatched:\s*(.+)/);
-        if (dm) dispatched = dm[1].trim();
-        const jm = line.match(/^Job:\s*(.+)/);
-        if (jm) jobSlug = jm[1].trim();
-        const sm = line.match(/^Status:\s*(.+)/);
-        if (sm) planStatus = sm[1].trim();
+      if (includeContent) {
+        try { content = fs.readFileSync(filePath, 'utf8') } catch { continue }
       }
-      const titleMatch = content.match(/^#\s+(.+)/m)
-      const title = titleMatch
-        ? titleMatch[1].trim()
+      const preview = includeContent ? content : readFilePreview(filePath)
+      if (preview == null) continue
+      const slug = file.replace(/\.md$/, '')
+      const header = parsePlanHeader(preview)
+      const title = header.title
+        ? header.title
         : slug.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/-/g, ' ')
-      plans.push({ slug, title, content, lastModified: stat.mtime.toISOString(), dispatched, jobSlug, planStatus })
+      const plan = {
+        slug,
+        title,
+        lastModified: stat.mtime.toISOString(),
+        dispatched: header.dispatched,
+        jobSlug: header.jobSlug,
+        planStatus: header.planStatus,
+      }
+      if (includeContent) plan.content = content
+      plans.push(plan)
     }
   } catch { /* dir unreadable */ }
   return plans

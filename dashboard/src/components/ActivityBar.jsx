@@ -56,7 +56,9 @@ export default function ActivityBar({ activeNav, onNavChange, jobCount = 0, revi
             title={item.label}
           >
             <Icon size={18} strokeWidth={isActive ? 2.2 : 1.8} />
-            <span className="text-[9px] font-medium leading-none">{item.label}</span>
+            <span className="text-[9px] font-medium leading-none" style={{ color: 'var(--foreground-secondary)' }}>
+              {item.label}
+            </span>
 
             {badge > 0 && (
               <span className="absolute top-1 right-1 min-w-[14px] h-[14px] flex items-center justify-center rounded-full bg-status-active text-[8px] font-bold text-primary-foreground px-0.5">

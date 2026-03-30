@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { usePolling } from './lib/usePolling'
+import { POLL_INTERVALS } from './lib/pollingIntervals'
 import { useSearch } from './lib/useSearch'
 import { useAppNavigation } from './lib/useAppNavigation'
 import { useSessionStore } from './lib/useSessionStore'
@@ -34,8 +35,8 @@ export default function App() {
   const location = useLocation()
   if (location.pathname === '/loading') return <LoadingView />
 
-  const overview = usePolling('/api/overview', 10000)
-  const jobs = usePolling('/api/jobs', 5000)
+  const overview = usePolling('/api/overview', POLL_INTERVALS.overview)
+  const jobs = usePolling('/api/jobs', POLL_INTERVALS.jobs)
   const {
     sessions,
     agentTerminals,
@@ -266,7 +267,7 @@ export default function App() {
                   <PlansView
                     overview={overview.data}
                     swarm={jobs.data}
-                    onDispatch={handleDispatch}
+                    onNavigateToDispatch={handleNavigateToDispatch}
                     settings={settings}
                   />
                 </ScrollableView>

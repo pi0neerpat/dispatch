@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useMemo } from 'react'
 import { usePolling } from './usePolling'
+import { POLL_INTERVALS } from './pollingIntervals'
 
 function shallowStableEqual(a, b) {
   return JSON.stringify(a) === JSON.stringify(b)
@@ -20,7 +21,7 @@ function makeLaunchToken() {
 }
 
 export function useSessionStore() {
-  const sessions = usePolling('/api/sessions', 5000)
+  const sessions = usePolling('/api/sessions', POLL_INTERVALS.sessions)
   const [agentTerminals, setAgentTerminals] = useState(new Map())
 
   useEffect(() => {

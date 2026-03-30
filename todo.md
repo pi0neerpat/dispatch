@@ -2,7 +2,7 @@
 
 ## Planning 
 
-- [ ] Solve markdown clobbering problem with serial operations in the server. Are there any other changes outside of the server process that could cause problems? — *Feedback: regex-based parsing has no transactions; concurrent writes corrupt files. At scale (50+ tasks, 5+ repos) consider SQLite as backing store with markdown as render format.*
+- [x] Solve markdown clobbering problem with serial operations in the server. Are there any other changes outside of the server process that could cause problems? — *Feedback: regex-based parsing has no transactions; concurrent writes corrupt files. At scale (50+ tasks, 5+ repos) consider SQLite as backing store with markdown as render format.*
 - [x] Add OpenClaw agent — *Feedback: reviewer flagged that Claude Code runs in a bare PTY with no filesystem isolation. Adding more agent backends increases attack surface; pair new agent integrations with sandboxing (see agent sandboxing todo).*
 - [ ] Create /plan to add ollama agent option (similar to how we planned OpenClaw)
 - [ ] Frame video as “let’s build together” — *Feedback: reviewer validated several patterns worth highlighting: markdown as source of truth (“particularly clean engineering”), the human validation gate (“subtle but critical safety gate”), JSON CLI as agent API surface, and the hub-stop.js zero-footprint integration. These are strong demo beats.*
@@ -11,12 +11,12 @@
 - [x] Feat- make separate page for dispatch button loading screen on startup (and for video)
 - [x] Test cron jobs — *Feedback: test coverage was flagged as a critical gap. The parsers.js unit tests are now done, but scheduled/cron job execution paths remain untested. Verify schedule triggers, error handling on failed jobs, and cleanup of stale cron state.*
 - [x] hydrate addition context for the existing todos, based on the feedback here: https://share.galexc.io/30d/feedback-for-patrick.md
-- [ ] Implement OpenClaw agent feature in ./plans/openclaw-agent.md
+- [ ] Implement OpenClaw agent feature in ./plans/2026-03-27-openclaw-agent.md
 - [ ] Quality of life improvements: brainstorm ideas for how to switch between tabs/jobs/task more easily. use behavioral product design skill.
-- [ ] Job view is not actively updated. check polling logic and lets make this consistent across the app. Not having a consistently up-to-date dashboard is leading to bad UX /plan
+- [x] Job view is not actively updated. check polling logic and lets make this consistent across the app. Not having a consistently up-to-date dashboard is leading to bad UX /plan
 - [x] follow up for a job needs to have all the same options as the dispatch (minus changing repo)
 - [x] Follow up dispatch on a job needs to include all the inputs as on the dispatch page (except repo). Basically an inline dispatch view
-- [ ] Implement skills selection when dispatching a task
+- [x] Implement skills selection when dispatching a task
 
 ## Features
 
@@ -26,7 +26,7 @@
 - [ ] Add auth to the Express dashboard server (required before any remote/Tailscale access) — *Feedback: port 3001 has no authentication. Anyone who can reach it can read tasks, dispatch jobs, validate/reject work, and access live terminal WebSocket sessions. Fine for strict localhost; mandatory before any remote access (e.g. over Tailscale).*
 - [x] Write a product showcase video script for Work Down. I will handle video production using the /remotion skill when you are done. You should focus on the following items: open-source, local-first, lightweight.
 - [x] Create `/remove-repo` skill to uninstall hooks and remove config entries (inverse of `/add-repo`) — *Feedback: `/add-repo` copies hooks into other repos' `.claude/` directories and modifies their `settings.json`. If someone stops using Dispatch, those hooks remain orphaned (`hub-stop.js` is a no-op without env vars, but still unexpected). A `/remove-repo` skill should clean up hooks and remove the config entry.*
-- [ ] Reframe "no parallelism" from hard principle to current limitation; plan worktree-based parallel dispatch — *Feedback: the backend already supports parallelism (`ptySessions` is a Map, dashboard has multi-job views). Reviewer routinely dispatches 5-10 jobs in parallel. The real constraints are dashboard UX (watching 5 terminals at once) and git isolation. With worktrees now implemented, the backend is ready for parallelism.*
+- [x] Reframe "no parallelism" from hard principle to current limitation; plan worktree-based parallel dispatch — *Feedback: the backend already supports parallelism (`ptySessions` is a Map, dashboard has multi-job views). Reviewer routinely dispatches 5-10 jobs in parallel. The real constraints are dashboard UX (watching 5 terminals at once) and git isolation. With worktrees now implemented, the backend is ready for parallelism.*
 - [ ] Evaluate SQLite backing store for task/activity data if markdown parsing hits reliability issues at scale — *Feedback: regex-based parsing has no indexes (every read scans full file), no transactions (concurrent writes corrupt files), no schema enforcement (malformed lines silently disappear), and positional task numbering is unstable across edits. At ~50+ tasks across 5+ repos, SQLite would be a natural stepping stone — use it as backing store with markdown as render format.*
 
 ## Done

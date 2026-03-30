@@ -1,9 +1,7 @@
-import { Bot, Sparkles } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { AGENT_OPTIONS, getAgentBrandColor } from '../lib/constants'
 import Toggle from './Toggle'
-
-const AGENT_ICONS = { claude: Bot, codex: Sparkles }
+import AgentIcon from './AgentIcon'
 
 /**
  * Shared dispatch settings controls: Agent, Model, Turns, TUI, Auto-merge, Worktree.
@@ -25,7 +23,6 @@ export default function DispatchSettingsRow({
         <label className="block text-[11px] font-medium text-muted-foreground mb-1">Agent</label>
         <div className="flex flex-col gap-1">
           {AGENT_OPTIONS.map(opt => {
-            const Icon = AGENT_ICONS[opt.id] || Bot
             const isSelected = agent === opt.id
             const brandColor = getAgentBrandColor(opt.id)
             return (
@@ -41,8 +38,8 @@ export default function DispatchSettingsRow({
                     : 'border-border bg-card text-muted-foreground hover:text-foreground hover:bg-card-hover'
                 )}
               >
-                <Icon size={13} />
-                {opt.label}
+                <AgentIcon agent={opt.id} size={13} />
+                <span>{opt.label}</span>
               </button>
             )
           })}

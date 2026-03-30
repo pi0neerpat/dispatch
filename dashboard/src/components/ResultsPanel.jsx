@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef } from 'react'
-import { CheckCircle, XCircle, Loader, Clock, Square, Activity, ListChecks, GitMerge, Scissors, Network, Trash2, Send, RotateCcw, ChevronRight, ChevronDown, GitBranch, Copy, Check, MoreHorizontal } from 'lucide-react'
+import { CheckCircle, XCircle, Loader, Clock, Square, Activity, ListChecks, GitMerge, Scissors, Network, Trash2, Send, RotateCcw, ChevronRight, ChevronDown, GitBranch, Copy, Check, MoreHorizontal, Play } from 'lucide-react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { cn, timeAgo } from '../lib/utils'
+import { cn, timeAgo, truncateWithEllipsis } from '../lib/utils'
 import { statusConfig, validationConfig } from '../lib/statusConfig'
 import { repoIdentityColors, FOLLOWUP_TEMPLATES } from '../lib/constants'
 import { useAgentModels } from '../lib/useAgentModels'
+import { usePolling } from '../lib/usePolling'
+import { POLL_INTERVALS } from '../lib/pollingIntervals'
 import { mdComponents } from './mdComponents'
 import DispatchSettingsRow from './DispatchSettingsRow'
 
@@ -462,6 +464,7 @@ function AgentActions({ detail, agentId, diffData, onJobsRefresh, onOverviewRefr
       setMergedBranch({ branch: data.merged, into: data.into })
       showToast?.(`Branch merged into ${data.into}`, 'success')
       onJobsRefresh?.()
+      onOverviewRefresh?.()
     } catch (err) {
       showFeedbackMsg(err.message, true)
     } finally {
@@ -530,6 +533,7 @@ function AgentActions({ detail, agentId, diffData, onJobsRefresh, onOverviewRefr
       showToast?.('Job deleted', 'info')
       onRemoveSession?.()
       onJobsRefresh?.()
+      onOverviewRefresh?.()
       onBack?.()
     } catch (err) {
       showFeedbackMsg(err.message, true)
@@ -868,12 +872,26 @@ function getHeroBg(status, validation) {
   return 'bg-card/30'
 }
 
+const REVIEW_PLAN_MAX = 34
+
+function buildPlanHref(detail) {
+  if (!detail?.planSlug) return null
+  const repo = detail.planRepo || detail.repo
+  if (!repo) return null
+  const params = new URLSearchParams({
+    repo,
+    plan: detail.planSlug,
+  })
+  return `/plans?${params.toString()}`
+}
+
 /* ── Main component ────────────────────────────────────── */
 
-export default function ResultsPanel({ agentId, hasLiveTerminal = false, onJobsRefresh, onOverviewRefresh, onStartTask, onResumeJob, onBack, onRemoveSession, showToast, settings }) {
+export default function ResultsPanel({ agentId, hasLiveTerminal = false, onJobsRefresh, onOverviewRefresh, onStartTask, onResumeJob, onBack, onRemoveSession, onRunDev, showToast, settings }) {
+  const detailPolling = usePolling(agentId ? `/api/jobs/${agentId}` : null, POLL_INTERVALS.jobDetail)
   const [detail, setDetail] = useState(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
+  const loading = detailPolling.loading
+  const error = detailPolling.error
   const [showRejectInput, setShowRejectInput] = useState(false)
   const [rejectNotes, setRejectNotes] = useState('')
   const [actionLoading, setActionLoading] = useState(false)
@@ -900,10 +918,6 @@ export default function ResultsPanel({ agentId, hasLiveTerminal = false, onJobsR
 
   useEffect(() => {
     if (!agentId) { setDetail(null); return }
-    let cancelled = false
-    let intervalId = null
-    setLoading(true)
-    setError(null)
     setDetail(null)
     setShowRejectInput(false)
     setRejectNotes('')
@@ -912,27 +926,15 @@ export default function ResultsPanel({ agentId, hasLiveTerminal = false, onJobsR
     setTaskMarked(false)
     setMarkingDone(false)
     setShowFullOutput(false)
-
-    async function fetchDetail() {
-      try {
-        const res = await fetch(`/api/jobs/${agentId}`)
-        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
-        const data = await res.json()
-        if (!cancelled) setDetail(data)
-      } catch (err) {
-        if (!cancelled) setError(err.message)
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    }
-
-    fetchDetail()
-    intervalId = setInterval(fetchDetail, 3000)
-    return () => {
-      cancelled = true
-      if (intervalId) clearInterval(intervalId)
-    }
   }, [agentId])
+
+  useEffect(() => {
+    if (!agentId) {
+      setDetail(null)
+      return
+    }
+    if (detailPolling.data) setDetail(detailPolling.data)
+  }, [agentId, detailPolling.data])
 
 
   function showFeedbackMsg(msg, isError = false) {
@@ -957,6 +959,7 @@ export default function ResultsPanel({ agentId, hasLiveTerminal = false, onJobsR
       showFeedbackMsg('Approved')
       onJobsRefresh?.()
       onOverviewRefresh?.()
+      await detailPolling.refresh()
     } catch (err) {
       showFeedbackMsg(err.message || 'Validate failed', true)
     } finally {
@@ -984,6 +987,7 @@ export default function ResultsPanel({ agentId, hasLiveTerminal = false, onJobsR
       showFeedbackMsg('Changes requested')
       onJobsRefresh?.()
       onOverviewRefresh?.()
+      await detailPolling.refresh()
     } catch (err) {
       showFeedbackMsg(err.message || 'Reject failed', true)
     } finally {
@@ -1002,8 +1006,8 @@ export default function ResultsPanel({ agentId, hasLiveTerminal = false, onJobsR
       const res = await fetch(`/api/jobs/${agentId}/kill`, { method: 'POST' })
       if (res.ok) {
         onJobsRefresh?.()
-        const res2 = await fetch(`/api/jobs/${agentId}`)
-        if (res2.ok) setDetail(await res2.json())
+        onOverviewRefresh?.()
+        await detailPolling.refresh()
       }
     } catch { /* ignore */ }
     setKilling(false)
@@ -1041,9 +1045,20 @@ export default function ResultsPanel({ agentId, hasLiveTerminal = false, onJobsR
       await onResumeJob(agentId)
       onJobsRefresh?.()
       onOverviewRefresh?.()
+      await detailPolling.refresh()
       showFeedbackMsg('Job resumed')
     } catch (err) {
       showFeedbackMsg(err.message || 'Resume failed', true)
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  async function handleRunDev() {
+    if (!onRunDev) return
+    setActionLoading(true)
+    try {
+      await onRunDev()
     } finally {
       setActionLoading(false)
     }
@@ -1091,9 +1106,13 @@ export default function ResultsPanel({ agentId, hasLiveTerminal = false, onJobsR
   const repoColor = repoIdentityColors[detail.repo] || 'var(--primary)'
   const relativeTime = timeAgo(detail.started, detail.durationMinutes)
   const statusColor = st.borderColor || 'var(--primary)'
+  const planHref = buildPlanHref(detail)
+  const planLabelRaw = detail.planTitle || detail.planSlug || ''
+  const planLabel = truncateWithEllipsis(planLabelRaw, REVIEW_PLAN_MAX)
 
   const canAct = (detail.validation === 'needs_validation' || detail.validation === 'none') &&
     !(detail.validation === 'validated' || detail.validation === 'rejected')
+  const canRunDev = detail.worktreePath && detail.worktreePath !== '(merged)'
 
 
   return (
@@ -1136,31 +1155,57 @@ export default function ResultsPanel({ agentId, hasLiveTerminal = false, onJobsR
             <CollapsibleDetails branch={detail.branch} worktreePath={detail.worktreePath} />
           </div>
 
-          {/* Top-right controls: Resume / Stop */}
-          <div className="flex items-center gap-2 shrink-0">
-            {!hasLiveTerminal && (
-              <button
-                onClick={handleResume}
-                disabled={actionLoading}
-                className="px-3 py-1.5 rounded-md text-xs font-medium border border-border text-muted-foreground hover:text-foreground hover:bg-card-hover transition-all disabled:opacity-50"
-              >
-                <span className="flex items-center gap-1.5"><RotateCcw size={12} /> Resume</span>
-              </button>
+          {/* Top-right controls: linked plan + Resume / Stop */}
+          <div className="flex flex-col items-end gap-2 shrink-0 min-w-0">
+            {detail.planSlug && (
+              planHref ? (
+                <a
+                  href={planHref}
+                  className="text-[11px] text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2 max-w-[18rem] truncate"
+                  title={planLabelRaw}
+                >
+                  Plan: {planLabel}
+                </a>
+              ) : (
+                <span className="text-[11px] text-muted-foreground max-w-[18rem] truncate" title={planLabelRaw}>
+                  Plan: {planLabel}
+                </span>
+              )
             )}
-            {detail.status === 'in_progress' && hasLiveTerminal && (
-              <button
-                onClick={handleKill}
-                className={cn(
-                  'px-3 py-1.5 rounded-md text-xs font-medium transition-all shrink-0',
-                  confirmKill
-                    ? 'bg-status-failed-bg text-status-failed border border-status-failed-border'
-                    : 'text-muted-foreground hover:text-status-failed hover:bg-status-failed-bg border border-transparent hover:border-status-failed-border'
-                )}
-                disabled={killing}
-              >
-                {killing ? <Loader size={12} className="animate-spin-slow" /> : confirmKill ? 'Confirm Stop?' : <span className="flex items-center gap-1.5"><Square size={12} /> Stop</span>}
-              </button>
-            )}
+            <div className="flex items-center gap-2">
+              {canRunDev && !hasLiveTerminal && (
+                <button
+                  onClick={handleRunDev}
+                  disabled={actionLoading}
+                  className="px-3 py-1.5 rounded-md text-xs font-medium border border-border text-muted-foreground hover:text-foreground hover:bg-card-hover transition-all disabled:opacity-50"
+                >
+                  <span className="flex items-center gap-1.5"><Play size={12} /> Run</span>
+                </button>
+              )}
+              {!hasLiveTerminal && (
+                <button
+                  onClick={handleResume}
+                  disabled={actionLoading}
+                  className="px-3 py-1.5 rounded-md text-xs font-medium border border-border text-muted-foreground hover:text-foreground hover:bg-card-hover transition-all disabled:opacity-50"
+                >
+                  <span className="flex items-center gap-1.5"><RotateCcw size={12} /> Resume</span>
+                </button>
+              )}
+              {detail.status === 'in_progress' && hasLiveTerminal && (
+                <button
+                  onClick={handleKill}
+                  className={cn(
+                    'px-3 py-1.5 rounded-md text-xs font-medium transition-all shrink-0',
+                    confirmKill
+                      ? 'bg-status-failed-bg text-status-failed border border-status-failed-border'
+                      : 'text-muted-foreground hover:text-status-failed hover:bg-status-failed-bg border border-transparent hover:border-status-failed-border'
+                  )}
+                  disabled={killing}
+                >
+                  {killing ? <Loader size={12} className="animate-spin-slow" /> : confirmKill ? 'Confirm Stop?' : <span className="flex items-center gap-1.5"><Square size={12} /> Stop</span>}
+                </button>
+              )}
+            </div>
           </div>
         </div>
 

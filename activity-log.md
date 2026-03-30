@@ -2,6 +2,21 @@
 
 **Current stage:** Getting started
 
+## 2026-03-30
+
+- **Run button for worktree jobs** — implemented `POST /api/jobs/:id/run-dev` endpoint, `shell` agent branch in `startPendingLaunch`, Run button in `ResultsPanel`, and run-dev session state in `JobDetailView`; `worktreeSetup` config field runs setup commands before `startScript`; run-dev session killed on validate/reject/kill; `{repoPath}` placeholder interpolated with escaped path
+- **Worktree dev server symlink fix** — resolved Turbopack rejecting out-of-root symlinks via sed patch to `web/next.config.ts` (idempotent) and `export TURBOPACK_ROOT=$(cd {repoPath}/.. && pwd)`; updated `prompt-guard` `worktreeSetup` in `config.local.json`; also updated main repo `next.config.ts` so future worktrees don't need the patch
+- **plans/worktree-run-button.md**
+- **Review the code changes. Check for bugs, security issues, edge cases, and code quality. Suggest improvements. --- Previous job context: notes/jobs/2026-03-29-plans-security-improvements-md.md**
+- **Sort plans on the plan list into groups by status "in review", "ready", "done". Remove the chip since this would be redundant**
+- **Add the original prompt to job metadata (escape newlines)**
+- **plans/2026-03-30-parent-job-link.md Generate a plan in ./plans for a new feature:**
+- **please address these findings --- Previous job context: notes/jobs/2026-03-30-review-the-code-changes-check-for-bugs-security-is.md**
+- **Use the plan skill and write the output to ./plans/ For continued tasks we need to show a link back from the job review page to the parent task. We already do this with plans, so we can use the same pattern for this**
+- **plans/SECURITY_IMPROVEMENTS.md**
+
+---
+
 ## 2026-03-29
 
 - **Ensure default values are coming from the user's settings. See the dispatch page for how this should be implemented. Make sure this is true for the "Plan" dispatch section as well --- Previous job context: notes/jobs/2026-03-29-follow-up-dispatch-on-a-job-needs-to-include-all-t-7.md**
@@ -12,6 +27,16 @@
 - **Cleanup UI: - Persist input box contents on dispatch page (eg user navigates away and then comes back). This should be seamless (no notifications about saving, just in the background) - Move the chips for repo name on jobs list to the right side (consistency with the task list) - Add the Agent icon (claude or codex) on the left side of the job row (matching the layout of the task items, but replacing the checkbox with the agent icon)**
 - **Review dashboard code for improvements on compatibility, code patterns, DRY principles, agent ease-of-use, and documentation**
 - **Write this to a ./plan file to address all high and medium findings. Additionally include these notes for item 1: - surface the injected prompt for the dispatch page. Show it above the prompt input box using the same pattern as the "plan" dispatch feature. Shorten it to be more human readable while still conveying the details. Allow the user to clear it - Ensure other dispatch modes do not include this prompt injection eg. editing a plan. Re-starting an existing job is ok --- Previous job context: notes/jobs/2026-03-29-review-dashboard-code-for-improvements-on-compatib.md**
+- **Determine why timestamps in the UI are incorrect for Codex jobs, but not Claude**
+- **Codex is purple not green. find the exact colors online --- Previous job context: notes/jobs/2026-03-29-make-the-color-for-claude-and-codex-match-their-re.md**
+- **dont immediately dispatch plans. take user to dispatch page and show the plan chip**
+- **plans/skills-selection-dropdown.md 1. global skills 2. default is no skills 3. just names**
+- **Plan skills selection dropdown options when dispatching a task. write the plan to ./plans/**
+- **Please write this to a plan for the server changes ./plans/ --- Previous job context: notes/jobs/2026-03-29-review-server-code-for-improvements-on-compatibili.md**
+- **Make left tab menu text as secondary**
+- **Reframe documentation "no parallelism" from hard principle to current feature status; worktree-based parallel dispatch — *Feedback: the backend already supports parallelism (`ptySessions` is a Map, dashboard has multi-job views). Reviewer routinely dispatches 5-10 jobs in parallel. The real constraints are dashboard UX (watching 5 terminals at once) and git isolation. With worktrees now implemented, the backend supports for parallelism.***
+- **There needs to be more of a link between plans and jobs. On a job list item i need to be able to see which plan was used. On a job review in the top right, put the plan name and link to the plan On the plan edit page, show the job name and link to the job, with its status Use sensible defaults for character lengths shown, with concatenation "..."**
+- **Main job view is not actively updated. check polling logic and lets make this consistent across the app. Not having a consistently up-to-date dashboard is leading to bad UX**
 
 ---
 

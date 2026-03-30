@@ -36,3 +36,10 @@ export function timeAgo(started, durationMinutes) {
   return days === 1 ? 'yesterday' : `${days}d ago`
 }
 
+export function truncateWithEllipsis(value, maxLength = 40) {
+  const text = String(value || '').trim()
+  if (!text) return ''
+  const cap = Number.isFinite(maxLength) ? Math.max(4, Math.floor(maxLength)) : 40
+  if (text.length <= cap) return text
+  return `${text.slice(0, cap - 3)}...`
+}
