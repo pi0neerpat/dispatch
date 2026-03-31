@@ -127,6 +127,7 @@ before(async () => {
 
 after(async () => {
   if (server) {
+    server.closeAllConnections?.();
     await new Promise((resolve) => server.close(resolve));
   }
   if (tmpDir) {

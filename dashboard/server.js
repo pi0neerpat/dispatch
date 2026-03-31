@@ -2253,7 +2253,7 @@ function startPendingLaunch(session) {
     }
   }
 }
-setInterval(garbageCollectSessions, SESSION_GC_INTERVAL_MS)
+setInterval(garbageCollectSessions, SESSION_GC_INTERVAL_MS).unref()
 
 function createPtySession(sessionId, cwd, repoName, jobFilePath, initialScrollback = '', launch = null, pendingLaunch = null) {
   let spawnSpec = launch || { file: '/bin/zsh', args: ['--login'] }

@@ -174,6 +174,12 @@ cd dashboard && yarn dev
 
 Open [http://localhost:5173](http://localhost:5173).
 
+### 5. Run the tests
+
+```bash
+cd dashboard && yarn test
+```
+
 ---
 
 ## How it works
