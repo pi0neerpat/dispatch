@@ -12,11 +12,10 @@ export function cn(...inputs) {
 export function timeAgo(started, durationMinutes) {
   let mins = durationMinutes
   if (mins == null && started) {
-    // Timestamps from job files are UTC but may lack a 'Z' suffix
+    // Timestamps from job files are local time (no timezone suffix)
     let normalized = String(started)
     if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(normalized)) {
       normalized = normalized.replace(' ', 'T')
-      if (!normalized.endsWith('Z')) normalized += 'Z'
     }
     const d = new Date(normalized)
     if (!isNaN(d.getTime())) {
@@ -42,4 +41,11 @@ export function truncateWithEllipsis(value, maxLength = 40) {
   const cap = Number.isFinite(maxLength) ? Math.max(4, Math.floor(maxLength)) : 40
   if (text.length <= cap) return text
   return `${text.slice(0, cap - 3)}...`
+}
+
+export function buildPlanPath(repo, slug) {
+  const repoName = String(repo || '').trim()
+  const planSlug = String(slug || '').trim()
+  if (!repoName || !planSlug) return null
+  return `/plans/${encodeURIComponent(repoName)}/${encodeURIComponent(planSlug)}`
 }

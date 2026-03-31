@@ -15,6 +15,7 @@ const {
   parseJobFile,
   parseJobDir,
   parsePlansDir,
+  parseSkillsDir,
   loadConfig,
   writeTaskDone,
   writeTaskDoneByText,
@@ -49,6 +50,15 @@ function tmp(name, content) {
 
 function read(filePath) {
   return fs.readFileSync(filePath, 'utf8');
+}
+
+function createDirSymlink(targetPath, symlinkPath) {
+  fs.mkdirSync(path.dirname(symlinkPath), { recursive: true });
+  fs.symlinkSync(
+    targetPath,
+    symlinkPath,
+    process.platform === 'win32' ? 'junction' : 'dir'
+  );
 }
 
 // ── parseTaskFile ────────────────────────────────────────────
@@ -424,6 +434,114 @@ describe('parsePlansDir', () => {
     assert.equal(result[0].jobSlug, '2026-03-30-lightweight');
     assert.equal(result[0].planStatus, 'in_progress');
     assert.equal('content' in result[0], false);
+  });
+});
+
+// ── parseSkillsDir ───────────────────────────────────────────
+
+describe('parseSkillsDir', () => {
+  beforeEach(setup);
+  afterEach(teardown);
+
+  it('returns skills with id and display name from frontmatter', () => {
+    tmp('.claude/skills/alpha/SKILL.md', [
+      '---',
+      'name: Alpha Skill',
+      '---',
+      '',
+      '# Alpha',
+    ].join('\n'));
+    tmp('.claude/skills/beta/SKILL.md', '# Beta');
+    tmp('.claude/skills/gamma/SKILL.md', [
+      '---',
+      'name: "Gamma Skill"',
+      '---',
+      '',
+      '# Gamma',
+    ].join('\n'));
+    fs.mkdirSync(path.join(tmpDir, '.claude', 'skills', 'missing-skill-file'), { recursive: true });
+
+    const result = parseSkillsDir(tmpDir);
+    assert.deepEqual(result, [
+      { id: 'alpha', name: 'Alpha Skill' },
+      { id: 'beta', name: 'beta' },
+      { id: 'gamma', name: 'Gamma Skill' },
+    ]);
+  });
+
+  it('returns empty array when no global skills directory exists', () => {
+    assert.deepEqual(parseSkillsDir(tmpDir), []);
+  });
+
+  it('supports recursive skill discovery for nested global skills', () => {
+    tmp('.codex/skills/.system/openai-docs/SKILL.md', [
+      '---',
+      'name: OpenAI Docs',
+      '---',
+      '',
+      '# OpenAI Docs',
+    ].join('\n'));
+    tmp('.codex/skills/team-workflow/SKILL.md', '# Team Workflow');
+
+    const result = parseSkillsDir(tmpDir, {
+      skillsSubdir: path.join('.codex', 'skills'),
+      source: 'global',
+      includeSource: true,
+      idPrefix: 'global:',
+      recursive: true,
+    });
+
+    assert.deepEqual(result, [
+      { id: 'global:.system/openai-docs', name: 'OpenAI Docs', source: 'global' },
+      { id: 'global:team-workflow', name: 'team-workflow', source: 'global' },
+    ]);
+  });
+
+  it('includes symlinked skill directories for local and global scans', () => {
+    const localTarget = path.join(tmpDir, 'linked-local-source');
+    fs.mkdirSync(localTarget, { recursive: true });
+    fs.writeFileSync(path.join(localTarget, 'SKILL.md'), '# Linked local', 'utf8');
+    createDirSymlink(localTarget, path.join(tmpDir, '.claude', 'skills', 'linked-local'));
+
+    const globalTarget = path.join(tmpDir, 'linked-global-source');
+    fs.mkdirSync(globalTarget, { recursive: true });
+    fs.writeFileSync(path.join(globalTarget, 'SKILL.md'), [
+      '---',
+      'name: Linked Global',
+      '---',
+      '',
+      '# Linked Global',
+    ].join('\n'), 'utf8');
+    createDirSymlink(globalTarget, path.join(tmpDir, '.codex', 'skills', '.system', 'linked-global'));
+
+    const local = parseSkillsDir(tmpDir);
+    const global = parseSkillsDir(tmpDir, {
+      skillsSubdir: path.join('.codex', 'skills'),
+      source: 'global',
+      includeSource: true,
+      idPrefix: 'global:',
+      recursive: true,
+    });
+
+    assert.deepEqual(local, [
+      { id: 'linked-local', name: 'linked-local' },
+    ]);
+    assert.deepEqual(global, [
+      { id: 'global:.system/linked-global', name: 'Linked Global', source: 'global' },
+    ]);
+  });
+
+  it('avoids recursive loops through symlinked directories', () => {
+    tmp('.claude/skills/alpha/SKILL.md', '# Alpha');
+    createDirSymlink(
+      path.join(tmpDir, '.claude', 'skills'),
+      path.join(tmpDir, '.claude', 'skills', 'alpha', 'loop')
+    );
+
+    const result = parseSkillsDir(tmpDir, { recursive: true });
+    assert.deepEqual(result, [
+      { id: 'alpha', name: 'alpha' },
+    ]);
   });
 });
 

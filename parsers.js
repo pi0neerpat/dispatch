@@ -127,7 +127,7 @@ function parseJobFile(filePath) {
   let skipPermissions = null;
   let resumeId = null, resumeCommand = null;
   let ai = null;
-  let branch = null, worktreePath = null, startCommit = null;
+  let branch = null, worktreePath = null, startCommit = null, baseBranch = null;
   const progressEntries = [];
   let results = null;
   let validationNotes = null;
@@ -200,6 +200,9 @@ function parseJobFile(filePath) {
       const startCommitMatch = line.match(/^StartCommit:\s*(.+)/);
       if (startCommitMatch) { startCommit = startCommitMatch[1].trim(); continue; }
 
+      const baseBranchMatch = line.match(/^BaseBranch:\s*(.+)/);
+      if (baseBranchMatch) { baseBranch = baseBranchMatch[1].trim(); continue; }
+
       // Section detection
       const sectionMatch = line.match(/^##\s+(.+)/);
       if (sectionMatch) {
@@ -240,7 +243,7 @@ function parseJobFile(filePath) {
     id, taskName, started, status, validation, agentId, skills,
     agent,
     originalTask, originalPrompt, session, skipPermissions, resumeId, resumeCommand, repo, planSlug,
-    branch, worktreePath, startCommit,
+    branch, worktreePath, startCommit, baseBranch,
     lastProgress, progressCount, durationMinutes, resultsSummary,
     progressEntries, results, validationNotes, rawContent,
   };
@@ -1054,6 +1057,100 @@ function parsePlansDir(dirPath, { includeContent = true } = {}) {
   return plans
 }
 
+function parseSkillsDir(rootPath, {
+  skillsSubdir = path.join('.claude', 'skills'),
+  source = null,
+  includeSource = false,
+  idPrefix = '',
+  recursive = false,
+} = {}) {
+  const skillsDir = path.isAbsolute(skillsSubdir)
+    ? skillsSubdir
+    : path.join(rootPath, skillsSubdir)
+  const skills = []
+  const seenIds = new Set()
+  const visitedDirs = new Set()
+
+  function parseSkillName(skillFilePath, fallbackName) {
+    let name = fallbackName
+    try {
+      const content = fs.readFileSync(skillFilePath, 'utf8')
+      const frontmatterMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/)
+      if (frontmatterMatch) {
+        const nameMatch = frontmatterMatch[1].match(/^name:\s*(.+)$/im)
+        if (nameMatch) {
+          let parsedName = nameMatch[1].trim()
+          if (
+            parsedName.length >= 2 &&
+            ((parsedName.startsWith('"') && parsedName.endsWith('"')) ||
+              (parsedName.startsWith("'") && parsedName.endsWith("'")))
+          ) {
+            parsedName = parsedName.slice(1, -1).trim()
+          }
+          if (parsedName) name = parsedName
+        }
+      }
+    } catch {
+      // Keep directory name as fallback.
+    }
+    return name
+  }
+
+  function addSkill(relativeId, skillFilePath) {
+    const normalizedRelativeId = String(relativeId || '').trim()
+    if (!normalizedRelativeId) return
+    const skillId = `${idPrefix}${normalizedRelativeId}`
+    if (seenIds.has(skillId)) return
+    seenIds.add(skillId)
+
+    const fallbackName = path.basename(normalizedRelativeId)
+    const name = parseSkillName(skillFilePath, fallbackName)
+    const skill = { id: skillId, name }
+    if (includeSource && source) skill.source = source
+    skills.push(skill)
+  }
+
+  function collect(dirPath, parentId = '') {
+    let realDirPath = null
+    try {
+      realDirPath = fs.realpathSync(dirPath)
+    } catch {
+      return
+    }
+    if (visitedDirs.has(realDirPath)) return
+    visitedDirs.add(realDirPath)
+
+    const entries = fs.readdirSync(dirPath, { withFileTypes: true })
+      .filter(entry => {
+        if (entry.isDirectory()) return true
+        if (!entry.isSymbolicLink()) return false
+        const entryPath = path.join(dirPath, entry.name)
+        try {
+          return fs.statSync(entryPath).isDirectory()
+        } catch {
+          return false
+        }
+      })
+      .sort((a, b) => a.name.localeCompare(b.name))
+
+    for (const entry of entries) {
+      const relativeId = parentId ? `${parentId}/${entry.name}` : entry.name
+      const entryDir = path.join(dirPath, entry.name)
+      const skillFilePath = path.join(entryDir, 'SKILL.md')
+      if (fs.existsSync(skillFilePath)) addSkill(relativeId, skillFilePath)
+      if (recursive) collect(entryDir, relativeId)
+    }
+  }
+
+  try {
+    if (!fs.existsSync(skillsDir)) return skills
+    collect(skillsDir)
+  } catch {
+    return []
+  }
+  return skills
+}
+
 function writePlanStatus(filePath, status) {
   let content = '';
   try { content = fs.readFileSync(filePath, 'utf8'); } catch {}
@@ -1087,6 +1184,7 @@ module.exports = {
   parseJobFile,
   parseJobDir,
   parsePlansDir,
+  parseSkillsDir,
   writePlanDispatch,
   writePlanStatus,
   // Legacy aliases for compatibility during migration

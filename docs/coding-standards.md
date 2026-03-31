@@ -301,7 +301,7 @@ The dashboard API mirrors the CLI commands:
 
 ### Server configuration
 
-- Port: `3001` (hardcoded in `server.js`).
+- Port: `3747` (`process.env.PORT || 3747` in `server.js`).
 - CORS enabled for development (Vite dev server proxies `/api` to the Express
   server).
 - Static file serving from `dist/` in production with SPA fallback.

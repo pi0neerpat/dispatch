@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
-import { CheckCircle, XCircle, Loader, Clock, Square, Activity, ListChecks, GitMerge, Scissors, Network, Trash2, Send, RotateCcw, ChevronRight, ChevronDown, GitBranch, Copy, Check, MoreHorizontal, Play } from 'lucide-react'
+import { CheckCircle, XCircle, Loader, Clock, Square, Activity, ListChecks, GitMerge, Trash2, Send, RotateCcw, ChevronRight, ChevronDown, GitBranch, Copy, Check, MoreHorizontal, Play, X } from 'lucide-react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { cn, timeAgo, truncateWithEllipsis } from '../lib/utils'
+import { cn, timeAgo, truncateWithEllipsis, buildPlanPath } from '../lib/utils'
 import { statusConfig, validationConfig } from '../lib/statusConfig'
 import { repoIdentityColors, FOLLOWUP_TEMPLATES } from '../lib/constants'
 import { useAgentModels } from '../lib/useAgentModels'
@@ -49,7 +49,7 @@ function parseBracketedTimestamp(value) {
   const raw = String(value || '').trim()
   const match = raw.match(/^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]$/)
   if (!match) return null
-  const date = new Date(match[1].replace(' ', 'T') + 'Z')
+  const date = new Date(match[1].replace(' ', 'T'))
   if (Number.isNaN(date.getTime())) return null
   return date
 }
@@ -77,7 +77,7 @@ function formatTimestampsInText(text) {
   return String(text || '').replace(
     /\[(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})\]/g,
     (_match, datePart, timePart) => {
-      const d = new Date(`${datePart}T${timePart}Z`)
+      const d = new Date(`${datePart}T${timePart}`)
       if (Number.isNaN(d.getTime())) return _match
       const relative = timeAgo(d.toISOString())
       if (!relative) return _match
@@ -442,17 +442,14 @@ function DiffSummary({ diffData, diffLoading }) {
 function AgentActions({ detail, agentId, diffData, onJobsRefresh, onOverviewRefresh, onStartTask, onBack, onRemoveSession, showToast, showFeedbackMsg, settings }) {
   const [merging, setMerging] = useState(false)
   const [mergedBranch, setMergedBranch] = useState(null)
+  const [mergeError, setMergeError] = useState(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const [showSplitInput, setShowSplitInput] = useState(false)
-  const [showSubtaskInput, setShowSubtaskInput] = useState(false)
-  const [splitText, setSplitText] = useState('')
-  const [subtaskText, setSubtaskText] = useState('')
   const [dispatching, setDispatching] = useState(false)
-  const [showFollowUp, setShowFollowUp] = useState(false)
 
   async function handleMerge() {
     setMerging(true)
+    setMergeError(null)
     try {
       const res = await fetch(`/api/jobs/${agentId}/merge`, {
         method: 'POST',
@@ -460,62 +457,22 @@ function AgentActions({ detail, agentId, diffData, onJobsRefresh, onOverviewRefr
         body: JSON.stringify({}),
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Merge failed')
+      if (!res.ok) {
+        setMergeError({ message: data.error || 'Merge failed', gitError: data.gitError || null })
+        return
+      }
       setMergedBranch({ branch: data.merged, into: data.into })
       showToast?.(`Branch merged into ${data.into}`, 'success')
       onJobsRefresh?.()
       onOverviewRefresh?.()
     } catch (err) {
-      showFeedbackMsg(err.message, true)
+      setMergeError({ message: err.message || 'Merge failed', gitError: null })
     } finally {
       setMerging(false)
     }
   }
 
-  async function handleAddTask(text, label) {
-    if (!text.trim() || !detail?.repo) return
-    try {
-      const res = await fetch('/api/tasks/add', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ repo: detail.repo, text: text.trim() }),
-      })
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        throw new Error(data.error || 'Failed to add task')
-      }
-      showFeedbackMsg(`${label} added to ${detail.repo}`)
-      onOverviewRefresh?.()
-      return true
-    } catch (err) {
-      showFeedbackMsg(err.message, true)
-      return false
-    }
-  }
 
-  async function handleSplitSubmit() {
-    const lines = splitText.split('\n').map(l => l.trim()).filter(Boolean)
-    if (lines.length === 0) return
-    let added = 0
-    for (const line of lines) {
-      const ok = await handleAddTask(line, 'Subtask')
-      if (ok) added++
-    }
-    if (added > 0) {
-      showToast?.(`${added} subtask${added > 1 ? 's' : ''} created`, 'success')
-      setSplitText('')
-      setShowSplitInput(false)
-    }
-  }
-
-  async function handleSubtaskSubmit() {
-    const ok = await handleAddTask(subtaskText, 'Subtask')
-    if (ok) {
-      showToast?.('Subtask added', 'success')
-      setSubtaskText('')
-      setShowSubtaskInput(false)
-    }
-  }
 
   async function handleDelete() {
     if (!confirmDelete) {
@@ -562,7 +519,8 @@ function AgentActions({ detail, agentId, diffData, onJobsRefresh, onOverviewRefr
   }
 
   const hasBranch = detail.branch && detail.branch !== '(merged)'
-  const canMerge = hasBranch && detail.validation === 'validated'
+  const hasWorktree = detail.worktreePath && detail.worktreePath !== '(merged)'
+  const canMerge = hasBranch && hasWorktree && (detail.validation === 'validated' || detail.status === 'completed')
   const diffStat = diffData && !diffData.merged && (diffData.files?.length || diffData.insertions)
     ? [
         `${diffData.files?.length ?? 0} file${(diffData.files?.length ?? 0) !== 1 ? 's' : ''}`,
@@ -576,7 +534,7 @@ function AgentActions({ detail, agentId, diffData, onJobsRefresh, onOverviewRefr
     <div className="space-y-5">
       {/* Merge CTA */}
       {canMerge && !mergedBranch && (
-        <div>
+        <div className="space-y-2">
           <button
             onClick={handleMerge}
             disabled={merging}
@@ -588,6 +546,19 @@ function AgentActions({ detail, agentId, diffData, onJobsRefresh, onOverviewRefr
               <span className="text-[10px] opacity-70 font-mono">· {diffStat}</span>
             )}
           </button>
+          {mergeError && (
+            <div className="rounded-md border border-status-failed-border bg-status-failed-bg px-3 py-2 text-xs text-status-failed">
+              <div className="flex items-start gap-2">
+                <XCircle size={13} className="shrink-0 mt-0.5" />
+                <div className="min-w-0">
+                  <p className="font-medium">{mergeError.message}</p>
+                  {mergeError.gitError && (
+                    <pre className="mt-1 text-[10px] opacity-80 whitespace-pre-wrap break-words font-mono">{mergeError.gitError}</pre>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
       {mergedBranch && (
@@ -597,95 +568,15 @@ function AgentActions({ detail, agentId, diffData, onJobsRefresh, onOverviewRefr
         </div>
       )}
 
-      {/* Split & Subtask */}
-      <div className="flex items-center gap-2 flex-wrap">
-        <button
-          onClick={() => { setShowSplitInput(v => !v); setShowSubtaskInput(false) }}
-          className={cn(
-            'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-medium border transition-colors',
-            showSplitInput
-              ? 'border-primary/30 bg-primary/10 text-foreground'
-              : 'border-border text-muted-foreground hover:text-foreground hover:bg-card-hover'
-          )}
-        >
-          <Scissors size={12} /> Split
-        </button>
-        <button
-          onClick={() => { setShowSubtaskInput(v => !v); setShowSplitInput(false) }}
-          className={cn(
-            'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-medium border transition-colors',
-            showSubtaskInput
-              ? 'border-primary/30 bg-primary/10 text-foreground'
-              : 'border-border text-muted-foreground hover:text-foreground hover:bg-card-hover'
-          )}
-        >
-          <Network size={12} /> Subtask
-        </button>
-      </div>
-
-      {/* Split input */}
-      {showSplitInput && (
-        <div className="space-y-2 animate-slide-in">
-          <textarea
-            value={splitText}
-            onChange={(e) => setSplitText(e.target.value)}
-            placeholder="Enter subtasks, one per line..."
-            rows={3}
-            className="w-full px-2.5 py-2 rounded-md border border-border bg-card text-[12px] text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/30 resize-y"
-          />
-          <button
-            onClick={handleSplitSubmit}
-            disabled={!splitText.trim()}
-            className="h-7 px-3 rounded-md text-[11px] font-medium bg-primary text-primary-foreground disabled:opacity-40"
-          >
-            Add {splitText.split('\n').filter(l => l.trim()).length || 0} subtask(s)
-          </button>
-        </div>
-      )}
-
-      {/* Subtask input */}
-      {showSubtaskInput && (
-        <div className="flex items-center gap-2 animate-slide-in">
-          <input
-            value={subtaskText}
-            onChange={(e) => setSubtaskText(e.target.value)}
-            placeholder="Subtask description..."
-            className="flex-1 h-8 rounded-md border border-border bg-card px-2.5 text-[12px] text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/30"
-            onKeyDown={(e) => { if (e.key === 'Enter') handleSubtaskSubmit() }}
-          />
-          <button
-            onClick={handleSubtaskSubmit}
-            disabled={!subtaskText.trim()}
-            className="h-8 px-3 rounded-md text-[11px] font-medium bg-primary text-primary-foreground disabled:opacity-40"
-          >
-            Add
-          </button>
-        </div>
-      )}
-
-      {/* Follow-up dispatch — collapsed by default */}
+      {/* Follow-up dispatch — always visible */}
       {showFollowUpSection && (
-        <div>
-          <button
-            onClick={() => setShowFollowUp(v => !v)}
-            className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <ChevronRight size={12} className={cn('transition-transform duration-200', showFollowUp && 'rotate-90')} />
-            <Send size={11} />
-            Continue as New Job
-          </button>
-          {showFollowUp && (
-            <div className="mt-3 animate-slide-in">
-              <FollowUpChat
-                repoName={detail.repo}
-                detail={detail}
-                onDispatch={handleFollowUpDispatch}
-                dispatching={dispatching}
-                settings={settings}
-              />
-            </div>
-          )}
-        </div>
+        <FollowUpChat
+          repoName={detail.repo}
+          detail={detail}
+          onDispatch={handleFollowUpDispatch}
+          dispatching={dispatching}
+          settings={settings}
+        />
       )}
 
       {/* Danger zone — Delete isolated at bottom */}
@@ -737,6 +628,10 @@ function FollowUpChat({ repoName, detail, onDispatch, dispatching, settings: app
 
   const [chatPrompt, setChatPrompt] = useState('')
   const [activeTemplate, setActiveTemplate] = useState(null)
+  const activeWorktreePath = detail?.worktreePath && detail.worktreePath !== '(merged)'
+    ? detail.worktreePath
+    : null
+  const [includeWorktreeContext, setIncludeWorktreeContext] = useState(Boolean(activeWorktreePath))
 
   const setModel = v => { setModelRaw(v); writeDispatchSaved({ model: v }) }
   const setMaxTurns = v => { setMaxTurnsRaw(v) }
@@ -760,15 +655,21 @@ function FollowUpChat({ repoName, detail, onDispatch, dispatching, settings: app
     }
   }, [models])
 
+  useEffect(() => {
+    setIncludeWorktreeContext(Boolean(activeWorktreePath))
+  }, [activeWorktreePath])
+
   const isCodex = agent === 'codex'
 
   async function handleDispatch() {
     if (!chatPrompt.trim()) return
     const basePrompt = chatPrompt.trim()
-    const contextLine = detail?.id ? `Previous job context: notes/jobs/${detail.id}.md` : ''
-    const hasContext = contextLine && basePrompt.includes(contextLine)
-    const promptWithContext = contextLine && !hasContext
-      ? `${basePrompt}\n\n---\n${contextLine}`
+    const contextLines = []
+    if (detail?.id) contextLines.push(`Previous job context: notes/jobs/${detail.id}.md`)
+    if (includeWorktreeContext && activeWorktreePath) contextLines.push(`Worktree path: ${activeWorktreePath}`)
+    const missingContextLines = contextLines.filter(line => !basePrompt.includes(line))
+    const promptWithContext = missingContextLines.length > 0
+      ? `${basePrompt}\n\n---\n${missingContextLines.join('\n')}`
       : basePrompt
     await onDispatch?.(promptWithContext, {
       agent,
@@ -818,6 +719,30 @@ function FollowUpChat({ repoName, detail, onDispatch, dispatching, settings: app
               {tpl.label}
             </button>
           ))}
+        </div>
+      )}
+
+      {/* Worktree chip */}
+      {includeWorktreeContext && activeWorktreePath && (
+        <div>
+          <label className="block text-[11px] font-medium text-muted-foreground mb-1">Worktree</label>
+          <div className="inline-flex items-center gap-2 h-8 pl-2.5 pr-2 rounded-md border border-border bg-card max-w-full">
+            <GitBranch size={12} className="text-muted-foreground/60 shrink-0" />
+            <span
+              className="text-[12px] text-foreground/70 truncate"
+              style={{ fontFamily: 'var(--font-mono)' }}
+            >
+              {activeWorktreePath}
+            </span>
+            <button
+              type="button"
+              onClick={() => setIncludeWorktreeContext(false)}
+              className="ml-1 text-muted-foreground/40 hover:text-muted-foreground transition-colors shrink-0"
+              title="Remove worktree context"
+            >
+              <X size={12} />
+            </button>
+          </div>
         </div>
       )}
 
@@ -877,12 +802,7 @@ const REVIEW_PLAN_MAX = 34
 function buildPlanHref(detail) {
   if (!detail?.planSlug) return null
   const repo = detail.planRepo || detail.repo
-  if (!repo) return null
-  const params = new URLSearchParams({
-    repo,
-    plan: detail.planSlug,
-  })
-  return `/plans?${params.toString()}`
+  return buildPlanPath(repo, detail.planSlug)
 }
 
 /* ── Main component ────────────────────────────────────── */
@@ -1110,7 +1030,8 @@ export default function ResultsPanel({ agentId, hasLiveTerminal = false, onJobsR
   const planLabelRaw = detail.planTitle || detail.planSlug || ''
   const planLabel = truncateWithEllipsis(planLabelRaw, REVIEW_PLAN_MAX)
 
-  const canAct = (detail.validation === 'needs_validation' || detail.validation === 'none') &&
+  const canAct = detail.status !== 'in_progress' &&
+    (detail.validation === 'needs_validation' || detail.validation === 'none') &&
     !(detail.validation === 'validated' || detail.validation === 'rejected')
   const canRunDev = detail.worktreePath && detail.worktreePath !== '(merged)'
 

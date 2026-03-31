@@ -10,7 +10,8 @@
     "dev:server": "node --watch server.js",
     "dev:client": "npx vite",
     "build": "npx vite build",
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test server.integration.test.mjs"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.10.0",

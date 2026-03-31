@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
 import { Bot, Sparkles, AlertCircle, CheckCircle2, XCircle, Clock, GitBranch } from 'lucide-react'
-import { cn, timeAgo, truncateWithEllipsis } from '../lib/utils'
+import { cn, timeAgo, truncateWithEllipsis, buildPlanPath } from '../lib/utils'
 import { repoIdentityColors, normalizeAgentId, getAgentBrandColor } from '../lib/constants'
 import { buildWorkerNavItems } from '../lib/workerUtils'
 import { FilterChip, toggleFilter, BUG_COLOR, loadFilters, saveFilters } from '../lib/filterUtils.jsx'
@@ -33,12 +33,7 @@ function classifyItem(worker) {
 function buildPlanHref(worker) {
   if (!worker?.planSlug) return null
   const repo = worker.planRepo || worker.repo
-  if (!repo) return null
-  const params = new URLSearchParams({
-    repo,
-    plan: worker.planSlug,
-  })
-  return `/plans?${params.toString()}`
+  return buildPlanPath(repo, worker.planSlug)
 }
 
 export default function JobsView({

@@ -17,6 +17,7 @@
 - [x] follow up for a job needs to have all the same options as the dispatch (minus changing repo)
 - [x] Follow up dispatch on a job needs to include all the inputs as on the dispatch page (except repo). Basically an inline dispatch view
 - [x] Implement skills selection when dispatching a task
+- [ ] start another one
 
 ## Features
 

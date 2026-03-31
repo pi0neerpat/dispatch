@@ -114,6 +114,7 @@ export function useSessionStore() {
         extraFlags: dispatchOpts.extraFlags || undefined,
         plainOutput: dispatchOpts.plainOutput || undefined,
         planSlug: dispatchOpts.planSlug || undefined,
+        skills: Array.isArray(dispatchOpts.skills) ? dispatchOpts.skills : undefined,
       }),
     })
     if (!res.ok) {

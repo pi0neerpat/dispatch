@@ -2,12 +2,12 @@ import { Activity, Bot, ListTodo, Send, CalendarClock, Settings, ArrowLeft, Map 
 import { cn } from '../lib/utils'
 
 const NAV_ITEMS = [
-  { id: 'status', label: 'Status', icon: Activity },
+  { id: 'dispatch', label: 'Dispatch', icon: Send },
   { id: 'jobs', label: 'Jobs', icon: Bot },
   { id: 'tasks', label: 'Tasks', icon: ListTodo },
   { id: 'plans', label: 'Plans', icon: Map },
-  { id: 'dispatch', label: 'Dispatch', icon: Send },
   { id: 'schedules', label: 'Schedules', icon: CalendarClock },
+  { id: 'status', label: 'Status', icon: Activity },
 ]
 
 export default function ActivityBar({ activeNav, onNavChange, jobCount = 0, reviewCount = 0, settingsOpen = false, onToggleSettings }) {

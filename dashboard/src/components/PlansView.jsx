@@ -1,11 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { ArrowLeft, Pencil, Check, Play, AlertTriangle, RotateCcw, Wrench } from 'lucide-react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useAgentModels } from '../lib/useAgentModels'
+import { useSkills } from '../lib/useSkills'
 import DispatchSettingsRow from './DispatchSettingsRow'
+import SkillsSelector from './SkillsSelector'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { cn, truncateWithEllipsis } from '../lib/utils'
+import { buildPlanPath, cn, truncateWithEllipsis } from '../lib/utils'
 import { repoIdentityColors } from '../lib/constants'
 import { mdComponents } from './mdComponents'
 
@@ -32,6 +34,7 @@ const PLAN_LIST_GROUPS = [
   { key: 'in_review', label: 'In review' },
   { key: 'ready', label: 'Ready' },
   { key: 'done', label: 'Done' },
+  { key: 'draft', label: 'Draft' },
 ]
 
 const PLAN_HEADER_JOB_MAX = 48
@@ -61,7 +64,7 @@ function getPlanListGroup(plan, swarm) {
   if (jobStatus === 'completed' && (!linkedJob?.validation || linkedJob.validation === 'none')) return 'in_review'
   if (linkedJob?.validation === 'validated' || jobStatus === 'completed') return 'done'
   if (plan.planStatus === 'ready') return 'ready'
-  return null
+  return 'draft'
 }
 
 function CountBadge({ n }) {
@@ -125,8 +128,10 @@ function PlanDispatchBar({ plan, swarm, settings: appSettings, onNavigateToDispa
   const [autoMerge, setAutoMergeRaw] = useState(s.autoMerge ?? false)
   const [plainOutput, setPlainOutputRaw] = useState(s.plainOutput ?? !(agentSettings[s.agent || 'claude']?.tuiMode ?? true))
   const models = useAgentModels(agent)
+  const availableSkills = useSkills()
 
   const [editInstructions, setEditInstructions] = useState('')
+  const [selectedSkills, setSelectedSkills] = useState([])
 
   const setModel = v => { setModelRaw(v); writeDispatchSaved({ model: v }) }
   const setMaxTurns = v => { setMaxTurnsRaw(v) }
@@ -150,6 +155,13 @@ function PlanDispatchBar({ plan, swarm, settings: appSettings, onNavigateToDispa
     }
   }, [models])
 
+  useEffect(() => {
+    if (selectedSkills.length === 0) return
+    const validSkillIds = new Set(availableSkills.map(skill => skill.id))
+    const sanitized = selectedSkills.filter(skillId => validSkillIds.has(skillId))
+    if (sanitized.length !== selectedSkills.length) setSelectedSkills(sanitized)
+  }, [availableSkills, selectedSkills])
+
   const sharedSettings = {
     agent, onSwitchAgent: switchAgent,
     model, setModel, models,
@@ -160,24 +172,19 @@ function PlanDispatchBar({ plan, swarm, settings: appSettings, onNavigateToDispa
   }
 
   function handleImplement() {
-    onNavigateToDispatch?.(plan.repo, '', plan.slug)
+    onNavigateToDispatch?.(plan.repo, '', plan.slug, { skills: selectedSkills })
   }
 
   function handleEdit() {
     const basePrompt = 'Expand and refine this plan in place. Research any open questions, fill in implementation details, and update the file.'
-    onNavigateToDispatch?.(plan.repo, editInstructions.trim() || basePrompt, plan.slug)
+    onNavigateToDispatch?.(plan.repo, editInstructions.trim() || basePrompt, plan.slug, { skills: selectedSkills })
   }
 
   return (
     <div className="border-t border-border pt-4 mt-2 flex flex-col gap-4">
 
-      {/* Shared settings */}
-      <div className="flex items-start gap-3 flex-wrap">
-        <DispatchSettingsRow {...sharedSettings} />
-      </div>
-
       {/* Implement row */}
-      <div className="flex items-center justify-between pt-1 border-t border-border/50">
+      <div className="flex items-center justify-between">
         <span className="text-[11px] font-medium text-muted-foreground/60 uppercase tracking-wide">Implement</span>
         <div className="flex items-center gap-2">
           {isFinished && (
@@ -203,9 +210,14 @@ function PlanDispatchBar({ plan, swarm, settings: appSettings, onNavigateToDispa
         </div>
       </div>
 
-      {/* Edit Plan row */}
-      <div className="flex flex-col gap-2 pt-1 border-t border-border/50">
+      {/* Edit Plan section — layout matches dispatch page */}
+      <div className="flex flex-col gap-3 pt-1 border-t border-border/50">
         <span className="text-[11px] font-medium text-muted-foreground/60 uppercase tracking-wide">Edit Plan</span>
+        <SkillsSelector
+          skills={availableSkills}
+          selectedSkillIds={selectedSkills}
+          onChange={setSelectedSkills}
+        />
         <textarea
           value={editInstructions}
           onChange={e => setEditInstructions(e.target.value)}
@@ -218,14 +230,19 @@ function PlanDispatchBar({ plan, swarm, settings: appSettings, onNavigateToDispa
             'resize-none placeholder:text-muted-foreground/40'
           )}
         />
-        <div className="flex justify-end">
-          <button
-            onClick={handleEdit}
-            className="inline-flex items-center gap-1.5 px-3.5 h-8 rounded-full text-[12px] font-medium border border-border bg-card text-muted-foreground hover:text-foreground hover:bg-card-hover transition-colors disabled:opacity-60"
-          >
-            <Wrench size={12} />
-            Start Edit
-          </button>
+        <div className="flex items-start gap-3 flex-wrap">
+          <DispatchSettingsRow {...sharedSettings} />
+          <div className="flex-1" />
+          <div>
+            <div aria-hidden="true" className="text-[11px] mb-1 invisible select-none">·</div>
+            <button
+              onClick={handleEdit}
+              className="inline-flex items-center gap-1.5 px-3.5 h-8 rounded-full text-[12px] font-medium border border-border bg-card text-muted-foreground hover:text-foreground hover:bg-card-hover transition-colors disabled:opacity-60"
+            >
+              <Wrench size={12} />
+              Start Edit
+            </button>
+          </div>
         </div>
       </div>
 
@@ -423,6 +440,7 @@ function readSavedFilter() {
 export default function PlansView({ overview, swarm, onNavigateToDispatch, settings }) {
   const location = useLocation()
   const navigate = useNavigate()
+  const { repoName: pathRepoName, planSlug: pathPlanSlug } = useParams()
   const [plans, setPlans] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedPlan, setSelectedPlan] = useState(null)
@@ -450,15 +468,34 @@ export default function PlansView({ overview, swarm, onNavigateToDispatch, setti
   useEffect(() => { fetchPlans() }, [fetchPlans])
 
   useEffect(() => {
-    const params = new URLSearchParams(location.search)
-    const targetRepo = params.get('repo')
-    const targetPlanSlug = params.get('plan')
+    let targetRepo = pathRepoName || null
+    let targetPlanSlug = pathPlanSlug || null
+
+    // Backward compatibility for old query-based links: /plans?repo=<repo>&plan=<slug>
+    if (!targetPlanSlug) {
+      const params = new URLSearchParams(location.search)
+      const queryRepo = params.get('repo')
+      const queryPlanSlug = params.get('plan')
+      if (queryPlanSlug) {
+        targetRepo = queryRepo
+        targetPlanSlug = queryPlanSlug
+        const canonicalPath = buildPlanPath(targetRepo, targetPlanSlug)
+        if (canonicalPath && location.pathname !== canonicalPath) {
+          navigate(canonicalPath, { replace: true })
+        }
+      }
+    }
+
+    if (!targetPlanSlug) {
+      setSelectedPlan(prev => (prev ? null : prev))
+      return
+    }
 
     if (targetRepo && repoFilter !== targetRepo) {
       setRepoFilter(targetRepo)
     }
 
-    if (!targetPlanSlug || plans.length === 0) return
+    if (plans.length === 0) return
     const match = plans.find(p => p.slug === targetPlanSlug && (!targetRepo || p.repo === targetRepo))
     if (!match) return
     setSelectedPlan(prev => (
@@ -466,13 +503,22 @@ export default function PlansView({ overview, swarm, onNavigateToDispatch, setti
         ? prev
         : match
     ))
-  }, [location.search, plans, repoFilter])
+  }, [location.pathname, location.search, navigate, pathPlanSlug, pathRepoName, plans, repoFilter])
 
   const handleBack = useCallback(() => {
     setSelectedPlan(null)
-    if (location.search) navigate('/plans', { replace: true })
+    if (location.pathname !== '/plans' || location.search) {
+      navigate('/plans', { replace: true })
+    }
     fetchPlans() // refresh in case edits were made
-  }, [fetchPlans, location.search, navigate])
+  }, [fetchPlans, location.pathname, location.search, navigate])
+
+  const handleSelectPlan = useCallback((plan) => {
+    const href = buildPlanPath(plan?.repo, plan?.slug)
+    if (!href) return
+    setSelectedPlan(plan)
+    navigate(href)
+  }, [navigate])
 
   if (selectedPlan) {
     return (
@@ -562,7 +608,7 @@ export default function PlansView({ overview, swarm, onNavigateToDispatch, setti
                   <PlanCard
                     key={`${plan.repo}/${plan.slug}`}
                     plan={plan}
-                    onSelect={setSelectedPlan}
+                    onSelect={handleSelectPlan}
                   />
                 ))}
               </div>
@@ -570,7 +616,7 @@ export default function PlansView({ overview, swarm, onNavigateToDispatch, setti
           ))}
           {!hasGroupedPlans && (
             <div className="py-8 text-center">
-              <p className="text-[13px] text-muted-foreground/60">No plans in review, ready, or done.</p>
+              <p className="text-[13px] text-muted-foreground/60">No plans found.</p>
             </div>
           )}
         </div>

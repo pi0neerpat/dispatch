@@ -54,10 +54,10 @@ config.json ─── loadConfig() ───┐
 
 Separate Node.js project with its own `package.json` (ESM, `"type": "module"`).
 
-- **server.js** -- Express backend on port 3001. Imports `../parsers.js` via `createRequire`. REST API for overview, tasks, bugs, jobs (`/api/jobs`), sessions, schedules, checkpoints, and events. WebSocket terminal server (`/ws/terminal`) keeps PTY sessions alive across reconnects, stages server-managed Claude launches/resumes, persists run state in `.hub-runtime/job-runs.json`.
+- **server.js** -- Express backend on port 3747. Imports `../parsers.js` via `createRequire`. REST API for overview, tasks, bugs, jobs (`/api/jobs`), sessions, schedules, checkpoints, and events. WebSocket terminal server (`/ws/terminal`) keeps PTY sessions alive across reconnects, stages server-managed Claude launches/resumes, persists run state in `.hub-runtime/job-runs.json`.
 - **eventPipeline.js** -- Captures terminal output into structured NDJSON events. Line classification, agent detection, event search, session summaries.
 - **src/** -- React SPA with Tailwind CSS v4. Navigation: `ActivityBar` (icon tabs) → views (`StatusView`, `JobsView`, `AllTasksView`, `DispatchView`, `SchedulesView`) with `JobDetailView` drill-down. Hooks: `usePolling`, `useSessionStore`, `useTerminal`, `useSearch`.
-- **vite.config.js** -- Proxies `/api` and `/ws` to `localhost:3001` during dev.
+- **vite.config.js** -- Proxies `/api` and `/ws` to `localhost:3747` during dev.
 
 ### Claude Skills (`.claude/`)
 
@@ -84,10 +84,10 @@ node terminal.js
 # Web dashboard (requires yarn install in dashboard/)
 cd dashboard && yarn install
 yarn dev             # Vite dev server + Express API (concurrently)
-yarn dev:server      # Express API only (port 3001)
-yarn dev:client      # Vite only (proxies /api to 3001)
+yarn dev:server      # Express API only (port 3747)
+yarn dev:client      # Vite only (proxies /api to 3747)
 yarn build           # Production build to dashboard/dist/
-yarn start           # Serve built SPA + API from port 3001
+yarn start           # Serve built SPA + API from port 3747
 ```
 
 ## Conventions

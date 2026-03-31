@@ -2,12 +2,10 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { usePolling } from './lib/usePolling'
 import { POLL_INTERVALS } from './lib/pollingIntervals'
-import { useSearch } from './lib/useSearch'
 import { useAppNavigation } from './lib/useAppNavigation'
 import { useSessionStore } from './lib/useSessionStore'
 import { useJobMetrics } from './lib/useJobMetrics'
 import { useSettings } from './lib/useSettings'
-import HeaderBar from './components/HeaderBar'
 import ActivityBar from './components/ActivityBar'
 import StatusView from './components/StatusView'
 import JobsView from './components/JobsView'
@@ -65,7 +63,6 @@ export default function App() {
 
   const { settings, updateAgent } = useSettings()
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [searchQuery, setSearchQuery] = useState('')
   const [contextUsage, setContextUsage] = useState(null)
   const [contextResetInfo, setContextResetInfo] = useState(null)
   const [toast, setToast] = useState(null)
@@ -117,8 +114,13 @@ export default function App() {
     openJobDetail(sessionId)
   }, [startWorkerSession, openJobDetail])
 
-  const handleNavigateToDispatch = useCallback((repo, prompt, planSlug = null) => {
-    setDispatchPreFill({ repo, prompt, planSlug })
+  const handleNavigateToDispatch = useCallback((repo, prompt, planSlug = null, dispatchOpts = {}) => {
+    setDispatchPreFill({
+      repo,
+      prompt,
+      planSlug,
+      skills: Array.isArray(dispatchOpts.skills) ? dispatchOpts.skills : [],
+    })
     openDispatch()
   }, [openDispatch])
 
@@ -127,12 +129,11 @@ export default function App() {
     showToast('Worker dispatched', 'success')
   }, [showToast])
 
-  const handleDispatch = useCallback(async ({ repo, taskText, originalTask, baseBranch, model, maxTurns, autoMerge, useWorktree, plainOutput, agent, planSlug }) => {
+  const handleDispatch = useCallback(async ({ repo, taskText, originalTask, baseBranch, model, maxTurns, autoMerge, useWorktree, plainOutput, agent, planSlug, skills }) => {
     const agentId = agent || 'claude'
     const skipPermissions = settings.agents[agentId]?.skipPermissions ?? true
-    const sessionId = await startTaskSession(taskText, repo, { originalTask, baseBranch, model, maxTurns, autoMerge, useWorktree, plainOutput, skipPermissions, agent: agentId, planSlug })
-    openJobDetail(sessionId)
-  }, [startTaskSession, openJobDetail, settings])
+    await startTaskSession(taskText, repo, { originalTask, baseBranch, model, maxTurns, autoMerge, useWorktree, plainOutput, skipPermissions, agent: agentId, planSlug, skills })
+  }, [startTaskSession, settings])
 
   const handleResumeJob = useCallback(async (jobId) => {
     const sessionId = await resumeJobSession(jobId)
@@ -141,8 +142,6 @@ export default function App() {
     showToast('Job resumed', 'success')
   }, [resumeJobSession, openJobDetail, showToast])
 
-  const searchResults = useSearch(searchQuery, overview.data, jobs.data, agentTerminals)
-
   const handleSearchSelect = useCallback((item) => {
     if (!item) return
     if (item.kind === 'repo' || item.kind === 'task') {
@@ -150,7 +149,6 @@ export default function App() {
     } else if (item.kind === 'agent') {
       openJobDetail(item.targetId)
     }
-    setSearchQuery('')
     setCommandPaletteOpen(false)
   }, [openJobDetail, setActiveNav, setCommandPaletteOpen])
 
@@ -198,20 +196,7 @@ export default function App() {
   )
 
   return (
-    <div className="h-screen flex flex-col bg-background">
-      <HeaderBar
-        overview={overview.data}
-        activeJobCount={activeJobCount}
-        reviewCount={reviewCount}
-        error={error}
-        searchQuery={searchQuery}
-        onSearchQueryChange={setSearchQuery}
-        searchResults={searchResults}
-        onSelectSearchResult={handleSearchSelect}
-        onOpenCommandPalette={() => setCommandPaletteOpen(true)}
-      />
-
-      <div className="flex-1 min-h-0 flex">
+    <div className="h-screen flex bg-background">
         <ActivityBar
           activeNav={activeNav}
           onNavChange={handleNavChange}
@@ -272,6 +257,16 @@ export default function App() {
                   />
                 </ScrollableView>
               } />
+              <Route path="/plans/:repoName/:planSlug" element={
+                <ScrollableView>
+                  <PlansView
+                    overview={overview.data}
+                    swarm={jobs.data}
+                    onNavigateToDispatch={handleNavigateToDispatch}
+                    settings={settings}
+                  />
+                </ScrollableView>
+              } />
               <Route path="/dispatch" element={
                 <ScrollableView>
                   <DispatchView
@@ -280,6 +275,7 @@ export default function App() {
                     initialRepo={dispatchPreFill?.repo || null}
                     initialPrompt={dispatchPreFill?.prompt || null}
                     initialPlanSlug={dispatchPreFill?.planSlug || null}
+                    initialSkills={dispatchPreFill?.skills || []}
                     onDispatchComplete={handleDispatchComplete}
                     settings={settings}
                   />
@@ -296,14 +292,13 @@ export default function App() {
             </Routes>
           )}
         </main>
-      </div>
 
       <CommandPalette
         open={commandPaletteOpen}
         onClose={() => setCommandPaletteOpen(false)}
         repos={overview.data?.repos || []}
         activeNav={activeNav}
-        searchResults={searchResults}
+        searchResults={[]}
         onSelectResult={handleSearchSelect}
         activeWorkers={agentTerminals}
         onStartWorker={handleStartWorker}

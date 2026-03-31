@@ -323,5 +323,5 @@ The `agentTerminals` Map bridges these: each entry stores `{ jobFile: { fileName
 
 - **React plugin**: `@vitejs/plugin-react` for JSX
 - **Tailwind plugin**: `@tailwindcss/vite` for CSS processing
-- **Dev server proxy**: `/api` → `http://localhost:3001`, `/ws` → `ws://localhost:3001`
+- **Dev server proxy**: `/api` → `http://localhost:3747`, `/ws` → `ws://localhost:3747`
 - **Build output**: `dashboard/dist/` (served by Express in production)

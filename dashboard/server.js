@@ -43,7 +43,7 @@ const require = createRequire(import.meta.url)
 const pty = require('node-pty')
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const {
-  parseTaskFile, parseActivityLog, getGitInfo, parseJobFile, parseJobDir, parsePlansDir, loadConfig,
+  parseTaskFile, parseActivityLog, getGitInfo, parseJobFile, parseJobDir, parsePlansDir, parseSkillsDir, loadConfig,
   writeTaskDone, writeTaskDoneByText, writeTaskReopenByText, writeTaskAdd, writeTaskEdit, writeTaskMove,
   writeActivityEntry, writeJobValidation, writeJobKill, writeJobStatus, writeJobResults,
   createCheckpoint, revertCheckpoint, dismissCheckpoint, listCheckpoints,
@@ -51,8 +51,8 @@ const {
   writePlanStatus,
 } = require('../parsers')
 
-const HUB_DIR = path.resolve(__dirname, '..')
-const PORT = 3001
+const HUB_DIR = process.env.HUB_DIR ? path.resolve(process.env.HUB_DIR) : path.resolve(__dirname, '..')
+const PORT = process.env.PORT || 3747
 const RUNTIME_DIR = path.join(HUB_DIR, '.hub-runtime')
 const JOB_RUNS_FILE = path.join(RUNTIME_DIR, 'job-runs.json')
 const PROMPTS_DIR = path.join(RUNTIME_DIR, 'prompts')
@@ -242,6 +242,12 @@ function isValidSessionId(id) {
   return typeof id === 'string' && VALID_SESSION_ID_RE.test(id)
 }
 
+// PTY session IDs: session-<uuid> OR run-dev-<jobId>
+const VALID_RUN_DEV_SESSION_ID_RE = /^run-dev-[a-zA-Z0-9._-]{1,200}$/
+function isValidPtySessionId(id) {
+  return isValidSessionId(id) || (typeof id === 'string' && VALID_RUN_DEV_SESSION_ID_RE.test(id))
+}
+
 // Resume IDs: alphanumeric with dots, hyphens, colons, underscores
 const VALID_RESUME_ID_RE = /^[A-Za-z0-9._:-]{1,200}$/
 function isValidResumeId(id) {
@@ -261,8 +267,25 @@ function buildResumeClaudeCommand(resumeId, flags = '') {
   return `claude${flags} --resume "${id}"`
 }
 
-function buildDispatchPrompt(taskText, jobFilePath = null) {
-  let prompt = String(taskText || '')
+function buildDispatchPrompt(taskText, jobFilePath = null, selectedSkillNames = [], worktreePath = null) {
+  let prompt = ''
+
+  if (worktreePath) {
+    prompt += `IMPORTANT: You are working inside a git worktree at:\n  ${worktreePath}\n\n`
+    prompt += `ALL file edits and writes MUST be made within this worktree. Do NOT navigate to, read from, or write to the main repository directory. The worktree is your isolated working copy for this entire task — treat it as the project root. Never cd outside of it.\n\n`
+  }
+
+  prompt += String(taskText || '')
+
+  if (Array.isArray(selectedSkillNames) && selectedSkillNames.length > 0) {
+    const names = selectedSkillNames
+      .map(name => String(name || '').trim())
+      .filter(Boolean)
+      .map(name => `/${name}`)
+    if (names.length > 0) {
+      prompt += `\n\nYou have access to the following skills: ${names.join(', ')}.`
+    }
+  }
   prompt += '\n\nUse a strictly linear approach. Do not run tasks in parallel and do not delegate to sub-agents.'
   if (jobFilePath) {
     prompt += `\n\nWrite progress to the existing file just created: ${jobFilePath}`
@@ -381,11 +404,20 @@ function stripAnsi(str) {
 
 // ── Git worktree helpers ─────────────────────────────────
 
-function createJobWorktree(repoPath, jobId, baseBranch = 'main') {
+function sanitizeRepoName(name) {
+  return (name || '').replace(/[^a-zA-Z0-9._-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
+}
+
+function worktreeDirName(jobId, repoName) {
+  const safe = sanitizeRepoName(repoName)
+  return safe ? `${safe}-${jobId}` : jobId
+}
+
+function createJobWorktree(repoPath, jobId, baseBranch = 'main', repoName = '') {
   if (!isValidJobId(jobId)) throw new Error(`Invalid job id: ${String(jobId).slice(0, 80)}`)
   if (!isValidBranchName(baseBranch)) throw new Error(`Invalid base branch: ${String(baseBranch).slice(0, 80)}`)
   const branchName = `job/${jobId}`
-  const worktreePath = path.join(WORKTREES_DIR, jobId)
+  const worktreePath = path.join(WORKTREES_DIR, worktreeDirName(jobId, repoName))
   // Path containment: worktree must stay inside WORKTREES_DIR
   if (!path.resolve(worktreePath).startsWith(path.resolve(WORKTREES_DIR) + path.sep)) {
     throw new Error('Worktree path escapes expected directory')
@@ -398,9 +430,9 @@ function createJobWorktree(repoPath, jobId, baseBranch = 'main') {
   return { branchName, worktreePath }
 }
 
-function removeJobWorktree(repoPath, jobId, { deleteBranch = false } = {}) {
+function removeJobWorktree(repoPath, jobId, { deleteBranch = false, repoName = '' } = {}) {
   if (!isValidJobId(jobId)) return
-  const worktreePath = path.join(WORKTREES_DIR, jobId)
+  const worktreePath = path.join(WORKTREES_DIR, worktreeDirName(jobId, repoName))
   // Path containment: worktree must stay inside WORKTREES_DIR
   if (!path.resolve(worktreePath).startsWith(path.resolve(WORKTREES_DIR) + path.sep)) return
   const branchName = `job/${jobId}`
@@ -475,6 +507,14 @@ app.use(cors({
 }))
 app.use(express.json())
 
+// Reject URLs containing path traversal sequences before Express normalises them.
+app.use((req, res, next) => {
+  if (req.url.includes('..')) {
+    return res.status(400).json({ error: 'Invalid path' })
+  }
+  next()
+})
+
 // ── Route parameter validation middleware ─────────────────
 // Reject requests with unsafe :id or :name params before they reach handlers.
 app.param('id', (req, res, next, value) => {
@@ -510,6 +550,50 @@ function emitJobsChanged({ repo = null, id = null, reason = null } = {}) {
   }
 }
 
+function collectAvailableSkills() {
+  const localSkills = parseSkillsDir(HUB_DIR, {
+    source: 'local',
+    includeSource: true,
+    idPrefix: 'local:',
+  })
+
+  // Scan both ~/.claude/skills/ and ~/.codex/skills/ for global skills
+  const globalDirs = [
+    path.join(os.homedir(), '.claude'),
+    path.join(os.homedir(), '.codex'),
+  ]
+  const globalSkills = []
+  for (const dir of globalDirs) {
+    globalSkills.push(...parseSkillsDir(dir, {
+      skillsSubdir: 'skills',
+      source: 'global',
+      includeSource: true,
+      idPrefix: 'global:',
+      recursive: true,
+    }))
+  }
+
+  const allSkills = []
+  const seenIds = new Set()
+  for (const skill of [...localSkills, ...globalSkills]) {
+    const skillId = String(skill?.id || '').trim()
+    const skillName = String(skill?.name || '').trim()
+    if (!skillId || !skillName || seenIds.has(skillId)) continue
+    seenIds.add(skillId)
+    allSkills.push({
+      id: skillId,
+      name: skillName,
+      source: String(skill?.source || 'local'),
+    })
+  }
+
+  return {
+    local: allSkills.filter(skill => skill.source === 'local'),
+    global: allSkills.filter(skill => skill.source === 'global'),
+    all: allSkills,
+  }
+}
+
 // Serve built SPA in production
 const distDir = path.join(__dirname, 'dist')
 if (fs.existsSync(distDir)) {
@@ -520,6 +604,14 @@ if (fs.existsSync(distDir)) {
 
 app.get('/api/config', (req, res) => {
   res.json(getConfig())
+})
+
+app.get('/api/skills', (req, res) => {
+  const skills = collectAvailableSkills()
+  res.json({
+    local: skills.local,
+    global: skills.global,
+  })
 })
 
 app.get('/api/overview', (req, res) => {
@@ -1029,7 +1121,24 @@ function findRepoConfig(name) {
 }
 
 app.post(['/api/jobs/init', '/api/swarm/init'], (req, res) => {
-  const { repo, taskText, originalTask, sessionId, ai, model, maxTurns, autoMerge, useWorktree, baseBranch, skipPermissions, agent, extraFlags, plainOutput, planSlug } = req.body
+  const {
+    repo,
+    taskText,
+    originalTask,
+    sessionId,
+    ai,
+    model,
+    maxTurns,
+    autoMerge,
+    useWorktree,
+    baseBranch,
+    skipPermissions,
+    agent,
+    extraFlags,
+    plainOutput,
+    planSlug,
+    skills,
+  } = req.body
   if (!repo || !taskText) return res.status(400).json({ error: 'repo and taskText required' })
   // Validate baseBranch if provided — reject shell metacharacters and path traversal
   const validBranchRe = /^[a-zA-Z0-9._\-/]+$/
@@ -1039,6 +1148,16 @@ app.post(['/api/jobs/init', '/api/swarm/init'], (req, res) => {
 
   const repoConfig = findRepoConfig(repo)
   if (!repoConfig) return res.status(404).json({ error: `repo "${repo}" not found` })
+  const knownSkills = collectAvailableSkills().all
+  const skillNameById = new Map(
+    knownSkills.map(skill => [String(skill?.id || '').trim(), String(skill?.name || skill?.id || '').trim()])
+  )
+  const selectedSkillNames = Array.isArray(skills)
+    ? [...new Set(skills.map(skillId => String(skillId || '').trim()).filter(Boolean))]
+      .filter(skillId => skillNameById.has(skillId))
+      .map(skillId => skillNameById.get(skillId))
+      .filter(Boolean)
+    : []
 
   // Generate slug from task text
   const slug = taskText
@@ -1085,6 +1204,7 @@ app.post(['/api/jobs/init', '/api/swarm/init'], (req, res) => {
   if (autoMerge) lines.push('AutoMerge: true')
   if (baseBranch) lines.push(`BaseBranch: ${baseBranch}`)
   if (planSlug) lines.push(`Plan: ${singleLine(planSlug)}`)
+  if (selectedSkillNames.length > 0) lines.push(`Skills: ${selectedSkillNames.map(singleLine).join(', ')}`)
 
   const relativePath = `notes/jobs/${fileName}`
   const jobId = fileName.replace(/\.md$/, '')
@@ -1093,7 +1213,7 @@ app.post(['/api/jobs/init', '/api/swarm/init'], (req, res) => {
   let worktreeInfo = null
   if (useWorktree) {
     try {
-      worktreeInfo = createJobWorktree(repoConfig.resolvedPath, jobId, baseBranch || 'main')
+      worktreeInfo = createJobWorktree(repoConfig.resolvedPath, jobId, baseBranch || 'main', repoConfig.name)
       lines.push(`Branch: ${worktreeInfo.branchName}`)
       lines.push(`WorktreePath: ${worktreeInfo.worktreePath}`)
     } catch (err) {
@@ -1125,7 +1245,10 @@ app.post(['/api/jobs/init', '/api/swarm/init'], (req, res) => {
     state: RUN_STATE.STARTING,
   })
   try {
-    const promptFilePath = persistPromptFile(assignedSessionId, buildDispatchPrompt(taskText, jobFilePathForPrompt))
+    const promptFilePath = persistPromptFile(
+      assignedSessionId,
+      buildDispatchPrompt(taskText, jobFilePathForPrompt, selectedSkillNames, worktreeInfo?.worktreePath || null)
+    )
     createPtySession(
       assignedSessionId,
       ptyCwd,
@@ -1686,7 +1809,7 @@ app.post(['/api/jobs/:id/reject', '/api/swarm/:id/reject'], (req, res) => {
     purgePtySessionHard(`run-dev-${req.params.id}`)
     // Clean up worktree and branch — rejected changes are discarded
     if (detail.worktreePath) {
-      try { removeJobWorktree(found.repo.resolvedPath, req.params.id, { deleteBranch: true }) } catch {}
+      try { removeJobWorktree(found.repo.resolvedPath, req.params.id, { deleteBranch: true, repoName: found.repo.name }) } catch {}
     }
     invalidateGitInfoCache(found.repo.resolvedPath)
     emitJobsChanged({ repo: found.repo.name, id: req.params.id, reason: 'rejected' })
@@ -1726,7 +1849,7 @@ app.post(['/api/jobs/:id/kill', '/api/swarm/:id/kill'], (req, res) => {
     purgePtySessionHard(`run-dev-${req.params.id}`)
     // Clean up worktree and branch — killed jobs are abandoned
     if (detail.worktreePath) {
-      try { removeJobWorktree(found.repo.resolvedPath, req.params.id, { deleteBranch: true }) } catch {}
+      try { removeJobWorktree(found.repo.resolvedPath, req.params.id, { deleteBranch: true, repoName: found.repo.name }) } catch {}
     }
     invalidateGitInfoCache(found.repo.resolvedPath)
     emitJobsChanged({ repo: found.repo.name, id: req.params.id, reason: 'killed' })
@@ -1745,7 +1868,7 @@ app.delete(['/api/jobs/:id', '/api/swarm/:id'], (req, res) => {
     // Clean up worktree and branch before deleting the job file
     const detail = parseJobFile(found.filePath)
     if (detail.worktreePath) {
-      try { removeJobWorktree(found.repo.resolvedPath, req.params.id, { deleteBranch: true }) } catch {}
+      try { removeJobWorktree(found.repo.resolvedPath, req.params.id, { deleteBranch: true, repoName: found.repo.name }) } catch {}
     }
     fs.unlinkSync(found.filePath)
     // Also remove .kill marker if present
@@ -1785,8 +1908,11 @@ app.post(['/api/jobs/:id/merge', '/api/swarm/:id/merge'], (req, res) => {
 
     // Read the job's branch from its file header (set by worktree creation)
     const detail = parseJobFile(found.filePath)
+    if (!detail.worktreePath || detail.worktreePath === '(merged)') {
+      return res.status(400).json({ error: 'Only worktree jobs can be merged' })
+    }
     const jobBranch = detail.branch || git('branch', '--show-current')
-    const base = targetBranch || 'main'
+    const base = targetBranch || detail.baseBranch || 'main'
 
     // Validate branch names — reject anything with shell metacharacters or path traversal
     const validBranchRe = /^[a-zA-Z0-9._\-/]+$/
@@ -1801,6 +1927,11 @@ app.post(['/api/jobs/:id/merge', '/api/swarm/:id/merge'], (req, res) => {
       return res.status(400).json({ error: `Job branch is ${base} — nothing to merge` })
     }
 
+    // Stash any uncommitted changes so checkout doesn't fail
+    const dirtyStatus = git('status', '--porcelain')
+    const wasStashed = dirtyStatus.length > 0
+    if (wasStashed) git('stash', '--include-untracked')
+
     // Save and restore main repo branch to avoid disrupting other work
     const mainRepoBranch = git('branch', '--show-current')
     if (mainRepoBranch !== base) {
@@ -1814,16 +1945,20 @@ app.post(['/api/jobs/:id/merge', '/api/swarm/:id/merge'], (req, res) => {
       if (mainRepoBranch !== base) {
         try { git('checkout', mainRepoBranch) } catch { /* ignore */ }
       }
-      return res.status(409).json({ error: `Merge conflict — could not merge ${jobBranch} into ${base}` })
+      if (wasStashed) { try { git('stash', 'pop') } catch { /* ignore */ } }
+      const gitMsg = (mergeErr.stderr || mergeErr.message || '').toString().trim()
+      return res.status(409).json({ error: `Merge conflict — could not merge ${jobBranch} into ${base}`, gitError: gitMsg })
     }
     // Restore original branch if we switched
     if (mainRepoBranch !== base) {
       try { git('checkout', mainRepoBranch) } catch { /* ignore */ }
     }
+    // Restore stashed changes
+    if (wasStashed) { try { git('stash', 'pop') } catch { /* ignore */ } }
 
     // Clean up worktree after successful merge
     if (detail.worktreePath) {
-      try { removeJobWorktree(repoPath, req.params.id, { deleteBranch: true }) } catch {}
+      try { removeJobWorktree(repoPath, req.params.id, { deleteBranch: true, repoName: found.repo.name }) } catch {}
       // Remove worktree headers from job file
       try { upsertHeaderLine(found.filePath, 'WorktreePath', '(merged)') } catch {}
     }
@@ -1831,7 +1966,9 @@ app.post(['/api/jobs/:id/merge', '/api/swarm/:id/merge'], (req, res) => {
     invalidateGitInfoCache(found.repo.resolvedPath)
     return res.json({ ok: true, merged: jobBranch, into: base, repo: found.repo.name })
   } catch (err) {
-    return res.status(400).json({ error: err.message })
+    const gitMsg = (err.stderr || '').toString().trim()
+    const msg = gitMsg ? `${err.message}: ${gitMsg}` : err.message
+    return res.status(400).json({ error: msg })
   } finally {
     mergeLockedRepos.delete(repoPath)
   }
@@ -1982,7 +2119,7 @@ if (fs.existsSync(distDir)) {
 }
 
 const BIND_HOST = '127.0.0.1'
-const server = app.listen(PORT, BIND_HOST, () => {
+const server = process.env.TESTING ? null : app.listen(PORT, BIND_HOST, () => {
   console.log(`Hub dashboard API running at http://${BIND_HOST}:${PORT}`)
 })
 
@@ -2481,6 +2618,7 @@ app.delete('/api/sessions/:id/purge', (req, res) => {
 })
 
 // ── WebSocket terminal server ────────────────────────────
+if (server) {
 wss = new WebSocketServer({
   server,
   path: '/ws/terminal',
@@ -2502,7 +2640,7 @@ wss.on('connection', (ws, req) => {
   const jobFilePath = url.searchParams.get('jobFile') || url.searchParams.get('swarmFile')
 
   // Validate session ID if provided
-  if (sessionId && !isValidSessionId(sessionId)) {
+  if (sessionId && !isValidPtySessionId(sessionId)) {
     try { ws.close(1008, 'Invalid session id') } catch {}
     return
   }
@@ -2642,3 +2780,6 @@ wss.on('connection', (ws, req) => {
     }
   })
 })
+}
+
+export { app }

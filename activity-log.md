@@ -2,8 +2,21 @@
 
 **Current stage:** Getting started
 
+## 2026-03-31
+
+- **Re-order the items on the plans details page: Implement - Move to the top, above Edit Edit: - Edit input - Dispatch layout/ordering should match whats on the dispatch page**
+- **Hide Approve and request changes buttons until job is finished**
+- **Worktree directory includes repo name** — updated `createJobWorktree` and `removeJobWorktree` in `dashboard/server.js` to prefix the worktree directory with the repo name (`{repoName}-{jobId}`); added `sanitizeRepoName` and `worktreeDirName` helpers; updated all 5 call sites to pass `repoConfig.name` / `found.repo.name`
+  - skills: /done
+
+---
+
 ## 2026-03-30
 
+- **Check Agent Cribs request status** — checked status of scribular's 2 open water cooler requests (free web tool lead gen, social proof pre-revenue); both open with no responses, expire 2026-04-09
+  - skills: /agent-cribs
+- **Fix local-time timestamp rendering** — removed 'Z' suffix from 3 frontend timestamp parsers (utils.js, ResultsPanel.jsx) that were incorrectly treating local timestamps as UTC; wrote consistency plan to `plans/2026-03-30-timestamp-consistency.md`
+  - skills: /done
 - **Run button for worktree jobs** — implemented `POST /api/jobs/:id/run-dev` endpoint, `shell` agent branch in `startPendingLaunch`, Run button in `ResultsPanel`, and run-dev session state in `JobDetailView`; `worktreeSetup` config field runs setup commands before `startScript`; run-dev session killed on validate/reject/kill; `{repoPath}` placeholder interpolated with escaped path
 - **Worktree dev server symlink fix** — resolved Turbopack rejecting out-of-root symlinks via sed patch to `web/next.config.ts` (idempotent) and `export TURBOPACK_ROOT=$(cd {repoPath}/.. && pwd)`; updated `prompt-guard` `worktreeSetup` in `config.local.json`; also updated main repo `next.config.ts` so future worktrees don't need the patch
 - **plans/worktree-run-button.md**
@@ -17,7 +30,18 @@
 - **was this code merged into our working branch? --- Previous job context: notes/jobs/2026-03-30-plans-2026-03-30-parent-job-link-md-generate-a-pla.md**
 - **please merge it --- Previous job context: notes/jobs/2026-03-30-was-this-code-merged-into-our-working-branch-previ.md**
 - **please list all the dangling worktrees and their associated jobs**
+- **Strengthen worktree prompt injection** — prepended an explicit worktree notice to dispatch prompts so agents can't ignore their working directory; confirmed PTY cwd was already set correctly
 - **our current diff view is not behaving as expected. is it possible to view only changes made in a job? For worktrees this is easy For non worktrees this is confusing because there may be many active changes in git**
+- **The skills are not clickable- also we need a dropdown which groups skills by local or global. and we need to show global skills as well --- Previous job context: notes/jobs/2026-03-30-please-ensure-these-changes-were-applied-if-not-pl.md**
+- **No, now they are not using local time. Please fix, then write a plan in ./plans to ensure consistency across all timestamps in the app. --- Previous job context: notes/jobs/2026-03-30-timestamps-are-rendered-properly-for-codex-jobs-eg.md**
+- **Plans should use the same navigation URL pattern as jobs, to surface the plan filename in the browser URL par**
+- **- The skills dropdown was not updated in the jobs detail page - The dropdown was not changed to match the dropdowns UI style to Branch or Models - Symlinked skills need to be included as well for global and local --- Previous job context: notes/jobs/2026-03-30-the-skill-dropdown-should-use-the-system-ui-simila-2.md**
+- **Reorder the left sidebar: Dispatch, Jobs, Tasks, Plans, Schedules, Status**
+- **If a follow-up job is triggered, we should include the worktree in the prompt, so any agents know to work there. We can use the same pattern as the plans chip when navigating to dispatch a plan.**
+- **Just remove the "Continue as New Job" accordion and show the dispatch form itself (never hidden) under Next Steps --- Previous job context: notes/jobs/2026-03-30-remove-split-and-subtask-from-next-steps-show-the-.md**
+- **Remove Split and Subtask from Next steps. show the follow up section expanded by default**
+- **Surface git errors when pressing the Merge button on a job using worktrees For jobs not using work-trees dont show the merge button**
+- **Remove the top title bar completely from Dispatch. We aren't using it at all. No title, search, status, anything. The content view should be full page height**
 
 ---
 

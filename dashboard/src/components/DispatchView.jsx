@@ -3,7 +3,9 @@ import { Send, FileText, X } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { repoIdentityColors } from '../lib/constants'
 import { useAgentModels } from '../lib/useAgentModels'
+import { useSkills } from '../lib/useSkills'
 import DispatchSettingsRow from './DispatchSettingsRow'
+import SkillsSelector from './SkillsSelector'
 
 function readSaved() {
   try { return JSON.parse(localStorage.getItem('dispatch-settings')) || {} }
@@ -17,7 +19,7 @@ function writeSaved(patch) {
   } catch {}
 }
 
-export default function DispatchView({ overview, onDispatch, initialRepo, initialPrompt, initialPlanSlug, onDispatchComplete, settings }) {
+export default function DispatchView({ overview, onDispatch, initialRepo, initialPrompt, initialPlanSlug, initialSkills, onDispatchComplete, settings }) {
   const repos = overview?.repos || []
 
   // Read from localStorage once on mount (sync, before useState defaults)
@@ -35,12 +37,14 @@ export default function DispatchView({ overview, onDispatch, initialRepo, initia
   const [useWorktree, setUseWorktree] = useState(s.useWorktree ?? false)
   const [plainOutput, setPlainOutput] = useState(s.plainOutput ?? !(agentSettings[s.agent || 'claude']?.tuiMode ?? true))
   const [planSlug, setPlanSlug] = useState(initialPlanSlug || null)
+  const [selectedSkills, setSelectedSkills] = useState(() => Array.isArray(initialSkills) ? initialSkills : [])
   const [dispatching, setDispatching] = useState(false)
   const [btnPhase, setBtnPhase] = useState('idle') // idle | shaking | sliding | hidden | returning
   const [dispatchError, setDispatchError] = useState(null)
 
   const isCodex = agent === 'codex'
   const models = useAgentModels(agent)
+  const availableSkills = useSkills()
 
   // Model: restore saved model, else use settings default (live list will snap if needed)
   const [model, setModel] = useState(() =>
@@ -95,6 +99,14 @@ export default function DispatchView({ overview, onDispatch, initialRepo, initia
   useEffect(() => { if (initialRepo) setRepo(initialRepo) }, [initialRepo])
   useEffect(() => { if (initialPrompt) setPrompt(initialPrompt) }, [initialPrompt])
   useEffect(() => { setPlanSlug(initialPlanSlug || null) }, [initialPlanSlug])
+  useEffect(() => { setSelectedSkills(Array.isArray(initialSkills) ? initialSkills : []) }, [initialSkills])
+
+  useEffect(() => {
+    if (selectedSkills.length === 0) return
+    const validSkillIds = new Set(availableSkills.map(skill => skill.id))
+    const sanitized = selectedSkills.filter(skillId => validSkillIds.has(skillId))
+    if (sanitized.length !== selectedSkills.length) setSelectedSkills(sanitized)
+  }, [availableSkills, selectedSkills])
 
   const selectedRepo = repos.find(r => r.name === repo)
   const defaultBranch = selectedRepo?.git?.branch || 'main'
@@ -132,6 +144,7 @@ export default function DispatchView({ overview, onDispatch, initialRepo, initia
         plainOutput,
         agent,
         planSlug: planSlug || undefined,
+        skills: selectedSkills,
       })
       setPrompt('')
       onDispatchComplete?.()
@@ -201,6 +214,12 @@ export default function DispatchView({ overview, onDispatch, initialRepo, initia
             </select>
           </div>
         </div>
+
+        <SkillsSelector
+          skills={availableSkills}
+          selectedSkillIds={selectedSkills}
+          onChange={setSelectedSkills}
+        />
 
         {/* Plan chip */}
         {planSlug && (
