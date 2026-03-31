@@ -83,7 +83,7 @@ run_claude() {
   tmp_prompt=$(mktemp)
   cat > "$tmp_prompt"
   while (( attempt <= MAX_CLAUDE_RETRIES )); do
-    if (cd "$REPO" && claude --model "$DEFAULT_CLAUDE_MODEL" "$@") < "$tmp_prompt"; then
+    if (cd "$REPO" && CLAUDE_PROJECT_DIR="$REPO" claude --model "$DEFAULT_CLAUDE_MODEL" "$@") < "$tmp_prompt"; then
       rm -f "$tmp_prompt"
       return 0
     fi

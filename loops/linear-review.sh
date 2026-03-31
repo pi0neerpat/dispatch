@@ -12,7 +12,7 @@ MAX_FIXUPS=2
 SLEEP_BETWEEN=10
 
 # ── Default model ────────────────────────────────────────────────────────────
-DEFAULT_CLAUDE_MODEL="claude-opus-4-6"
+DEFAULT_CLAUDE_MODEL="claude-sonnet-4-6"
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ---------------------------------------------------------------------------
@@ -77,7 +77,7 @@ run_claude() {
   tmp_prompt=$(mktemp)
   cat > "$tmp_prompt"
   while (( attempt <= MAX_RETRIES )); do
-    if (cd "$REPO" && claude --model "$DEFAULT_CLAUDE_MODEL" "$@") < "$tmp_prompt"; then
+    if (cd "$REPO" && CLAUDE_PROJECT_DIR="$REPO" claude --model "$DEFAULT_CLAUDE_MODEL" "$@") < "$tmp_prompt"; then
       rm -f "$tmp_prompt"
       return 0
     fi

@@ -171,7 +171,7 @@ run_agent() {
         local cmd=(claude --print)
         [[ -n "$model" ]] && cmd+=(--model "$model")
         cmd+=("${extra_flags[@]}")
-        if (cd "$REPO" && "${cmd[@]}") < "$tmp_prompt"; then
+        if (cd "$REPO" && CLAUDE_PROJECT_DIR="$REPO" "${cmd[@]}") < "$tmp_prompt"; then
           rm -f "$tmp_prompt"
           return 0
         fi
@@ -189,7 +189,7 @@ run_agent() {
         done
         cmd+=("${codex_extra[@]}")
         cmd+=(-)
-        if cat "$tmp_prompt" | (cd "$REPO" && "${cmd[@]}"); then
+        if cat "$tmp_prompt" | (cd "$REPO" && CLAUDE_PROJECT_DIR="$REPO" "${cmd[@]}"); then
           rm -f "$tmp_prompt"
           return 0
         fi
@@ -207,7 +207,7 @@ run_agent() {
             cmd+=("$flag")
           fi
         done
-        if (cd "$REPO" && "${cmd[@]}"); then
+        if (cd "$REPO" && CLAUDE_PROJECT_DIR="$REPO" "${cmd[@]}"); then
           rm -f "$tmp_prompt"
           return 0
         fi
@@ -216,7 +216,7 @@ run_agent() {
         local cmd=("$tool")
         [[ -n "$model" ]] && cmd+=(--model "$model")
         cmd+=("${extra_flags[@]}")
-        if (cd "$REPO" && "${cmd[@]}") < "$tmp_prompt"; then
+        if (cd "$REPO" && CLAUDE_PROJECT_DIR="$REPO" "${cmd[@]}") < "$tmp_prompt"; then
           rm -f "$tmp_prompt"
           return 0
         fi
