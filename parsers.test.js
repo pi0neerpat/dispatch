@@ -435,6 +435,33 @@ describe('parsePlansDir', () => {
     assert.equal(result[0].planStatus, 'in_progress');
     assert.equal('content' in result[0], false);
   });
+
+  it('parses metadata from frontmatter blocks', () => {
+    const dir = path.join(tmpDir, 'plans');
+    fs.mkdirSync(dir);
+    const file = path.join(dir, '2026-03-30-frontmatter-plan.md');
+    fs.writeFileSync(file, [
+      '---',
+      'title: Frontmatter Plan',
+      'planStatus: ready',
+      'dispatched: 2026-03-30',
+      'jobSlug: plan-job',
+      'dependsOn:',
+      '  - phase-1-branded-types.md',
+      '---',
+      '',
+      '# Frontmatter Plan',
+      '',
+      'Body content',
+    ].join('\n'), 'utf8');
+
+    const result = parsePlansDir(dir);
+    assert.equal(result.length, 1);
+    assert.equal(result[0].title, 'Frontmatter Plan');
+    assert.equal(result[0].planStatus, 'ready');
+    assert.equal(result[0].dispatched, '2026-03-30');
+    assert.equal(result[0].jobSlug, 'plan-job');
+  });
 });
 
 // ── parseSkillsDir ───────────────────────────────────────────

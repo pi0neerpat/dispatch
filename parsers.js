@@ -1000,22 +1000,150 @@ function readFilePreview(filePath, maxBytes = 64 * 1024) {
   }
 }
 
+const FRONTMATTER_BLOCK_REGEX = /^\s*---\r?\n([\s\S]*?)\r?\n---\r?\n*/
+
+function unquoteFrontmatterValue(value) {
+  if (value == null) return value
+  const trimmed = value.trim()
+  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+      (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+    return trimmed.slice(1, -1)
+  }
+  return trimmed
+}
+
+function parseFrontmatterValue(value) {
+  const trimmed = String(value || '').trim()
+  if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+    const inner = trimmed.slice(1, -1).trim()
+    if (!inner) return []
+    return inner.split(',').map(item => unquoteFrontmatterValue(item))
+  }
+  return unquoteFrontmatterValue(trimmed)
+}
+
+function extractFrontmatter(content) {
+  const match = content.match(FRONTMATTER_BLOCK_REGEX)
+  if (!match) return null
+  const body = match[1]
+  const data = {}
+  const order = []
+  let currentKey = null
+  for (const rawLine of body.split(/\r?\n/)) {
+    const line = rawLine.trim()
+    if (!line) continue
+    const kv = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/)
+    if (kv) {
+      const key = kv[1]
+      if (!order.includes(key)) order.push(key)
+      currentKey = key
+      const value = kv[2]
+      if (value === '') {
+        data[key] = []
+      } else {
+        data[key] = parseFrontmatterValue(value)
+      }
+      continue
+    }
+    const listItem = line.match(/^-\s+(.+)$/)
+    if (listItem && currentKey) {
+      if (!Array.isArray(data[currentKey])) data[currentKey] = []
+      data[currentKey].push(parseFrontmatterValue(listItem[1]))
+    }
+  }
+  return {
+    data,
+    order,
+    raw: match[0],
+    start: match.index,
+    end: match.index + match[0].length,
+  }
+}
+
+function buildFrontmatter(data, order = []) {
+  const PRIORITY_KEYS = ['title', 'planStatus', 'status', 'dispatched', 'jobSlug', 'lastUpdated', 'dependsOn', 'parentPlan', 'stackDecisions']
+  const included = new Set()
+  const keys = []
+  for (const key of PRIORITY_KEYS) {
+    if (key in data) {
+      keys.push(key)
+      included.add(key)
+    }
+  }
+  for (const key of order) {
+    if (included.has(key) || !(key in data)) continue
+    keys.push(key)
+    included.add(key)
+  }
+  const remaining = Object.keys(data).filter(key => !included.has(key)).sort()
+  keys.push(...remaining)
+  if (keys.length === 0) return ''
+  const lines = []
+  for (const key of keys) {
+    const value = data[key]
+    if (Array.isArray(value)) {
+      lines.push(`${key}:`)
+      for (const item of value) {
+        lines.push(`  - ${item}`)
+      }
+    } else {
+      lines.push(`${key}: ${value}`)
+    }
+  }
+  return `---\n${lines.join('\n')}\n---\n`;
+}
+
+function updateFrontmatter(content, patch = {}) {
+  const block = extractFrontmatter(content)
+  const data = block ? { ...block.data } : {}
+  const order = block ? [...block.order] : []
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === null || value === undefined || value === '') {
+      delete data[key]
+      continue
+    }
+    if (!order.includes(key)) order.push(key)
+    data[key] = value
+  }
+  const hasData = Object.keys(data).length > 0
+  if (!hasData) {
+    if (block) return content.slice(block.end)
+    return content.replace(/^\n+/, '')
+  }
+  const blockText = buildFrontmatter(data, order)
+  if (block) {
+    const rest = content.slice(block.end).replace(/^\n+/, '\n')
+    return `${blockText}${rest}`
+  }
+  const remainder = content.replace(/^\n+/, '')
+  return `${blockText}${remainder}`
+}
+
 function parsePlanHeader(text) {
   let dispatched = null
   let jobSlug = null
   let planStatus = null
   let title = null
+  const frontmatter = extractFrontmatter(text)
+  if (frontmatter) {
+    if (frontmatter.data.title) title = frontmatter.data.title
+    if (frontmatter.data.planStatus) planStatus = frontmatter.data.planStatus
+    else if (frontmatter.data.status) planStatus = frontmatter.data.status
+    if (frontmatter.data.dispatched) dispatched = frontmatter.data.dispatched
+    if (frontmatter.data.jobSlug) jobSlug = frontmatter.data.jobSlug
+    else if (frontmatter.data.job) jobSlug = frontmatter.data.job
+  }
   for (const line of text.split('\n')) {
-    if (line.startsWith('# ')) {
+    if (line.startsWith('# ') && !title) {
       title = line.slice(2).trim()
       break
     }
     const dm = line.match(/^Dispatched:\s*(.+)/)
-    if (dm) dispatched = dm[1].trim()
+    if (dm && !dispatched) dispatched = dm[1].trim()
     const jm = line.match(/^Job:\s*(.+)/)
-    if (jm) jobSlug = jm[1].trim()
+    if (jm && !jobSlug) jobSlug = jm[1].trim()
     const sm = line.match(/^Status:\s*(.+)/)
-    if (sm) planStatus = sm[1].trim()
+    if (sm && !planStatus) planStatus = sm[1].trim()
   }
   return { dispatched, jobSlug, planStatus, title }
 }
@@ -1154,6 +1282,12 @@ function parseSkillsDir(rootPath, {
 function writePlanStatus(filePath, status) {
   let content = '';
   try { content = fs.readFileSync(filePath, 'utf8'); } catch {}
+  const frontmatter = extractFrontmatter(content);
+  if (frontmatter) {
+    const newContent = updateFrontmatter(content, { planStatus: status || null });
+    fs.writeFileSync(filePath, newContent, 'utf8');
+    return;
+  }
   // Remove existing Status: line
   const lines = content.split('\n').filter(l => !l.match(/^Status:\s*/));
   if (status) {
@@ -1171,9 +1305,21 @@ function writePlanStatus(filePath, status) {
 function writePlanDispatch(filePath, date, jobId) {
   let content = '';
   try { content = fs.readFileSync(filePath, 'utf8'); } catch {}
+  const frontmatter = extractFrontmatter(content);
+  if (frontmatter) {
+    const newContent = updateFrontmatter(content, {
+      dispatched: date || null,
+      jobSlug: jobId || null,
+    });
+    fs.writeFileSync(filePath, newContent, 'utf8');
+    return;
+  }
   // Remove any existing Dispatched/Job header lines (idempotent)
   const lines = content.split('\n').filter(l => !l.match(/^Dispatched:\s*/) && !l.match(/^Job:\s*/));
-  const newContent = [`Dispatched: ${date}`, `Job: ${jobId}`, ...lines].join('\n');
+  const headerLines = [];
+  if (date) headerLines.push(`Dispatched: ${date}`);
+  if (jobId) headerLines.push(`Job: ${jobId}`);
+  const newContent = [...headerLines, ...lines].join('\n');
   fs.writeFileSync(filePath, newContent, 'utf8');
 }
 
@@ -1184,6 +1330,8 @@ module.exports = {
   parseJobFile,
   parseJobDir,
   parsePlansDir,
+  parseFrontmatter: extractFrontmatter,
+  updateFrontmatter,
   parseSkillsDir,
   writePlanDispatch,
   writePlanStatus,

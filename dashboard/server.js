@@ -43,7 +43,7 @@ const require = createRequire(import.meta.url)
 const pty = require('node-pty')
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const {
-  parseTaskFile, parseActivityLog, getGitInfo, parseJobFile, parseJobDir, parsePlansDir, parseSkillsDir, loadConfig,
+  parseTaskFile, parseActivityLog, getGitInfo, parseJobFile, parseJobDir, parsePlansDir, parseFrontmatter, parseSkillsDir, loadConfig,
   writeTaskDone, writeTaskDoneByText, writeTaskReopenByText, writeTaskAdd, writeTaskEdit, writeTaskMove,
   writeActivityEntry, writeJobValidation, writeJobKill, writeJobStatus, writeJobResults,
   createCheckpoint, revertCheckpoint, dismissCheckpoint, listCheckpoints,
@@ -1015,15 +1015,23 @@ app.put('/api/plans/:repoName/:slug', express.json(), (req, res) => {
   const plansDir = path.join(repo.resolvedPath, 'plans')
   fs.mkdirSync(plansDir, { recursive: true })
   const filePath = path.join(plansDir, `${req.params.slug}.md`)
-  // Re-inject any metadata lines (Dispatched/Job/Status) that were stripped for editing
-  const metaLines = []
+  // Re-insert metadata (frontmatter or legacy metadata lines) that were stripped for editing
+  let metadataPrefix = ''
   if (fs.existsSync(filePath)) {
-    for (const line of fs.readFileSync(filePath, 'utf8').split('\n')) {
-      if (line.startsWith('# ')) break
-      if (line.match(/^(Dispatched|Job|Status):\s*/)) metaLines.push(line)
+    const existing = fs.readFileSync(filePath, 'utf8')
+    const frontmatter = parseFrontmatter(existing)
+    if (frontmatter) {
+      metadataPrefix = frontmatter.raw
+    } else {
+      const metaLines = []
+      for (const line of existing.split('\n')) {
+        if (line.startsWith('# ')) break
+        if (line.match(/^(Dispatched|Job|Status):\s*/)) metaLines.push(line)
+      }
+      if (metaLines.length > 0) metadataPrefix = `${metaLines.join('\n')}\n`
     }
   }
-  const finalContent = metaLines.length > 0 ? `${metaLines.join('\n')}\n${content}` : content
+  const finalContent = metadataPrefix ? `${metadataPrefix}${content}` : content
   fs.writeFileSync(filePath, finalContent, 'utf8')
   res.json({ ok: true })
 })

@@ -23,18 +23,41 @@ function timeAgo(isoStr) {
 }
 
 function stripMetadata(content) {
-  return content
-    .split('\n')
-    .filter(l => !l.match(/^(Dispatched|Job|Status):\s*/))
-    .join('\n')
-    .replace(/^\n+/, '')
+  const lines = content.split('\n')
+  const filtered = []
+  let inFrontmatter = false
+  let frontmatterHandled = false
+  let frontmatterPossible = true
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!frontmatterHandled && frontmatterPossible && trimmed === '') {
+      continue
+    }
+    if (!frontmatterHandled && frontmatterPossible && trimmed === '---') {
+      inFrontmatter = true
+      frontmatterPossible = false
+      continue
+    }
+    if (inFrontmatter && trimmed === '---') {
+      inFrontmatter = false
+      frontmatterHandled = true
+      continue
+    }
+    if (inFrontmatter) continue
+    frontmatterPossible = false
+    if (line.match(/^(Dispatched|Job|Status):\s*/)) continue
+    filtered.push(line)
+  }
+
+  return filtered.join('\n').replace(/^\n+/, '')
 }
 
 const PLAN_LIST_GROUPS = [
   { key: 'in_review', label: 'In review' },
   { key: 'ready', label: 'Ready' },
-  { key: 'done', label: 'Done' },
   { key: 'draft', label: 'Draft' },
+  { key: 'done', label: 'Done' },
 ]
 
 const PLAN_HEADER_JOB_MAX = 48
