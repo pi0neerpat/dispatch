@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { Clock, Code2, ScanSearch, GitFork, RefreshCcw, CheckCircle2, XCircle, Loader2 } from 'lucide-react'
+import { Clock, Code2, ScanSearch, GitFork, RefreshCcw, CheckCircle2, XCircle, Loader2, ChevronRight } from 'lucide-react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { cn, timeAgo } from '../lib/utils'
@@ -19,6 +19,129 @@ const VERDICT_COLORS = {
   FAIL: '#f87171',
 }
 
+const TRANSCRIPT_META_RE = /^(OpenAI |--------$|workdir: |model: |provider: |approval: |sandbox: |reasoning effort: |reasoning summaries: |session id: |user$|assistant$|mcp startup:|codex$|claude$|cursor$|tokens used$|\d{1,3}(,\d{3})*$)/
+const SUMMARY_LINE_RE = /^(Implemented:|Findings:|VERDICT:|VERIFIED:|ALL ISSUES RESOLVED|Original findings:|\d+\.\s)/
+
+function normalizeArtifactText(text) {
+  return String(text || '').replace(/\r\n?/g, '\n').trim()
+}
+
+function isTranscriptMetaLine(line) {
+  return TRANSCRIPT_META_RE.test(String(line || '').trim())
+}
+
+function isDiffStart(line) {
+  return /^diff --git /.test(line)
+}
+
+function isDiffLine(line) {
+  return /^(diff --git |index |--- |\+\+\+ |@@ |[ +\-].*|\\ No newline at end of file)/.test(line)
+}
+
+function isDiffMetadataLine(line) {
+  return /^(diff --git |index |--- [ab]\/|\+\+\+ [ab]\/|@@ )/.test(String(line || '').trim())
+}
+
+function formatArtifactContent(text) {
+  const normalized = normalizeArtifactText(text)
+  if (!normalized) return '*Empty*'
+
+  const lines = normalized.split('\n')
+  const blocks = []
+
+  for (let idx = 0; idx < lines.length;) {
+    const line = lines[idx]
+
+    if (isDiffStart(line)) {
+      const diffLines = []
+      while (idx < lines.length && (lines[idx] === '' || isDiffLine(lines[idx]))) {
+        diffLines.push(lines[idx])
+        idx += 1
+      }
+      blocks.push(`\`\`\`diff\n${diffLines.join('\n')}\n\`\`\``)
+      continue
+    }
+
+    if (isTranscriptMetaLine(line)) {
+      const metaLines = []
+      while (idx < lines.length && (lines[idx] === '' || isTranscriptMetaLine(lines[idx]))) {
+        metaLines.push(lines[idx])
+        idx += 1
+      }
+      blocks.push(`\`\`\`text\n${metaLines.join('\n')}\n\`\`\``)
+      continue
+    }
+
+    blocks.push(line)
+    idx += 1
+  }
+
+  return blocks.join('\n')
+}
+
+function collectSummaryLines(lines, startIndex) {
+  const collected = []
+  let blankCount = 0
+
+  for (let idx = startIndex; idx < lines.length; idx += 1) {
+    const line = lines[idx]
+    const trimmed = line.trim()
+    if (!trimmed) {
+      blankCount += 1
+      if (blankCount > 1 && collected.length > 0) break
+      continue
+    }
+    blankCount = 0
+    if (isTranscriptMetaLine(trimmed) || isDiffMetadataLine(trimmed)) continue
+    collected.push(trimmed)
+    if (collected.length >= 6) break
+  }
+
+  return collected
+}
+
+function summarizeArtifact(text, type) {
+  const normalized = normalizeArtifactText(text)
+  if (!normalized) return { status: 'Empty artifact', details: [] }
+
+  const lines = normalized.split('\n')
+  const verdictLine = [...lines].reverse().find(line => /^(VERDICT:|VERIFIED:|ALL ISSUES RESOLVED)/.test(line.trim()))
+  const verdict = verdictLine ? verdictLine.trim() : null
+
+  if (verdict === 'ALL ISSUES RESOLVED') {
+    return { status: verdict, details: [] }
+  }
+
+  const findingsStart = lines.findIndex(line => /^Findings:\s*$/.test(line.trim()))
+  const implementedStart = lines.findIndex(line => /^Implemented:\s*$/.test(line.trim()))
+  const numberedFindings = lines
+    .filter(line => /^\d+\.\s+/.test(line.trim()))
+    .slice(0, 3)
+    .map(line => line.trim())
+
+  const details = findingsStart >= 0
+    ? collectSummaryLines(lines, findingsStart).filter(line => line !== 'Findings:')
+    : numberedFindings
+
+  if (details.length > 0) {
+    return { status: verdict || `${details.length} key finding${details.length === 1 ? '' : 's'}`, details }
+  }
+
+  if (implementedStart >= 0) {
+    return {
+      status: verdict || (type === 'review' ? 'Review summary' : 'Summary'),
+      details: collectSummaryLines(lines, implementedStart).filter(line => line !== 'Implemented:'),
+    }
+  }
+
+  const generic = lines.find(line => SUMMARY_LINE_RE.test(line.trim()) && !isTranscriptMetaLine(line))
+  if (generic) {
+    return { status: verdict || generic.trim(), details: verdict && generic.trim() !== verdict ? [generic.trim()] : [] }
+  }
+
+  return { status: verdict || 'Open artifact', details: [] }
+}
+
 export default function LoopReviewPanel({ loop }) {
   const meta = LOOP_TYPE_META[loop?.loopType] || { label: loop?.loopType || 'Unknown', icon: RefreshCcw }
   const TypeIcon = meta.icon
@@ -29,13 +152,14 @@ export default function LoopReviewPanel({ loop }) {
   const duration = loop?.durationMinutes != null ? timeAgo(null, loop.durationMinutes) : null
   const isActive = loop?.status === 'in_progress'
 
-  // Build artifacts URL from loop ID (loopType/timestamp)
+  // Build artifacts URL from loop identity.
   const artifactsUrl = useMemo(() => {
-    if (!loop?.id) return null
+    if (!loop?.id || !loop?.repo || !loop?.loopType) return null
     const parts = loop.id.split('/')
-    if (parts.length < 2) return null
-    return `/api/loops/${encodeURIComponent(parts[0])}/${encodeURIComponent(parts.slice(1).join('/'))}/artifacts`
-  }, [loop?.id])
+    const timestamp = parts.length >= 3 ? parts.slice(2).join('/') : parts.slice(1).join('/')
+    if (!timestamp) return null
+    return `/api/loops/${encodeURIComponent(loop.loopType)}/${encodeURIComponent(timestamp)}/artifacts?repo=${encodeURIComponent(loop.repo)}`
+  }, [loop?.id, loop?.repo, loop?.loopType])
 
   const artifacts = usePolling(artifactsUrl, isActive ? 10000 : null)
   const data = artifacts.data
@@ -143,25 +267,7 @@ export default function LoopReviewPanel({ loop }) {
                 ) : (
                   <div className="space-y-3">
                     {group.artifacts.map(art => (
-                      <div key={art.name} className="border border-border rounded-lg overflow-hidden">
-                        <div className="px-3 py-1.5 border-b border-border bg-card/50 flex items-center gap-2">
-                          <span className={cn(
-                            'text-[10px] px-1.5 py-0.5 rounded font-medium capitalize',
-                            art.type === 'review' && 'text-blue-400 bg-blue-400/10',
-                            art.type === 'synthesis' && 'text-purple-400 bg-purple-400/10',
-                            art.type === 'verification' && 'text-amber-400 bg-amber-400/10',
-                            art.type === 'unknown' && 'text-muted-foreground bg-card',
-                          )}>
-                            {art.type}
-                          </span>
-                          <span className="text-[10px] text-muted-foreground/40 font-mono">{art.name}</span>
-                        </div>
-                        <div className="px-4 py-3 text-[13px] leading-relaxed prose-sm max-w-none">
-                          <Markdown remarkPlugins={[remarkGfm]} components={mdComponents}>
-                            {art.content || '*Empty*'}
-                          </Markdown>
-                        </div>
-                      </div>
+                      <ArtifactCard key={art.name} artifact={art} />
                     ))}
                   </div>
                 )}
@@ -171,5 +277,51 @@ export default function LoopReviewPanel({ loop }) {
         </div>
       )}
     </div>
+  )
+}
+
+function ArtifactCard({ artifact }) {
+  const formattedContent = useMemo(() => formatArtifactContent(artifact.content), [artifact.content])
+  const summary = useMemo(() => summarizeArtifact(artifact.content, artifact.type), [artifact.content, artifact.type])
+
+  return (
+    <details className="group border border-border rounded-lg overflow-hidden bg-card/20">
+      <summary className="list-none px-3 py-2 cursor-pointer border-b border-border/80 bg-card/50">
+        <div className="flex items-start gap-2">
+          <ChevronRight size={12} className="mt-0.5 shrink-0 text-muted-foreground/60 transition-transform group-open:rotate-90" />
+          <div className="min-w-0 flex-1 space-y-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className={cn(
+                'text-[10px] px-1.5 py-0.5 rounded font-medium capitalize',
+                artifact.type === 'review' && 'text-blue-400 bg-blue-400/10',
+                artifact.type === 'synthesis' && 'text-purple-400 bg-purple-400/10',
+                artifact.type === 'verification' && 'text-amber-400 bg-amber-400/10',
+                artifact.type === 'unknown' && 'text-muted-foreground bg-card',
+              )}>
+                {artifact.type}
+              </span>
+              <span className="text-[10px] text-muted-foreground/40 font-mono break-all">{artifact.name}</span>
+            </div>
+            <div className="space-y-1">
+              <p className="text-[11px] font-medium text-foreground/90">{summary.status}</p>
+              {summary.details.length > 0 && (
+                <ul className="space-y-1">
+                  {summary.details.map(detail => (
+                    <li key={detail} className="text-[11px] leading-relaxed text-muted-foreground/75 line-clamp-2">
+                      {detail}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
+      </summary>
+      <div className="px-4 py-3 text-[13px] leading-relaxed prose-sm max-w-none">
+        <Markdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+          {formattedContent}
+        </Markdown>
+      </div>
+    </details>
   )
 }

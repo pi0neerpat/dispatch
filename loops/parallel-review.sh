@@ -185,7 +185,7 @@ run_agent() {
       claude)
         local cmd=(claude --print)
         [[ -n "$model" ]] && cmd+=(--model "$model")
-        cmd+=(${extra_flags[@]+"${extra_flags[@]}"})
+        cmd+=("${extra_flags[@]}")
         if (cd "$REPO" && CLAUDE_PROJECT_DIR="$REPO" "${cmd[@]}") < "$tmp_prompt"; then
           rm -f "$tmp_prompt"
           return 0
@@ -195,14 +195,14 @@ run_agent() {
         local cmd=(codex exec --color never)
         [[ -n "$model" ]] && cmd+=(--model "$model")
         local codex_extra=()
-        for flag in ${extra_flags[@]+"${extra_flags[@]}"}; do
+        for flag in "${extra_flags[@]}"; do
           if [[ "$flag" == "--dangerously-skip-permissions" ]]; then
             codex_extra+=(--dangerously-bypass-approvals-and-sandbox)
           else
             codex_extra+=("$flag")
           fi
         done
-        cmd+=(${codex_extra[@]+"${codex_extra[@]}"})
+        cmd+=("${codex_extra[@]}")
         cmd+=(-)
         if cat "$tmp_prompt" | (cd "$REPO" && CLAUDE_PROJECT_DIR="$REPO" "${cmd[@]}"); then
           rm -f "$tmp_prompt"
@@ -224,7 +224,7 @@ run_agent() {
           cmd=("$cursor_bin" "$prompt_content")
         fi
         [[ -n "$model" ]] && cmd+=(--model "$model")
-        for flag in ${extra_flags[@]+"${extra_flags[@]}"}; do
+        for flag in "${extra_flags[@]}"; do
           if [[ "$flag" == "--dangerously-skip-permissions" ]]; then
             cmd+=(--force)
           else
@@ -239,7 +239,7 @@ run_agent() {
       *)
         local cmd=("$tool")
         [[ -n "$model" ]] && cmd+=(--model "$model")
-        cmd+=(${extra_flags[@]+"${extra_flags[@]}"})
+        cmd+=("${extra_flags[@]}")
         if (cd "$REPO" && CLAUDE_PROJECT_DIR="$REPO" "${cmd[@]}") < "$tmp_prompt"; then
           rm -f "$tmp_prompt"
           return 0

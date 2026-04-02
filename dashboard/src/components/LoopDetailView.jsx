@@ -39,7 +39,7 @@ export default function LoopDetailView({
       const sessionId = loopId.slice('session:'.length)
       return all.find(j => j.session === sessionId) || null
     }
-    return all.find(j => j.id === loopId) || null
+    return all.find(j => j.id === loopId) || all.find(j => j.id.endsWith(`/${loopId}`)) || null
   }, [loops, loopId])
 
   const isSessionLookup = loopId && loopId.startsWith('session:')

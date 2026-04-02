@@ -274,6 +274,23 @@ function buildResumeCursorCommand(resumeId, flags = '') {
   return `cursor-agent${flags} --resume "${id}"`
 }
 
+function detectCursorBinary() {
+  try {
+    execFileSync('bash', ['-lc', 'command -v cursor-agent >/dev/null 2>&1'], { stdio: 'ignore' })
+    return 'cursor-agent'
+  } catch {
+    return 'agent'
+  }
+}
+
+function buildCursorResumeCommand(resumeId, flags = '', binary = detectCursorBinary()) {
+  const id = String(resumeId ?? '').trim()
+  if (!id) return null
+  if (!isValidResumeId(id)) return null
+  if (binary === 'agent') return `agent${flags} --resume "${id}"`
+  return buildResumeCursorCommand(id, flags)
+}
+
 function buildDispatchPrompt(taskText, jobFilePath = null, selectedSkillNames = [], worktreePath = null) {
   let prompt = ''
 
@@ -411,6 +428,7 @@ function buildTrackedCursorCommand({
   extraFlags = '',
 } = {}) {
   if (!promptFilePath && !resumeId) return null
+  const cursorBinary = detectCursorBinary()
   let flags = ''
   if (skipPermissions) flags += ' --force'
   if (model) flags += ` --model ${shellQuote(model)}`
@@ -419,8 +437,10 @@ function buildTrackedCursorCommand({
   if (sanitized) flags += ` ${sanitized}`
   const envPrefix = buildClaudeEnvPrefix({ sessionId, jobId, repoName })
   const cursorCommand = resumeId
-    ? `${envPrefix}${buildResumeCursorCommand(resumeId, flags)}`
-    : `${envPrefix}cursor-agent${flags} "$(cat ${shellQuote(promptFilePath)})"`
+    ? `${envPrefix}${buildCursorResumeCommand(resumeId, flags, cursorBinary)}`
+    : cursorBinary === 'agent'
+      ? `${envPrefix}agent -p "$(cat ${shellQuote(promptFilePath)})"${flags}`
+      : `${envPrefix}cursor-agent${flags} "$(cat ${shellQuote(promptFilePath)})"`
   const withExit = `${cursorCommand}; __hub_code=$?; echo "__HUB_CLAUDE_EXIT_CODE:\${__hub_code}__"; exit $__hub_code`
   return plainOutput ? `echo '__HUB_OUTPUT_START__'; ${withExit}` : withExit
 }
@@ -832,7 +852,7 @@ app.get('/api/loops', (req, res) => {
       const runs = parseAllLoopRuns(typeDir)
       for (const run of runs) {
         const dirName = path.basename(run.runDir)
-        const id = `${loopType}/${dirName}`
+        const id = `${repo.name}/${loopType}/${dirName}`
         const sessionActive = run.session ? ptySessions.get(run.session)?.alive === true : false
         let status = 'unknown'
         if (sessionActive) status = 'in_progress'
@@ -905,12 +925,15 @@ app.post('/api/loops/init', (req, res) => {
   const repoConfig = findRepoConfig(repo)
   if (!repoConfig) return res.status(404).json({ error: `repo "${repo}" not found` })
 
-  // Write prompt file if provided
-  if (promptContent != null) {
-    const promptPath = path.join(repoConfig.resolvedPath, '.dispatch', 'loops', loopType, 'prompt.md')
-    fs.mkdirSync(path.dirname(promptPath), { recursive: true })
-    fs.writeFileSync(promptPath, promptContent, 'utf8')
+  const promptPath = path.join(repoConfig.resolvedPath, '.dispatch', 'loops', loopType, 'prompt.md')
+  const promptText = typeof promptContent === 'string'
+    ? promptContent
+    : (fs.existsSync(promptPath) ? fs.readFileSync(promptPath, 'utf8') : '')
+  if (!promptText.trim()) {
+    return res.status(400).json({ error: 'Loop prompt is required' })
   }
+  fs.mkdirSync(path.dirname(promptPath), { recursive: true })
+  fs.writeFileSync(promptPath, promptText, 'utf8')
 
   const sessionId = makeSessionId()
 
@@ -940,30 +963,49 @@ app.post('/api/loops/init', (req, res) => {
 
 app.get('/api/loops/:loopType/:timestamp/artifacts', (req, res) => {
   const { loopType, timestamp } = req.params
+  const repoName = typeof req.query.repo === 'string' ? req.query.repo.trim() : ''
   if (!VALID_LOOP_TYPES.has(loopType)) {
     return res.status(400).json({ error: `Invalid loop type` })
   }
   try {
     const config = getConfig()
-    // Search all repos for the matching run directory
-    for (const repo of config.repos) {
-      const runDir = path.join(repo.resolvedPath, '.dispatch', 'loops', loopType, timestamp)
-      if (!fs.existsSync(runDir)) continue
-
-      try {
-        const detailed = parseLoopRunDetailed(runDir)
-        return res.json({
-          iterations: detailed.iterations,
-          artifacts: detailed.artifacts,
-          prompt: detailed.prompt,
-          warnings: detailed.warnings || [],
-        })
-      } catch (err) {
-        console.error('[loops/artifacts] failed to parse run', { runDir, error: err?.message || String(err) })
-        return res.status(500).json({ error: 'Failed to parse loop artifacts' })
-      }
+    let reposToSearch = config.repos
+    if (repoName) {
+      const targetRepo = findRepoConfig(repoName)
+      if (!targetRepo) return res.status(404).json({ error: `repo "${repoName}" not found` })
+      reposToSearch = [targetRepo]
     }
-    return res.status(404).json({ error: 'Loop run not found' })
+
+    const matches = []
+    for (const repo of reposToSearch) {
+      const runDir = path.join(repo.resolvedPath, '.dispatch', 'loops', loopType, timestamp)
+      if (fs.existsSync(runDir)) matches.push({ repo, runDir })
+    }
+
+    if (matches.length === 0) {
+      return res.status(404).json({ error: 'Loop run not found' })
+    }
+    if (!repoName && matches.length > 1) {
+      return res.status(409).json({
+        error: 'Ambiguous loop run id. Specify repo query parameter.',
+        repos: matches.map(match => match.repo.name),
+      })
+    }
+
+    const match = matches[0]
+    try {
+      const detailed = parseLoopRunDetailed(match.runDir)
+      return res.json({
+        repo: match.repo.name,
+        iterations: detailed.iterations,
+        artifacts: detailed.artifacts,
+        prompt: detailed.prompt,
+        warnings: detailed.warnings || [],
+      })
+    } catch (err) {
+      console.error('[loops/artifacts] failed to parse run', { runDir: match.runDir, error: err?.message || String(err) })
+      return res.status(500).json({ error: 'Failed to parse loop artifacts' })
+    }
   } catch (err) {
     console.error('[loops/artifacts] failed to load config', { error: err?.message || String(err) })
     return res.status(500).json({ error: 'Failed to load loop artifacts' })
@@ -1797,7 +1839,7 @@ app.post(['/api/jobs/:id/resume', '/api/swarm/:id/resume'], (req, res) => {
       ? (skipPermissions ? ' --force' : '')
       : (skipPermissions ? ' --dangerously-skip-permissions' : '')
     const resumeCommand = agentId === 'cursor'
-      ? buildResumeCursorCommand(resumeId, resumeFlags)
+      ? buildCursorResumeCommand(resumeId, resumeFlags)
       : buildResumeClaudeCommand(resumeId, resumeFlags)
     if (!resumeCommand) {
       return res.status(409).json({
@@ -2662,7 +2704,7 @@ function createPtySession(sessionId, cwd, repoName, jobFilePath, initialScrollba
 
     const stripped = stripAnsi(chunk)
     // Capture resume commands emitted by supported agent CLIs so the job can be resumed later.
-    const cmdMatch = stripped.match(/((?:claude(?:\s+code)?|cursor-agent)\s+(?:resume|--resume)\s+(?:["'])?[A-Za-z0-9._:-]+(?:["'])?)/i)
+    const cmdMatch = stripped.match(/((?:claude(?:\s+code)?|cursor-agent|agent)\s+(?:resume|--resume)\s+(?:["'])?[A-Za-z0-9._:-]+(?:["'])?)/i)
     if (cmdMatch) {
       const nextResumeId = extractResumeId(cmdMatch[1])
       const headerDetail = session.jobFilePath && fs.existsSync(session.jobFilePath)
@@ -2673,7 +2715,7 @@ function createPtySession(sessionId, cwd, repoName, jobFilePath, initialScrollba
         ? (headerDetail?.skipPermissions ? ' --force' : '')
         : (headerDetail?.skipPermissions ? ' --dangerously-skip-permissions' : '')
       const nextResumeCommand = sessionAgent === 'cursor'
-        ? buildResumeCursorCommand(nextResumeId, resumeFlags)
+        ? buildCursorResumeCommand(nextResumeId, resumeFlags)
         : buildResumeClaudeCommand(nextResumeId, resumeFlags)
       if (nextResumeCommand && nextResumeCommand !== session.resumeCommand) {
         session.resumeCommand = nextResumeCommand

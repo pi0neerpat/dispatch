@@ -126,7 +126,11 @@ export default function DispatchView({ overview, onDispatch, onLoopDispatch, ini
     if (mode !== 'loop' || !repo || !loopType) return
     let cancelled = false
     fetch(`/api/loops/${encodeURIComponent(repo)}/prompt?type=${encodeURIComponent(loopType)}`)
-      .then(r => r.json())
+      .then(async (r) => {
+        const data = await r.json().catch(() => ({}))
+        if (!r.ok) throw new Error(data.error || 'Failed to load loop prompt')
+        return data
+      })
       .then(d => { if (!cancelled) setLoopPrompt(d.content || '') })
       .catch(() => { if (!cancelled) setLoopPrompt('') })
     return () => { cancelled = true }
@@ -137,7 +141,7 @@ export default function DispatchView({ overview, onDispatch, onLoopDispatch, ini
   const branchOptions = selectedRepo?.git?.branches || []
 
   const isReady = repo && (planSlug || prompt.trim())
-  const isLoopReady = !!repo
+  const isLoopReady = Boolean(repo && loopPrompt.trim())
 
   async function handleDispatch(e) {
     e.preventDefault()
@@ -187,6 +191,10 @@ export default function DispatchView({ overview, onDispatch, onLoopDispatch, ini
 
   const handleLoopLaunch = useCallback(async () => {
     if (!isLoopReady || loopBtnPhase !== 'idle') return
+    if (!loopPrompt.trim()) {
+      setDispatchError('Loop prompt is required')
+      return
+    }
     setDispatchError(null)
 
     setLoopBtnPhase('shaking')
