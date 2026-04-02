@@ -15,7 +15,7 @@ export default function DispatchSettingsRow({
   autoMerge, setAutoMerge,
   plainOutput, setPlainOutput,
 }) {
-  const isCodex = agent === 'codex'
+  const turnsUnsupported = agent === 'codex' || agent === 'cursor'
   return (
     <>
       {/* Agent selector */}
@@ -67,14 +67,14 @@ export default function DispatchSettingsRow({
           type="number"
           min={1}
           max={200}
-          value={isCodex ? '' : (maxTurns ?? '')}
-          disabled={isCodex}
+          value={turnsUnsupported ? '' : (maxTurns ?? '')}
+          disabled={turnsUnsupported}
           onChange={(e) => setMaxTurns(parseInt(e.target.value) || 10)}
-          placeholder={isCodex ? 'N/A' : '10'}
-          title={isCodex ? 'N/A for Codex' : undefined}
+          placeholder={turnsUnsupported ? 'N/A' : '10'}
+          title={turnsUnsupported ? `N/A for ${agent === 'cursor' ? 'Cursor' : 'Codex'}` : undefined}
           className={cn(
             'w-full h-8 px-2.5 rounded-md border border-border bg-card text-[12px] text-foreground font-mono focus:outline-none focus:border-primary/30',
-            isCodex && 'opacity-40 cursor-not-allowed'
+            turnsUnsupported && 'opacity-40 cursor-not-allowed'
           )}
           style={{ fontFamily: 'var(--font-mono)' }}
         />
@@ -87,7 +87,11 @@ export default function DispatchSettingsRow({
           <Toggle
             checked={!plainOutput}
             onChange={(val) => setPlainOutput(!val)}
-            title={isCodex ? 'TUI mode — off adds --quiet' : 'TUI mode — off adds -p --output-format text'}
+            title={agent === 'codex'
+              ? 'TUI mode — off adds --color never'
+              : agent === 'cursor'
+                ? 'TUI mode — off adds --print --output-format text'
+                : 'TUI mode — off adds -p --output-format text'}
           />
         </div>
       </div>

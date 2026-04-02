@@ -138,6 +138,7 @@ Returns available skills.
 ```
 GET /api/agents/models?agent=claude
 GET /api/agents/models?agent=codex
+GET /api/agents/models?agent=cursor
 ```
 Returns available model list. Falls back to hardcoded defaults if API is unavailable.
 
@@ -166,10 +167,10 @@ POST /api/jobs/init
 | `repo` | string | yes | Repo name (from config) |
 | `taskText` | string | yes | The prompt sent to the agent |
 | `originalTask` | string | no | Human-readable task label (shown in UI) |
-| `agent` | string | no | `"claude"` (default) or `"codex"` |
+| `agent` | string | no | `"claude"` (default), `"codex"`, or `"cursor"` |
 | `model` | string | no | Model ID e.g. `"claude-opus-4-6"` |
 | `maxTurns` | number | no | Max agent turns |
-| `skipPermissions` | boolean | no | Pass `--dangerously-skip-permissions` |
+| `skipPermissions` | boolean | no | Pass the provider-specific permission-bypass flag |
 | `plainOutput` | boolean | no | Run with `-p --output-format text` (captures stdout) |
 | `useWorktree` | boolean | no | Create an isolated git worktree for this job |
 | `baseBranch` | string | no | Base branch for worktree (default: `main`) |

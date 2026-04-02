@@ -2,6 +2,26 @@
  * Shared react-markdown component overrides for consistent styling.
  * Used by ResultsPanel, SwarmDetail.
  */
+function flattenCodeChildren(children) {
+  if (Array.isArray(children)) return children.map(flattenCodeChildren).join('')
+  if (typeof children === 'string') return children
+  if (children == null) return ''
+  return String(children)
+}
+
+function renderDiffLines(text) {
+  const lines = text.replace(/\n$/, '').split('\n')
+  return lines.map((line, idx) => {
+    let lineClass = 'block -mx-2 px-2'
+    if (line.startsWith('+++') || line.startsWith('---')) lineClass += ' text-sky-300 bg-sky-500/10'
+    else if (line.startsWith('+')) lineClass += ' text-emerald-300 bg-emerald-500/10'
+    else if (line.startsWith('-')) lineClass += ' text-rose-300 bg-rose-500/10'
+    else if (line.startsWith('@@')) lineClass += ' text-amber-300 bg-amber-500/10'
+    else if (line.startsWith('diff ') || line.startsWith('index ')) lineClass += ' text-muted-foreground/80'
+    return <span key={idx} className={lineClass}>{line || ' '}</span>
+  })
+}
+
 export const mdComponents = {
   h1: ({ children }) => <h1 className="text-base font-bold text-foreground mt-3 mb-1 first:mt-0">{children}</h1>,
   p: ({ children }) => <p className="leading-relaxed mb-1.5 last:mb-0">{children}</p>,
@@ -21,8 +41,8 @@ export const mdComponents = {
       {children}
     </pre>
   ),
-  code: ({ node, children, ...props }) => {
-    const text = Array.isArray(children) ? children.join('') : String(children || '')
+  code: ({ inline, className, node, children }) => {
+    const text = flattenCodeChildren(children)
     if (text.startsWith('ts:')) {
       const parts = text.slice(3).split('~~')
       const relative = parts[0]
@@ -36,7 +56,19 @@ export const mdComponents = {
         </span>
       )
     }
-    const isInline = !node?.properties?.className
+    const isInline = typeof inline === 'boolean' ? inline : !node?.properties?.className
+    const languageMatch = String(className || '').match(/language-([A-Za-z0-9_-]+)/)
+    const language = languageMatch?.[1]?.toLowerCase()
+    const isDiffBlock = !isInline && (language === 'diff' || language === 'patch')
+
+    if (isDiffBlock) {
+      return (
+        <code className="block text-[11px] font-mono" style={{ fontFamily: 'var(--font-mono)' }}>
+          {renderDiffLines(text)}
+        </code>
+      )
+    }
+
     if (isInline) {
       return (
         <code className="px-1 py-0.5 rounded bg-secondary/60 text-[11px] font-mono" style={{ fontFamily: 'var(--font-mono)' }}>

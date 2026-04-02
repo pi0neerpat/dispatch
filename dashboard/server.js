@@ -43,7 +43,7 @@ const require = createRequire(import.meta.url)
 const pty = require('node-pty')
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const {
-  parseTaskFile, parseActivityLog, getGitInfo, parseJobFile, parseJobDir, parsePlansDir, parseFrontmatter, parseSkillsDir, loadConfig, parseLoopState, parseAllLoopRuns,
+  parseTaskFile, parseActivityLog, getGitInfo, parseJobFile, parseJobDir, parsePlansDir, parseFrontmatter, parseSkillsDir, loadConfig, parseLoopState, parseAllLoopRuns, parseLoopRunDetailed,
   writeTaskDone, writeTaskDoneByText, writeTaskReopenByText, writeTaskAdd, writeTaskEdit, writeTaskMove,
   writeActivityEntry, writeJobValidation, writeJobKill, writeJobStatus, writeJobResults,
   createCheckpoint, revertCheckpoint, dismissCheckpoint, listCheckpoints,
@@ -267,6 +267,13 @@ function buildResumeClaudeCommand(resumeId, flags = '') {
   return `claude${flags} --resume "${id}"`
 }
 
+function buildResumeCursorCommand(resumeId, flags = '') {
+  const id = String(resumeId ?? '').trim()
+  if (!id) return null
+  if (!isValidResumeId(id)) return null
+  return `cursor-agent${flags} --resume "${id}"`
+}
+
 function buildDispatchPrompt(taskText, jobFilePath = null, selectedSkillNames = [], worktreePath = null) {
   let prompt = ''
 
@@ -390,6 +397,32 @@ function buildTrackedCodexCommand({
   const envPrefix = buildClaudeEnvPrefix({ sessionId, jobId, repoName })
   const cmd = `cat ${shellQuote(promptFilePath)} | ${envPrefix}codex exec ${flags} -`
   return `${cmd}; __hub_code=$?; echo "__HUB_CLAUDE_EXIT_CODE:\${__hub_code}__"; exit $__hub_code`
+}
+
+function buildTrackedCursorCommand({
+  promptFilePath = null,
+  model = null,
+  skipPermissions = false,
+  plainOutput = false,
+  resumeId = null,
+  sessionId = null,
+  jobId = null,
+  repoName = null,
+  extraFlags = '',
+} = {}) {
+  if (!promptFilePath && !resumeId) return null
+  let flags = ''
+  if (skipPermissions) flags += ' --force'
+  if (model) flags += ` --model ${shellQuote(model)}`
+  if (plainOutput) flags += ' --print --output-format text --trust'
+  const sanitized = sanitizeExtraFlags(extraFlags)
+  if (sanitized) flags += ` ${sanitized}`
+  const envPrefix = buildClaudeEnvPrefix({ sessionId, jobId, repoName })
+  const cursorCommand = resumeId
+    ? `${envPrefix}${buildResumeCursorCommand(resumeId, flags)}`
+    : `${envPrefix}cursor-agent${flags} "$(cat ${shellQuote(promptFilePath)})"`
+  const withExit = `${cursorCommand}; __hub_code=$?; echo "__HUB_CLAUDE_EXIT_CODE:\${__hub_code}__"; exit $__hub_code`
+  return plainOutput ? `echo '__HUB_OUTPUT_START__'; ${withExit}` : withExit
 }
 
 // Strip ANSI escape sequences for clean log output
@@ -800,7 +833,7 @@ app.get('/api/loops', (req, res) => {
       for (const run of runs) {
         const dirName = path.basename(run.runDir)
         const id = `${loopType}/${dirName}`
-        const sessionActive = run.session ? ptySessions.has(run.session) : false
+        const sessionActive = run.session ? ptySessions.get(run.session)?.alive === true : false
         let status = 'unknown'
         if (sessionActive) status = 'in_progress'
         else if (run.loopStatus === 'completed' || run.complete) status = 'completed'
@@ -903,6 +936,38 @@ app.post('/api/loops/init', (req, res) => {
 
   emitJobsChanged({ repo, id: sessionId, reason: 'loop-init' })
   res.json({ sessionId, shellCommand })
+})
+
+app.get('/api/loops/:loopType/:timestamp/artifacts', (req, res) => {
+  const { loopType, timestamp } = req.params
+  if (!VALID_LOOP_TYPES.has(loopType)) {
+    return res.status(400).json({ error: `Invalid loop type` })
+  }
+  try {
+    const config = getConfig()
+    // Search all repos for the matching run directory
+    for (const repo of config.repos) {
+      const runDir = path.join(repo.resolvedPath, '.dispatch', 'loops', loopType, timestamp)
+      if (!fs.existsSync(runDir)) continue
+
+      try {
+        const detailed = parseLoopRunDetailed(runDir)
+        return res.json({
+          iterations: detailed.iterations,
+          artifacts: detailed.artifacts,
+          prompt: detailed.prompt,
+          warnings: detailed.warnings || [],
+        })
+      } catch (err) {
+        console.error('[loops/artifacts] failed to parse run', { runDir, error: err?.message || String(err) })
+        return res.status(500).json({ error: 'Failed to parse loop artifacts' })
+      }
+    }
+    return res.status(404).json({ error: 'Loop run not found' })
+  } catch (err) {
+    console.error('[loops/artifacts] failed to load config', { error: err?.message || String(err) })
+    return res.status(500).json({ error: 'Failed to load loop artifacts' })
+  }
 })
 
 // ── End loop endpoints ──────────────────────────────────────────────────────
@@ -1714,6 +1779,7 @@ app.post(['/api/jobs/:id/resume', '/api/swarm/:id/resume'], (req, res) => {
 
   try {
     const detail = parseJobFile(found.filePath)
+    const agentId = detail.agent || 'claude'
     const sessionId = detail.session || null
     if (!sessionId || !isValidSessionId(sessionId)) {
       return res.status(409).json({
@@ -1727,8 +1793,12 @@ app.post(['/api/jobs/:id/resume', '/api/swarm/:id/resume'], (req, res) => {
       })
     }
     const skipPermissions = detail.skipPermissions == null ? true : detail.skipPermissions === true
-    const resumeFlags = skipPermissions ? ' --dangerously-skip-permissions' : ''
-    const resumeCommand = buildResumeClaudeCommand(resumeId, resumeFlags)
+    const resumeFlags = agentId === 'cursor'
+      ? (skipPermissions ? ' --force' : '')
+      : (skipPermissions ? ' --dangerously-skip-permissions' : '')
+    const resumeCommand = agentId === 'cursor'
+      ? buildResumeCursorCommand(resumeId, resumeFlags)
+      : buildResumeClaudeCommand(resumeId, resumeFlags)
     if (!resumeCommand) {
       return res.status(409).json({
         error: 'No resume command is recorded for this job yet.',
@@ -1768,6 +1838,7 @@ app.post(['/api/jobs/:id/resume', '/api/swarm/:id/resume'], (req, res) => {
         sessionId,
         jobId: req.params.id,
         repoName: found.repo?.name || null,
+        agent: agentId,
       }
     )
 
@@ -1797,6 +1868,7 @@ app.post(['/api/jobs/:id/resume', '/api/swarm/:id/resume'], (req, res) => {
       resumeCommand,
       resumeId,
       skipPermissions,
+      agent: agentId,
       taskText: detail.taskName || detail.originalTask || req.params.id,
       status: 'in_progress',
       validation: 'none',
@@ -2370,7 +2442,9 @@ function startPendingLaunch(session) {
     ? (shellCommand ? `${shellCommand}\n` : null)
     : launch.agent === 'codex'
       ? buildTrackedCodexCommand(launch)
-      : buildTrackedClaudeCommand(launch)
+      : launch.agent === 'cursor'
+        ? buildTrackedCursorCommand(launch)
+        : buildTrackedClaudeCommand(launch)
   if (!command) return
   session.launchStarted = true
   if (launch.agent !== 'shell') {
@@ -2587,15 +2661,20 @@ function createPtySession(sessionId, cwd, repoName, jobFilePath, initialScrollba
     }
 
     const stripped = stripAnsi(chunk)
-    // Capture resume command emitted by Claude so the job can be resumed later.
-    const cmdMatch = stripped.match(/(claude(?:\s+code)?\s+(?:resume|--resume)\s+(?:["'])?[A-Za-z0-9._:-]+(?:["'])?)/i)
+    // Capture resume commands emitted by supported agent CLIs so the job can be resumed later.
+    const cmdMatch = stripped.match(/((?:claude(?:\s+code)?|cursor-agent)\s+(?:resume|--resume)\s+(?:["'])?[A-Za-z0-9._:-]+(?:["'])?)/i)
     if (cmdMatch) {
       const nextResumeId = extractResumeId(cmdMatch[1])
       const headerDetail = session.jobFilePath && fs.existsSync(session.jobFilePath)
         ? parseJobFile(session.jobFilePath)
         : null
-      const resumeFlags = headerDetail?.skipPermissions ? ' --dangerously-skip-permissions' : ''
-      const nextResumeCommand = buildResumeClaudeCommand(nextResumeId, resumeFlags)
+      const sessionAgent = headerDetail?.agent || session.pendingLaunch?.agent || 'claude'
+      const resumeFlags = sessionAgent === 'cursor'
+        ? (headerDetail?.skipPermissions ? ' --force' : '')
+        : (headerDetail?.skipPermissions ? ' --dangerously-skip-permissions' : '')
+      const nextResumeCommand = sessionAgent === 'cursor'
+        ? buildResumeCursorCommand(nextResumeId, resumeFlags)
+        : buildResumeClaudeCommand(nextResumeId, resumeFlags)
       if (nextResumeCommand && nextResumeCommand !== session.resumeCommand) {
         session.resumeCommand = nextResumeCommand
         session.resumeId = nextResumeId

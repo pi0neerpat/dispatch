@@ -2,6 +2,14 @@
 
 **Current stage:** Getting started
 
+## 2026-04-02
+
+- **Please implement code diffs in the markdown rendering for loops and tasks**
+- **Determine why dispatch is failing for cursor agents**
+- **Is that the correct way to do this? I still see many listed as active on the loops page --- Previous job context: notes/jobs/2026-04-02-please-mark-all-existing-loops-for-prompt-guard-an.md**
+
+---
+
 ## 2026-03-31
 
 - **Full loop.log ownership** — eliminated job files for loops; scripts write structured headers (LOOP_SESSION, LOOP_TYPE, LOOP_AGENT, LOOP_STARTED) and LOOP_STATUS to loop.log; added parseLoopRun/parseAllLoopRuns to parsers.js; rewrote /api/loops to scan .dispatch/loops/ dirs; created dedicated LoopDetailView with own /loops/:type/:timestamp route and terminal panel. skills: /done

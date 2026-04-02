@@ -19,7 +19,7 @@
 #   gpt-5.2-codex        gpt-5.2              gpt-5.1-codex-max
 #   gpt-5.1-codex-mini
 #
-# cursor  (agent -p — run `agent --list-models` for latest)
+# cursor  (cursor-agent or agent -p — run `agent --list-models` for latest)
 #   Cursor Composer
 #     auto               composer-2           composer-2-fast      composer-1.5
 #   Claude
@@ -159,7 +159,8 @@ fi
 # ---------------------------------------------------------------------------
 run_agent() {
   local spec="$1"; shift
-  local extra_flags=("$@")
+  local extra_flags=()
+  [[ $# -gt 0 ]] && extra_flags=("$@")
 
   # Parse tool and optional model from spec; fall back to DEFAULT_*_MODEL
   local tool model=""
@@ -184,7 +185,7 @@ run_agent() {
       claude)
         local cmd=(claude --print)
         [[ -n "$model" ]] && cmd+=(--model "$model")
-        cmd+=("${extra_flags[@]}")
+        cmd+=(${extra_flags[@]+"${extra_flags[@]}"})
         if (cd "$REPO" && CLAUDE_PROJECT_DIR="$REPO" "${cmd[@]}") < "$tmp_prompt"; then
           rm -f "$tmp_prompt"
           return 0
@@ -194,14 +195,14 @@ run_agent() {
         local cmd=(codex exec --color never)
         [[ -n "$model" ]] && cmd+=(--model "$model")
         local codex_extra=()
-        for flag in "${extra_flags[@]}"; do
+        for flag in ${extra_flags[@]+"${extra_flags[@]}"}; do
           if [[ "$flag" == "--dangerously-skip-permissions" ]]; then
             codex_extra+=(--dangerously-bypass-approvals-and-sandbox)
           else
             codex_extra+=("$flag")
           fi
         done
-        cmd+=("${codex_extra[@]}")
+        cmd+=(${codex_extra[@]+"${codex_extra[@]}"})
         cmd+=(-)
         if cat "$tmp_prompt" | (cd "$REPO" && CLAUDE_PROJECT_DIR="$REPO" "${cmd[@]}"); then
           rm -f "$tmp_prompt"
@@ -209,12 +210,21 @@ run_agent() {
         fi
         ;;
       cursor)
-        # Cursor CLI doesn't read stdin — prompt goes as a positional argument
+        # Cursor CLI doesn't read stdin — prompt goes as a positional argument.
+        # Prefer cursor-agent to match server launch/resume paths, but fall back
+        # to agent if that's the installed binary.
         local prompt_content
         prompt_content=$(cat "$tmp_prompt")
-        local cmd=(agent -p "$prompt_content")
+        local cursor_bin="cursor-agent"
+        local cmd=()
+        if ! command -v "$cursor_bin" >/dev/null 2>&1; then
+          cursor_bin="agent"
+          cmd=("$cursor_bin" -p "$prompt_content")
+        else
+          cmd=("$cursor_bin" "$prompt_content")
+        fi
         [[ -n "$model" ]] && cmd+=(--model "$model")
-        for flag in "${extra_flags[@]}"; do
+        for flag in ${extra_flags[@]+"${extra_flags[@]}"}; do
           if [[ "$flag" == "--dangerously-skip-permissions" ]]; then
             cmd+=(--force)
           else
@@ -229,7 +239,7 @@ run_agent() {
       *)
         local cmd=("$tool")
         [[ -n "$model" ]] && cmd+=(--model "$model")
-        cmd+=("${extra_flags[@]}")
+        cmd+=(${extra_flags[@]+"${extra_flags[@]}"})
         if (cd "$REPO" && CLAUDE_PROJECT_DIR="$REPO" "${cmd[@]}") < "$tmp_prompt"; then
           rm -f "$tmp_prompt"
           return 0

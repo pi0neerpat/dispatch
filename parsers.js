@@ -335,6 +335,89 @@ function parseLoopState(loopDir) {
   return { iteration, lastVerdict, complete, runDir };
 }
 
+function parseLoopRunDetailed(runDir) {
+  const run = parseLoopRun(runDir);
+  const iterations = [];
+  const warnings = [];
+  const addWarning = (context, err) => {
+    const message = err instanceof Error ? err.message : String(err);
+    warnings.push(`${context}: ${message}`);
+  };
+  // Parse iteration info from loop.log body
+  try {
+    const logPath = path.join(runDir, 'loop.log');
+    const content = fs.readFileSync(logPath, 'utf8');
+    const lines = content.split('\n');
+    let pastHeader = false;
+    let currentIter = null;
+    for (const line of lines) {
+      if (!pastHeader) {
+        if (line.trim() === '---') pastHeader = true;
+        continue;
+      }
+      const iterMatch = line.match(/Iteration\s+(\d+)\s*[-–—]\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})/i);
+      if (iterMatch) {
+        currentIter = { number: parseInt(iterMatch[1], 10), timestamp: iterMatch[2], verdict: null };
+        iterations.push(currentIter);
+        continue;
+      }
+      // Also match iteration lines without timestamps
+      const iterMatchSimple = line.match(/Iteration\s+(\d+)/i);
+      if (iterMatchSimple && !iterMatch) {
+        const num = parseInt(iterMatchSimple[1], 10);
+        if (!currentIter || currentIter.number !== num) {
+          currentIter = { number: num, timestamp: null, verdict: null };
+          iterations.push(currentIter);
+        }
+      }
+      if (currentIter) {
+        if (line.includes('VERDICT: PASS') || line.includes('VERIFIED: PASS')) currentIter.verdict = 'PASS';
+        else if (line.includes('VERDICT: FAIL')) currentIter.verdict = 'FAIL';
+        else if (line.includes('ALL PHASES COMPLETE')) currentIter.verdict = 'PASS';
+        else if (line.includes('ALL ISSUES RESOLVED')) currentIter.verdict = 'PASS';
+      }
+    }
+  } catch (err) {
+    addWarning('failed to parse loop.log', err);
+  }
+
+  // Scan for artifact files
+  const artifacts = [];
+  try {
+    const files = fs.readdirSync(runDir).filter(f => f.endsWith('.txt')).sort();
+    for (const file of files) {
+      let type = 'unknown', iteration = null;
+      const reviewMatch = file.match(/^review_iter(\d+)/);
+      const synthMatch = file.match(/^synthesis_iter(\d+)/);
+      const verifyMatch = file.match(/^verification_iter(\d+)/);
+      if (reviewMatch) { type = 'review'; iteration = parseInt(reviewMatch[1], 10); }
+      else if (synthMatch) { type = 'synthesis'; iteration = parseInt(synthMatch[1], 10); }
+      else if (verifyMatch) { type = 'verification'; iteration = parseInt(verifyMatch[1], 10); }
+
+      let content = '';
+      try {
+        content = fs.readFileSync(path.join(runDir, file), 'utf8');
+      } catch (err) {
+        addWarning(`failed to read artifact "${file}"`, err);
+      }
+      artifacts.push({ name: file, type, iteration, content });
+    }
+  } catch (err) {
+    addWarning('failed to scan artifact directory', err);
+  }
+
+  // Read prompt
+  let prompt = '';
+  try {
+    const promptPath = path.join(runDir, '..', 'prompt.md');
+    if (fs.existsSync(promptPath)) prompt = fs.readFileSync(promptPath, 'utf8');
+  } catch (err) {
+    addWarning('failed to read prompt.md', err);
+  }
+
+  return { ...run, iterations, artifacts, prompt, warnings };
+}
+
 function loadConfig(hubDir) {
   const localConfigPath = path.join(hubDir, 'config.local.json');
   const configPath = fs.existsSync(localConfigPath) ? localConfigPath : path.join(hubDir, 'config.json');
@@ -1436,6 +1519,7 @@ module.exports = {
   dismissCheckpoint,
   listCheckpoints,
   parseLoopRun,
+  parseLoopRunDetailed,
   parseAllLoopRuns,
   parseLoopState,
 };

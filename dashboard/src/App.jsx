@@ -62,6 +62,7 @@ export default function App() {
     handleNavChange,
     openJobDetail,
     openLoopDetail,
+    openLoopBySession,
     openDispatch,
     closeJobDetail,
   } = useAppNavigation()
@@ -140,6 +141,17 @@ export default function App() {
     const skipPermissions = settings.agents[agentId]?.skipPermissions ?? true
     await startTaskSession(taskText, repo, { originalTask, baseBranch, model, maxTurns, autoMerge, useWorktree, plainOutput, skipPermissions, agent: agentId, planSlug, skills })
   }, [startTaskSession, settings])
+
+  const handleLoopDispatch = useCallback(async (body) => {
+    const res = await fetch('/api/loops/init', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(data.error || 'Loop launch failed')
+    if (data.sessionId) openLoopBySession(data.sessionId)
+  }, [openLoopBySession])
 
   const handleResumeJob = useCallback(async (jobId) => {
     const sessionId = await resumeJobSession(jobId)
@@ -260,6 +272,7 @@ export default function App() {
                   />
                 </ScrollableView>
               } />
+              <Route path="/loops/session/:sessionId" element={loopDetailElement} />
               <Route path="/loops/:loopType/:timestamp" element={loopDetailElement} />
               <Route path="/loops" element={
                 <ScrollableView>
@@ -267,7 +280,6 @@ export default function App() {
                     loops={loops.data}
                     overview={overview.data}
                     onSelectLoop={openLoopDetail}
-                    onSelectSession={openJobDetail}
                   />
                 </ScrollableView>
               } />
@@ -308,6 +320,7 @@ export default function App() {
                   <DispatchView
                     overview={overview.data}
                     onDispatch={handleDispatch}
+                    onLoopDispatch={handleLoopDispatch}
                     initialRepo={dispatchPreFill?.repo || null}
                     initialPrompt={dispatchPreFill?.prompt || null}
                     initialPlanSlug={dispatchPreFill?.planSlug || null}
