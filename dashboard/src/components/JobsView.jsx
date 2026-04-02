@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react'
-import { Bot, Sparkles, AlertCircle, CheckCircle2, XCircle, Clock, GitBranch } from 'lucide-react'
+import { Bot, Sparkles, AlertCircle, CheckCircle2, XCircle, Clock, GitBranch, AlertTriangle } from 'lucide-react'
 import { cn, timeAgo, truncateWithEllipsis, buildPlanPath } from '../lib/utils'
 import { repoIdentityColors, normalizeAgentId, getAgentBrandColor } from '../lib/constants'
 import { buildWorkerNavItems } from '../lib/workerUtils'
@@ -258,6 +258,17 @@ export default function JobsView({
                                 </>
                               )}
                             </span>
+                          )}
+                          {worker.lastError && (
+                            <div
+                              className="mt-1 flex items-start gap-1.5 text-[10px] text-status-failed/80 min-w-0"
+                              title={worker.lastError}
+                            >
+                              <AlertTriangle size={10} className="shrink-0 mt-[1px]" />
+                              <span className="truncate">
+                                {worker.lastErrorSubKind === 'rate_limit' ? 'Rate limit hit' : 'Error'}{worker.errorCount > 1 ? ` (${worker.errorCount})` : ''}
+                              </span>
+                            </div>
                           )}
                           {worker.planSlug && (
                             <div className="mt-1 flex items-center gap-1 text-[10px] text-muted-foreground/70 min-w-0">

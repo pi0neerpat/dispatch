@@ -8,11 +8,12 @@ const MAX_EVENT_RAW_CHARS = 1000
 
 function stripAnsiForParse(str) {
   return (str || '')
-    .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
+    .replace(/\x1b\[[\x20-\x3f]*[\x40-\x7e]/g, '')
     .replace(/\x1b\][^\x07]*\x07/g, '')
     .replace(/\x1b\([A-Z]/g, '')
     .replace(/\x1b[=>]/g, '')
     .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '')
+    .replace(/\[(?:\?|>)[0-9;]*[a-zA-Z]/g, '')
 }
 
 function detectAgentKind(state, text) {
@@ -28,6 +29,10 @@ function classifyLine(line) {
   const lower = t.toLowerCase()
 
   if (!t) return { kind: 'system', level: 'info', text: '' }
+
+  if (/usage.?limit|rate.?limit|too many requests|quota exceeded|credits?\s*(expired|ran\s*out|depleted)|hit your.{0,10}limit|try again at\b/i.test(lower)) {
+    return { kind: 'error', level: 'error', text: t, subKind: 'rate_limit' }
+  }
 
   if (/\berror\b|\bfailed\b|exception|traceback|fatal/.test(lower)) {
     return { kind: 'error', level: 'error', text: t }
@@ -68,6 +73,7 @@ function parseLines(lines, baseState, adapterKind) {
       raw: clean,
       meta: {
         parser: adapterKind,
+        ...(classified.subKind ? { subKind: classified.subKind } : {}),
       },
     })
   }
@@ -174,6 +180,8 @@ export function createSessionEventStore({ sessionId, repo, baseDir, ringSize = 1
     summary: {
       lastStep: null,
       lastError: null,
+      lastErrorSubKind: null,
+      errorCount: 0,
       filesTouched: [],
       toolCalls: 0,
     },
@@ -235,6 +243,8 @@ export function appendChunkToEventStore(store, chunk) {
     }
     if (full.level === 'error' || full.kind === 'error') {
       store.summary.lastError = full.text
+      store.summary.lastErrorSubKind = full.meta?.subKind || null
+      store.summary.errorCount = (store.summary.errorCount || 0) + 1
     }
     if (full.kind === 'tool') {
       store.summary.toolCalls += 1

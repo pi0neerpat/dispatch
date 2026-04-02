@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { CheckCircle, XCircle, Loader, Clock, Square, Activity, ListChecks, GitMerge, Trash2, Send, RotateCcw, ChevronRight, ChevronDown, GitBranch, Copy, Check, MoreHorizontal, Play, X } from 'lucide-react'
+import { CheckCircle, XCircle, Loader, Clock, Square, Activity, ListChecks, GitMerge, Trash2, Send, RotateCcw, ChevronRight, ChevronDown, GitBranch, Copy, Check, MoreHorizontal, Play, X, AlertTriangle } from 'lucide-react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { cn, timeAgo, truncateWithEllipsis, buildPlanPath } from '../lib/utils'
@@ -1134,6 +1134,24 @@ export default function ResultsPanel({ agentId, hasLiveTerminal = false, onJobsR
         {detail.results && (
           <div className="mt-4">
             <ResultsSummary text={detail.results} statusColor={statusColor} />
+          </div>
+        )}
+
+        {/* Error banner */}
+        {detail.lastError && (
+          <div className="mt-4 rounded-lg border border-status-failed-border bg-status-failed-bg px-4 py-3">
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle size={14} className="text-status-failed shrink-0 mt-0.5" />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold text-status-failed">
+                  {detail.lastErrorSubKind === 'rate_limit' ? 'Rate Limit Hit' : 'Error Detected'}
+                  {detail.errorCount > 1 && (
+                    <span className="ml-1.5 font-normal opacity-70">({detail.errorCount} errors)</span>
+                  )}
+                </p>
+                <p className="mt-1 text-[11px] text-status-failed/80 leading-relaxed break-words">{detail.lastError}</p>
+              </div>
+            </div>
           </div>
         )}
 

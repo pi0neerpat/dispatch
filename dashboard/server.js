@@ -810,28 +810,47 @@ app.get(['/api/jobs', '/api/swarm'], (req, res) => {
     if (a.validation === 'needs_validation') needsValidation++
   }
 
+  const sessionErrorSummary = new Map()
+  for (const [sid, s] of ptySessions) {
+    const summary = s.eventStore?.summary
+    if (summary?.lastError) {
+      sessionErrorSummary.set(sid, {
+        lastError: summary.lastError,
+        lastErrorSubKind: summary.lastErrorSubKind || null,
+        errorCount: summary.errorCount || 0,
+      })
+    }
+  }
+
   const jobs = allAgents
     .filter(a => a.type !== 'loop')
-    .map(a => ({
-      id: a.id,
-      repo: a.repo,
-      taskName: a.taskName,
-      agent: a.agent || 'claude',
-      started: a.started,
-      status: a.status,
-      validation: a.validation,
-      lastProgress: a.lastProgress,
-      progressCount: a.progressCount,
-      durationMinutes: a.durationMinutes,
-      skills: a.skills,
-      session: latestRunByJob.get(a.id)?.sessionId || a.session,
-      runState: latestRunByJob.get(a.id)?.state || null,
-      branch: a.branch || null,
-      worktreePath: a.worktreePath || null,
-      planSlug: a.planSlug || null,
-      planTitle: a.planTitle || null,
-      planRepo: a.planRepo || a.repo || null,
-    }))
+    .map(a => {
+      const sessionId = latestRunByJob.get(a.id)?.sessionId || a.session
+      const errInfo = sessionId ? sessionErrorSummary.get(sessionId) : null
+      return {
+        id: a.id,
+        repo: a.repo,
+        taskName: a.taskName,
+        agent: a.agent || 'claude',
+        started: a.started,
+        status: a.status,
+        validation: a.validation,
+        lastProgress: a.lastProgress,
+        progressCount: a.progressCount,
+        durationMinutes: a.durationMinutes,
+        skills: a.skills,
+        session: sessionId,
+        runState: latestRunByJob.get(a.id)?.state || null,
+        branch: a.branch || null,
+        worktreePath: a.worktreePath || null,
+        planSlug: a.planSlug || null,
+        planTitle: a.planTitle || null,
+        planRepo: a.planRepo || a.repo || null,
+        lastError: errInfo?.lastError || null,
+        lastErrorSubKind: errInfo?.lastErrorSubKind || null,
+        errorCount: errInfo?.errorCount || 0,
+      }
+    })
   res.json({
     jobs,
     agents: jobs,
@@ -1090,6 +1109,14 @@ app.get(['/api/jobs/:id', '/api/swarm/:id'], (req, res) => {
       if (fs.existsSync(filePath)) {
         const agent = parseJobFile(filePath)
         agent.repo = repo.name
+        const sessionId = agent.session
+        const session = sessionId ? ptySessions.get(sessionId) : null
+        const summary = session?.eventStore?.summary
+        if (summary?.lastError) {
+          agent.lastError = summary.lastError
+          agent.lastErrorSubKind = summary.lastErrorSubKind || null
+          agent.errorCount = summary.errorCount || 0
+        }
         return res.json(enrichAgentWithPlanLink(agent, planLookup))
       }
     }
@@ -2599,11 +2626,14 @@ function createPtySession(sessionId, cwd, repoName, jobFilePath, initialScrollba
           const agent = parseJobFile(session.jobFilePath)
           const run = getLatestRunByJobId(agent.id) || getLatestRunBySessionId(sessionId)
           const isKilled = session.killRequested || reason === 'killed'
+          const hasRateLimitError = session.eventStore?.summary?.lastErrorSubKind === 'rate_limit'
           if (run) {
             if (isKilled) {
               transitionRun(run, RUN_STATE.KILLED, { reason, validation: run.validation || 'none', force: true })
             } else if (reason === 'write_error') {
               transitionRun(run, RUN_STATE.FAILED, { reason, validation: run.validation || 'none', force: true })
+            } else if (hasRateLimitError) {
+              transitionRun(run, RUN_STATE.FAILED, { reason: 'rate_limit', validation: run.validation || 'none', force: true })
             } else if (run.state !== RUN_STATE.AWAITING_VALIDATION) {
               transitionRun(run, RUN_STATE.AWAITING_VALIDATION, {
                 reason,
@@ -2643,7 +2673,15 @@ function createPtySession(sessionId, cwd, repoName, jobFilePath, initialScrollba
             return
           }
 
-          if (agent.status === 'in_progress') {
+          if (hasRateLimitError && agent.status === 'in_progress') {
+            writeJobStatus(session.jobFilePath, 'failed')
+            if (session.repo) {
+              const repoConfig = findRepoConfig(session.repo)
+              invalidateGitInfoCache(repoConfig?.resolvedPath)
+            }
+            emitJobsChanged({ repo: session.repo, id: agent.id, reason: 'rate_limit_failed' })
+            console.log(`Session end (${reason}): marked job file as failed (rate limit): ${session.jobFilePath}`)
+          } else if (agent.status === 'in_progress') {
             writeJobStatus(session.jobFilePath, 'completed')
             writeJobValidation(session.jobFilePath, 'needs_validation', null)
             if (session.repo) {

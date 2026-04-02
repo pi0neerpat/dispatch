@@ -123,6 +123,9 @@ function buildWorkerItemsCore(jobAgents, activeWorkers, jobFileToSession, sessio
       planSlug: session.planSlug || linkedAgent?.planSlug || null,
       planTitle: session.planTitle || linkedAgent?.planTitle || null,
       planRepo: session.planRepo || linkedAgent?.planRepo || session.repo || null,
+      lastError: linkedAgent?.lastError || null,
+      lastErrorSubKind: linkedAgent?.lastErrorSubKind || null,
+      errorCount: linkedAgent?.errorCount || 0,
     })
   }
 
@@ -153,6 +156,9 @@ function buildWorkerItemsCore(jobAgents, activeWorkers, jobFileToSession, sessio
       planSlug: agent.planSlug || null,
       planTitle: agent.planTitle || null,
       planRepo: agent.planRepo || agent.repo || null,
+      lastError: agent.lastError || null,
+      lastErrorSubKind: agent.lastErrorSubKind || null,
+      errorCount: agent.errorCount || 0,
     })
   }
 
