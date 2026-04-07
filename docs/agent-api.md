@@ -331,7 +331,7 @@ PUT /api/plans/:repoName/:slug
 Body: { "content": "# Plan title\n..." }
 
 POST /api/plans/:repoName/:slug/status
-Body: { "status": "ready" }   ← omit or null to clear
+Body: { "status": "ready" | "completed" }   ← omit or null to clear
 ```
 
 ---

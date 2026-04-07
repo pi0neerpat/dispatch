@@ -85,6 +85,7 @@ function getPlanListGroup(plan, swarm) {
   const linkedJob = plan.jobSlug ? (swarm?.agents?.find(a => a.id === plan.jobSlug) || null) : null
   const jobStatus = resolveJobStatus(plan, swarm)
 
+  if (plan.planStatus === 'completed') return 'done'
   if (linkedJob?.validation === 'needs_validation' || jobStatus === 'needs_validation' || jobStatus === 'stopped') return 'in_review'
   if (jobStatus === 'completed' && (!linkedJob?.validation || linkedJob.validation === 'none')) return 'in_review'
   if (linkedJob?.validation === 'validated' || jobStatus === 'completed') return 'done'
@@ -280,12 +281,13 @@ function PlanDetail({ plan: initialPlan, onBack, onNavigateToDispatch, settings,
   const [isEditing, setIsEditing] = useState(false)
   const [editContent, setEditContent] = useState('')
   const [saving, setSaving] = useState(false)
-  const [togglingReady, setTogglingReady] = useState(false)
+  const [updatingStatus, setUpdatingStatus] = useState(false)
 
   const color = repoIdentityColors[plan.repo] || 'var(--primary)'
   const jobStatus = resolveJobStatus(plan, swarm)
   const isRunning = jobStatus === 'in_progress'
   const isReady = plan.planStatus === 'ready'
+  const isCompleted = plan.planStatus === 'completed'
   const linkedJob = plan.jobSlug ? (swarm?.agents?.find(a => a.id === plan.jobSlug) || null) : null
   const linkedJobStatus = getLinkedJobStatusChip(linkedJob)
   const linkedJobNameRaw = linkedJob?.taskName || plan.jobSlug || ''
@@ -312,9 +314,8 @@ function PlanDetail({ plan: initialPlan, onBack, onNavigateToDispatch, settings,
     }
   }
 
-  async function toggleReady() {
-    const newStatus = isReady ? null : 'ready'
-    setTogglingReady(true)
+  async function updatePlanStatus(newStatus) {
+    setUpdatingStatus(true)
     try {
       await fetch(`/api/plans/${plan.repo}/${plan.slug}/status`, {
         method: 'POST',
@@ -323,7 +324,7 @@ function PlanDetail({ plan: initialPlan, onBack, onNavigateToDispatch, settings,
       })
       setPlan(p => ({ ...p, planStatus: newStatus }))
     } finally {
-      setTogglingReady(false)
+      setUpdatingStatus(false)
     }
   }
 
@@ -371,23 +372,40 @@ function PlanDetail({ plan: initialPlan, onBack, onNavigateToDispatch, settings,
           </>
         )}
 
-        {/* Ready toggle */}
+        {/* Status toggles */}
         {!isEditing && (
-          <button
-            onClick={toggleReady}
-            disabled={togglingReady}
-            className={cn(
-              'flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-[12px] font-medium transition-all disabled:opacity-50',
-              isReady
-                ? 'text-foreground'
-                : 'border-border bg-card text-muted-foreground hover:text-foreground hover:bg-card-hover'
-            )}
-            style={isReady ? { color: '#8bab8f', borderColor: '#8bab8f40', backgroundColor: '#8bab8f18' } : undefined}
-            title={isReady ? 'Mark as draft' : 'Mark as ready'}
-          >
-            <Check size={12} />
-            {isReady ? 'Ready' : 'Mark ready'}
-          </button>
+          <>
+            <button
+              onClick={() => updatePlanStatus(isReady ? null : 'ready')}
+              disabled={updatingStatus}
+              className={cn(
+                'flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-[12px] font-medium transition-all disabled:opacity-50',
+                isReady
+                  ? 'text-foreground'
+                  : 'border-border bg-card text-muted-foreground hover:text-foreground hover:bg-card-hover'
+              )}
+              style={isReady ? { color: '#8bab8f', borderColor: '#8bab8f40', backgroundColor: '#8bab8f18' } : undefined}
+              title={isReady ? 'Mark as draft' : 'Mark as ready'}
+            >
+              <Check size={12} />
+              {isReady ? 'Ready' : 'Mark ready'}
+            </button>
+            <button
+              onClick={() => updatePlanStatus(isCompleted ? null : 'completed')}
+              disabled={updatingStatus}
+              className={cn(
+                'flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-[12px] font-medium transition-all disabled:opacity-50',
+                isCompleted
+                  ? 'text-foreground'
+                  : 'border-border bg-card text-muted-foreground hover:text-foreground hover:bg-card-hover'
+              )}
+              style={isCompleted ? { color: 'var(--status-complete)', borderColor: 'var(--status-complete-border)', backgroundColor: 'var(--status-complete-bg)' } : undefined}
+              title={isCompleted ? 'Mark as draft' : 'Mark as complete'}
+            >
+              <Check size={12} />
+              {isCompleted ? 'Completed' : 'Mark complete'}
+            </button>
+          </>
         )}
 
         {/* Edit / Save */}
