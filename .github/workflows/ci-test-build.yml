@@ -1,10 +1,10 @@
-name: PR build
+name: ci-test-build
 
 on:
   pull_request:
 
 jobs:
-  build:
+  test-and-build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -23,6 +23,10 @@ jobs:
       - name: Install dependencies
         working-directory: dashboard
         run: yarn install --immutable
+
+      - name: Run tests
+        working-directory: dashboard
+        run: yarn test
 
       - name: Build dashboard
         working-directory: dashboard
