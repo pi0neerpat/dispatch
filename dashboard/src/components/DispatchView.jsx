@@ -53,7 +53,7 @@ export default function DispatchView({ overview, onDispatch, onLoopDispatch, ini
   const [implementor, setImplementor] = useState(defaultAgentModel())
   const [loopBtnPhase, setLoopBtnPhase] = useState('idle')
 
-  const isCodex = agent === 'codex'
+  const turnsUnsupported = agent === 'codex' || agent === 'cursor' || agent === 'pi'
   const models = useAgentModels(agent)
   const availableSkills = useSkills()
 
@@ -167,7 +167,7 @@ export default function DispatchView({ overview, onDispatch, onLoopDispatch, ini
         originalTask: initialPrompt || null,
         baseBranch: baseBranch.trim() || defaultBranch,
         model,
-        maxTurns: isCodex ? null : maxTurns,
+      maxTurns: turnsUnsupported ? null : maxTurns,
         autoMerge,
         useWorktree,
         plainOutput,

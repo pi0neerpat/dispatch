@@ -88,9 +88,11 @@ Returns all jobs across all repos.
 }
 ```
 
-**Job status values:** `in_progress` | `completed` | `failed` | `killed`
+**Job status values:** `in_progress` | `completed` | `failed` | `stopped`
 **Validation values:** `none` | `needs_validation` | `validated` | `rejected`
 **runState values:** `queued` | `starting` | `running` | `stopping` | `awaiting_validation` | `validated` | `rejected` | `failed` | `killed`
+
+`runState` still uses `killed` internally for process termination, but the job's markdown/API status is exposed as `stopped` so the work remains reviewable.
 
 ### Single job
 ```

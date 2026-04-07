@@ -124,7 +124,7 @@ The dashboard is the canonical job runtime. It reads both `notes/jobs/` and lega
 | `POST /api/hooks/stop-ready` | None | Stop hook callback that transitions an active run to review-ready |
 | `POST /api/jobs/:id/validate` and legacy `POST /api/swarm/:id/validate` | `writeJobValidation` | Set validation to "validated" and finalize run state |
 | `POST /api/jobs/:id/reject` and legacy `POST /api/swarm/:id/reject` | `writeJobValidation` | Set validation to "rejected" |
-| `POST /api/jobs/:id/kill` and legacy `POST /api/swarm/:id/kill` | `writeJobKill` | Mark agent as killed and stop PTY |
+| `POST /api/jobs/:id/kill` and legacy `POST /api/swarm/:id/kill` | `writeJobKill` | Stop the agent, mark the job `stopped`, and stop the PTY |
 | `POST /api/jobs/:id/merge` and legacy `POST /api/swarm/:id/merge` | None (git operations) | Merge agent branch into target |
 | `DELETE /api/jobs/:id` and legacy `DELETE /api/swarm/:id` | None (fs unlink) | Delete job file and remove run history |
 | `POST /api/repos/:name/checkpoint` | `createCheckpoint` |
@@ -248,7 +248,7 @@ import { repoIdentityColors } from '../lib/constants'
 **Worker list building** — `lib/workerUtils.js` provides `buildWorkerNavItems()` which unifies active PTY sessions with swarm agents and validation states. Used by ActivityBar, JobsView, and App for badge counts.
 
 **Status config** — In `lib/statusConfig.js`:
-Maps status strings (`in_progress`, `completed`, `failed`, `killed`, `needs_validation`) to `{ icon, color, bg, label, dotColor }`.
+Maps status strings (`in_progress`, `completed`, `failed`, `stopped`, `needs_validation`) to `{ icon, color, bg, label, dotColor }`.
 
 **Markdown rendering** — Shared `mdComponents` in `components/mdComponents.jsx` for consistent react-markdown styling.
 
@@ -315,7 +315,7 @@ The `agentTerminals` Map bridges these: each entry stores `{ jobFile: { fileName
 7. The first resize event triggers `startPendingLaunch()`, which writes a tracked Claude command into the PTY. For new work this is `claude [flags] "$(cat promptFile)"`; for resumes it is `claude [flags] --resume "<resumeId>"`
 8. Terminal output is captured by `eventPipeline.ingestLine()` for structured event storage and by the server's resume-command detector
 9. When Claude prints a resume command, the server persists normalized `ResumeCommand`, `ResumeId`, and `SkipPermissions` into the job file
-10. On PTY exit, the run transitions to review/failed/killed state and the job markdown is updated accordingly
+10. On PTY exit, the run transitions to review/failed/killed state and the job markdown is updated accordingly; user-stopped jobs are written back as `Status: Stopped` so they remain reviewable
 11. If the user clicks Resume later, `POST /api/jobs/:id/resume` recreates the PTY under the same tracked session ID, replays prior scrollback, and relaunches Claude with the stored flags
 
 ---

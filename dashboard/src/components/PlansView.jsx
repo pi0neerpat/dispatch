@@ -9,6 +9,7 @@ import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { buildPlanPath, cn, truncateWithEllipsis } from '../lib/utils'
 import { repoIdentityColors } from '../lib/constants'
+import { getFilterChipClassName, getFilterChipStyle } from '../lib/filterUtils.jsx'
 import { mdComponents } from './mdComponents'
 
 function timeAgo(isoStr) {
@@ -74,8 +75,9 @@ function getLinkedJobStatusChip(job) {
   if (job.validation === 'validated') return { label: 'validated', color: 'var(--status-complete)' }
   if (job.validation === 'rejected') return { label: 'rejected', color: 'var(--status-failed)' }
   if (job.status === 'in_progress') return { label: 'running', color: 'var(--status-active)' }
+  if (job.status === 'stopped' || job.status === 'killed') return { label: 'stopped', color: 'var(--status-review)' }
   if (job.status === 'completed') return { label: 'completed', color: 'var(--status-complete)' }
-  if (job.status === 'failed' || job.status === 'killed') return { label: 'failed', color: 'var(--status-failed)' }
+  if (job.status === 'failed') return { label: 'failed', color: 'var(--status-failed)' }
   return { label: job.status || 'dispatched', color: 'var(--muted-foreground)' }
 }
 
@@ -83,7 +85,7 @@ function getPlanListGroup(plan, swarm) {
   const linkedJob = plan.jobSlug ? (swarm?.agents?.find(a => a.id === plan.jobSlug) || null) : null
   const jobStatus = resolveJobStatus(plan, swarm)
 
-  if (linkedJob?.validation === 'needs_validation' || jobStatus === 'needs_validation') return 'in_review'
+  if (linkedJob?.validation === 'needs_validation' || jobStatus === 'needs_validation' || jobStatus === 'stopped') return 'in_review'
   if (jobStatus === 'completed' && (!linkedJob?.validation || linkedJob.validation === 'none')) return 'in_review'
   if (linkedJob?.validation === 'validated' || jobStatus === 'completed') return 'done'
   if (plan.planStatus === 'ready') return 'ready'
@@ -567,7 +569,6 @@ export default function PlansView({ overview, swarm, onNavigateToDispatch, setti
   for (const group of PLAN_LIST_GROUPS) {
     groupedPlans[group.key].sort((a, b) => new Date(b.lastModified).getTime() - new Date(a.lastModified).getTime())
   }
-  const hasGroupedPlans = PLAN_LIST_GROUPS.some(group => groupedPlans[group.key].length > 0)
 
   return (
     <div className="flex flex-col gap-4">
@@ -576,13 +577,8 @@ export default function PlansView({ overview, swarm, onNavigateToDispatch, setti
         <div className="flex gap-1.5 flex-wrap">
           <button
             onClick={() => setRepoFilterPersisted(null)}
-            className={cn(
-              'px-2.5 py-1 rounded-md text-[12px] font-medium border transition-all',
-              repoFilter === null
-                ? 'border-primary/40 bg-primary/10 text-foreground'
-                : 'border-border bg-card text-muted-foreground hover:text-foreground hover:bg-card-hover'
-            )}
-            style={repoFilter === null ? { borderColor: '#8bab8f40', backgroundColor: '#8bab8f10' } : undefined}
+            className={getFilterChipClassName(repoFilter === null, 'px-2.5 py-1 rounded-md text-[12px]')}
+            style={getFilterChipStyle(repoFilter === null, '#8bab8f')}
           >
             All
           </button>
@@ -593,13 +589,8 @@ export default function PlansView({ overview, swarm, onNavigateToDispatch, setti
               <button
                 key={r.name}
                 onClick={() => setRepoFilterPersisted(isActive ? null : r.name)}
-                className={cn(
-                  'px-2.5 py-1 rounded-md text-[12px] font-medium capitalize border transition-all',
-                  isActive
-                    ? 'border-primary/40 bg-primary/10 text-foreground'
-                    : 'border-border bg-card text-muted-foreground hover:text-foreground hover:bg-card-hover'
-                )}
-                style={isActive ? { borderColor: `${color}40`, backgroundColor: `${color}10` } : undefined}
+                className={getFilterChipClassName(isActive, 'px-2.5 py-1 rounded-md text-[12px] capitalize')}
+                style={getFilterChipStyle(isActive, color)}
               >
                 <span className="inline-block w-1.5 h-1.5 rounded-full mr-1.5" style={{ background: color }} />
                 {r.name}
@@ -622,26 +613,25 @@ export default function PlansView({ overview, swarm, onNavigateToDispatch, setti
       ) : (
         <div className="flex flex-col gap-4">
           {PLAN_LIST_GROUPS.map(group => (
-            groupedPlans[group.key].length > 0 ? (
               <div key={group.key} className="flex flex-col gap-1.5">
                 <h3 className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-muted-foreground/60 font-semibold pt-1 pb-0.5">
                   {group.label} <CountBadge n={groupedPlans[group.key].length} />
                 </h3>
-                {groupedPlans[group.key].map(plan => (
-                  <PlanCard
-                    key={`${plan.repo}/${plan.slug}`}
-                    plan={plan}
-                    onSelect={handleSelectPlan}
-                  />
-                ))}
+                {groupedPlans[group.key].length === 0 ? (
+                  <div className="w-full px-4 py-3 rounded-lg text-center">
+                    <span className="text-[13px] text-muted-foreground/40">Empty</span>
+                  </div>
+                ) : (
+                  groupedPlans[group.key].map(plan => (
+                    <PlanCard
+                      key={`${plan.repo}/${plan.slug}`}
+                      plan={plan}
+                      onSelect={handleSelectPlan}
+                    />
+                  ))
+                )}
               </div>
-            ) : null
           ))}
-          {!hasGroupedPlans && (
-            <div className="py-8 text-center">
-              <p className="text-[13px] text-muted-foreground/60">No plans found.</p>
-            </div>
-          )}
         </div>
       )}
     </div>

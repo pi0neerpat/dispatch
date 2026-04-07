@@ -10,7 +10,7 @@
 - [ ] Move tests to a separate directory. Update test command accordingly
 - [ ] add skills-lock.json to gitignore
 - [x] Add multi-dispatch feature for task list. On right, to left of "Start", show a checkbox to select multiple tasks. When at least one is selected hide the "Start" button and show a "Start <n> tasks" button. When no tasks are selected, show the "Start" button. Then on the dispatch page, show each task in the prompt input. We also need a way to track multi-task completion for a single job. Show Mark Task done button for each task, but limit the text to a reasonable length, so we don't have large newlines. Hovering over the task name should show the full task text.
-- [ ] If work is added to the base repo, then worktree diffs show all these changes, since it currently uses the commit it was started from. We need to make sure that the worktree diffs show only the changes for the current job. It would also be nice to show the changes for the current job even without using worktrees, but im not sure how to do that.
+- [x] If work is added to the base repo, then worktree diffs show all these changes, since it currently uses the commit it was started from. We need to make sure that the worktree diffs show only the changes for the current job. It would also be nice to show the changes for the current job even without using worktrees, but im not sure how to do that.
 
 ## Workflows
 

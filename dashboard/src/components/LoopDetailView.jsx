@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { ArrowLeft, TerminalSquare, ClipboardCheck, Clock, Code2, ScanSearch, GitFork, RefreshCcw } from 'lucide-react'
 import { cn, timeAgo } from '../lib/utils'
 import { repoIdentityColors, normalizeAgentId, getAgentBrandColor } from '../lib/constants'
@@ -31,6 +31,7 @@ export default function LoopDetailView({
   onJobsChanged,
 }) {
   const [view, setView] = useState('review')
+  const hasSetInitialViewRef = useRef(false)
 
   const loop = useMemo(() => {
     const all = loops?.jobs || []
@@ -44,13 +45,21 @@ export default function LoopDetailView({
 
   const isSessionLookup = loopId && loopId.startsWith('session:')
   const hasTerminal = loop?.session && agentTerminals.has(loop.session)
+  const loopIdentity = loop?.id || String(loopId || '')
+
+  useEffect(() => {
+    hasSetInitialViewRef.current = false
+  }, [loopIdentity])
 
   // Default to terminal tab when there's a live terminal for new launches
   useEffect(() => {
+    if (hasSetInitialViewRef.current) return
     if (isSessionLookup && !loop) {
       setView('terminal')
+      hasSetInitialViewRef.current = true
     } else if (loop) {
       setView('review')
+      hasSetInitialViewRef.current = true
     }
   }, [isSessionLookup, loop])
 

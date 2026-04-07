@@ -137,6 +137,14 @@ export default function SettingsView({ settings, onUpdateAgent }) {
           showMaxTurns={false}
           showTuiMode={true}
         />
+        <AgentCard
+          agentId="pi"
+          label="Pi"
+          agentSettings={settings.agents.pi}
+          onUpdate={onUpdateAgent}
+          showMaxTurns={false}
+          showTuiMode={true}
+        />
       </div>
     </div>
   )

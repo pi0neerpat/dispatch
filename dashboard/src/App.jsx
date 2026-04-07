@@ -269,6 +269,8 @@ export default function App() {
                     sessionRecords={sessionRecordsForNav}
                     overview={overview.data}
                     onSelectJob={openJobDetail}
+                    onJobsRefresh={jobs.refresh}
+                    showToast={showToast}
                   />
                 </ScrollableView>
               } />

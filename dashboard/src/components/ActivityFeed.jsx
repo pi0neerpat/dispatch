@@ -25,6 +25,7 @@ function inferActivityType(text) {
   if (t.includes('failed') || t.includes('error') || t.includes('killed')) return 'failed'
   if (t.includes('started') || t.includes('running') || t.includes('in progress')) return 'started'
   if (t.includes('completed') || t.includes('done') || t.includes('validated')) return 'completed'
+  if (t.includes('stopped')) return 'updated'
   return 'updated'
 }
 

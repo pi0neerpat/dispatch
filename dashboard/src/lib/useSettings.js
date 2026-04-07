@@ -7,6 +7,7 @@ const DEFAULT_SETTINGS = {
     claude: { defaultModel: 'claude-opus-4-6', defaultMaxTurns: 10, skipPermissions: false, tuiMode: true, extraFlags: '' },
     codex: { defaultModel: 'gpt-5.4', defaultMaxTurns: null, skipPermissions: false, tuiMode: false, extraFlags: '' },
     cursor: { defaultModel: 'claude-4.6-opus-high-thinking', defaultMaxTurns: null, skipPermissions: false, tuiMode: true, extraFlags: '' },
+    pi: { defaultModel: 'google/gemini-2.5-pro', defaultMaxTurns: null, skipPermissions: false, tuiMode: true, extraFlags: '' },
   },
 }
 
@@ -25,6 +26,7 @@ function loadSettings() {
         claude: { ...DEFAULT_SETTINGS.agents.claude, ...(parsed.agents?.claude || {}) },
         codex: { ...DEFAULT_SETTINGS.agents.codex, ...(parsed.agents?.codex || {}) },
         cursor: { ...DEFAULT_SETTINGS.agents.cursor, ...(parsed.agents?.cursor || {}) },
+        pi: { ...DEFAULT_SETTINGS.agents.pi, ...(parsed.agents?.pi || {}) },
       },
     }
   } catch {

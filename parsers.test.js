@@ -257,6 +257,8 @@ describe('parseJobFile', () => {
       'Repo: app',
       'OriginalPrompt: Build login page\\nwith tests',
       'Session: sess-123',
+      'PreviousJob: 2026-03-24-discovery',
+      'NextJob: 2026-03-26-polish',
       'SkipPermissions: true',
       'ResumeId: resume-456',
       'ResumeCommand: claude --resume',
@@ -283,6 +285,8 @@ describe('parseJobFile', () => {
     assert.equal(result.repo, 'app');
     assert.equal(result.originalPrompt, 'Build login page\\nwith tests');
     assert.equal(result.session, 'sess-123');
+    assert.equal(result.previousJobId, '2026-03-24-discovery');
+    assert.equal(result.nextJobId, '2026-03-26-polish');
     assert.equal(result.skipPermissions, true);
     assert.equal(result.resumeId, 'resume-456');
     assert.equal(result.resumeCommand, 'claude --resume');
@@ -314,7 +318,8 @@ describe('parseJobFile', () => {
       ['In progress', 'in_progress'],
       ['In_progress', 'in_progress'],
       ['Failed', 'failed'],
-      ['Killed', 'killed'],
+      ['Killed', 'stopped'],
+      ['Stopped', 'stopped'],
     ];
     for (const [raw, expected] of cases) {
       const f = tmp(`job-${raw.replace(/\s/g, '')}.md`, [
@@ -358,6 +363,24 @@ describe('parseJobFile', () => {
       'SkipPermissions: false',
     ].join('\n'));
     assert.equal(parseJobFile(f).skipPermissions, false);
+  });
+
+  it('parses Read variations', () => {
+    for (const val of ['true', 'yes', '1']) {
+      const f = tmp(`read-${val}.md`, [
+        '# Job Task: Test',
+        'Status: Completed',
+        `Read: ${val}`,
+      ].join('\n'));
+      assert.equal(parseJobFile(f).read, true);
+    }
+
+    const f = tmp('read-false.md', [
+      '# Job Task: Test',
+      'Status: Completed',
+      'Read: false',
+    ].join('\n'));
+    assert.equal(parseJobFile(f).read, false);
   });
 });
 
@@ -936,7 +959,7 @@ describe('writeJobKill', () => {
   beforeEach(setup);
   afterEach(teardown);
 
-  it('sets status to Killed and creates .kill marker', () => {
+  it('sets status to Stopped, marks it for review, and creates .kill marker', () => {
     const f = tmp('job.md', [
       '# Job Task: Test',
       'Status: In progress',
@@ -949,8 +972,9 @@ describe('writeJobKill', () => {
     assert.equal(result.success, true);
 
     const content = read(f);
-    assert.ok(content.includes('Status: Killed'));
-    assert.ok(content.includes('## Killed'));
+    assert.ok(content.includes('Status: Stopped'));
+    assert.ok(content.includes('Validation: Needs validation'));
+    assert.ok(content.includes('## Stopped'));
 
     // Kill marker file should exist
     assert.ok(fs.existsSync(f + '.kill'));

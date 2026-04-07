@@ -528,7 +528,7 @@ function AgentActions({ detail, agentId, diffData, onJobsRefresh, onOverviewRefr
         diffData.deletions > 0 ? `−${diffData.deletions}` : null,
       ].filter(Boolean).join(', ')
     : null
-  const showFollowUpSection = detail.validation === 'needs_validation' || detail.status === 'completed' || detail.status === 'killed'
+  const showFollowUpSection = detail.validation === 'needs_validation' || detail.status === 'completed' || detail.status === 'stopped' || detail.status === 'killed'
 
   return (
     <div className="space-y-5">
@@ -659,7 +659,7 @@ function FollowUpChat({ repoName, detail, onDispatch, dispatching, settings: app
     setIncludeWorktreeContext(Boolean(activeWorktreePath))
   }, [activeWorktreePath])
 
-  const isCodex = agent === 'codex'
+  const turnsUnsupported = agent === 'codex' || agent === 'cursor' || agent === 'pi'
 
   async function handleDispatch() {
     if (!chatPrompt.trim()) return
@@ -674,11 +674,12 @@ function FollowUpChat({ repoName, detail, onDispatch, dispatching, settings: app
     await onDispatch?.(promptWithContext, {
       agent,
       model,
-      maxTurns: isCodex ? null : maxTurns,
+      maxTurns: turnsUnsupported ? null : maxTurns,
       autoMerge,
       useWorktree,
       plainOutput,
       originalTask: basePrompt,
+      previousJobId: detail?.id || undefined,
     })
     setChatPrompt('')
     setActiveTemplate(null)
@@ -783,16 +784,16 @@ function FollowUpChat({ repoName, detail, onDispatch, dispatching, settings: app
 
 function getHeroStyle(status, validation) {
   if (status === 'in_progress') return 'animate-glow-pulse'
-  if (status === 'failed' || status === 'killed') return 'ring-1 ring-status-failed/10'
-  if (validation === 'needs_validation') return 'ring-1 ring-status-review/10'
+  if (status === 'stopped' || status === 'killed' || validation === 'needs_validation') return 'ring-1 ring-status-review/10'
+  if (status === 'failed') return 'ring-1 ring-status-failed/10'
   if (validation === 'validated') return 'opacity-90'
   return ''
 }
 
 function getHeroBg(status, validation) {
   if (status === 'in_progress') return 'bg-status-active-bg/30'
-  if (status === 'failed' || status === 'killed') return 'bg-status-failed-bg/30'
-  if (validation === 'needs_validation') return 'bg-status-review-bg/30'
+  if (status === 'stopped' || status === 'killed' || validation === 'needs_validation') return 'bg-status-review-bg/30'
+  if (status === 'failed') return 'bg-status-failed-bg/30'
   if (validation === 'validated') return 'bg-status-active-bg/20'
   return 'bg-card/30'
 }
@@ -1112,16 +1113,19 @@ export default function ResultsPanel({ agentId, hasLiveTerminal = false, onJobsR
                   <span className="flex items-center gap-1.5"><RotateCcw size={12} /> Resume</span>
                 </button>
               )}
-              {detail.status === 'in_progress' && hasLiveTerminal && (
+              {detail.status === 'in_progress' && (
                 <button
                   onClick={handleKill}
                   className={cn(
                     'px-3 py-1.5 rounded-md text-xs font-medium transition-all shrink-0',
                     confirmKill
                       ? 'bg-status-failed-bg text-status-failed border border-status-failed-border'
-                      : 'text-muted-foreground hover:text-status-failed hover:bg-status-failed-bg border border-transparent hover:border-status-failed-border'
+                      : hasLiveTerminal
+                        ? 'text-muted-foreground hover:text-status-failed hover:bg-status-failed-bg border border-transparent hover:border-status-failed-border'
+                        : 'text-status-failed/70 hover:text-status-failed bg-status-failed-bg/50 border border-status-failed-border/30 hover:border-status-failed-border'
                   )}
                   disabled={killing}
+                  title={hasLiveTerminal ? 'Stop running job' : 'Stop orphaned job (no active session)'}
                 >
                   {killing ? <Loader size={12} className="animate-spin-slow" /> : confirmKill ? 'Confirm Stop?' : <span className="flex items-center gap-1.5"><Square size={12} /> Stop</span>}
                 </button>

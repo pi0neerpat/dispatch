@@ -18,8 +18,10 @@
   --primary-foreground: #1a1b1e;
 
   /* Surface */
-  --secondary: #242329;
-  --secondary-foreground: #838490;
+  --secondary: #25242a;
+  --secondary-foreground: #a3a4ad;
+  --tertiary: #1b1c20;
+  --tertiary-foreground: #7a7b86;
   --muted: #28272e;
   --muted-foreground: #6b6c78;
   --accent: #28272e;
@@ -79,6 +81,8 @@
   --color-primary-foreground: var(--primary-foreground);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
+  --color-tertiary: var(--tertiary);
+  --color-tertiary-foreground: var(--tertiary-foreground);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
   --color-accent: var(--accent);

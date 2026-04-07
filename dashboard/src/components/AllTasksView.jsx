@@ -29,7 +29,7 @@ function deriveStatus(task, repoName, agentTerminals, jobAgents) {
   // Prefer canonical job status from the server over local session heuristics.
   if (jobAgents) {
     for (const agent of jobAgents) {
-      if (agent.repo === repoName && agent.validation === 'needs_validation') {
+      if (agent.repo === repoName && (agent.validation === 'needs_validation' || agent.status === 'stopped')) {
         const match = agent.taskName?.toLowerCase().includes(task.text.toLowerCase().slice(0, 30)) ||
           task.text.toLowerCase().includes(agent.taskName?.toLowerCase()?.slice(0, 30) || '')
         if (match) return { status: 'review', jobId: agent.id }

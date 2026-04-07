@@ -15,7 +15,7 @@ export default function DispatchSettingsRow({
   autoMerge, setAutoMerge,
   plainOutput, setPlainOutput,
 }) {
-  const turnsUnsupported = agent === 'codex' || agent === 'cursor'
+  const turnsUnsupported = agent === 'codex' || agent === 'cursor' || agent === 'pi'
   return (
     <>
       {/* Agent selector */}
@@ -71,7 +71,7 @@ export default function DispatchSettingsRow({
           disabled={turnsUnsupported}
           onChange={(e) => setMaxTurns(parseInt(e.target.value) || 10)}
           placeholder={turnsUnsupported ? 'N/A' : '10'}
-          title={turnsUnsupported ? `N/A for ${agent === 'cursor' ? 'Cursor' : 'Codex'}` : undefined}
+          title={turnsUnsupported ? `N/A for ${agent === 'cursor' ? 'Cursor' : agent === 'pi' ? 'Pi' : 'Codex'}` : undefined}
           className={cn(
             'w-full h-8 px-2.5 rounded-md border border-border bg-card text-[12px] text-foreground font-mono focus:outline-none focus:border-primary/30',
             turnsUnsupported && 'opacity-40 cursor-not-allowed'
@@ -91,6 +91,8 @@ export default function DispatchSettingsRow({
               ? 'TUI mode — off adds --color never'
               : agent === 'cursor'
                 ? 'TUI mode — off adds --print --output-format text'
+                : agent === 'pi'
+                  ? 'TUI mode — off adds -p'
                 : 'TUI mode — off adds -p --output-format text'}
           />
         </div>

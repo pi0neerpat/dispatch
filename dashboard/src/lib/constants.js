@@ -45,12 +45,22 @@ export const CURSOR_MODEL_OPTIONS = [
 ]
 
 /**
+ * Available Pi models. Keep in sync with server.js FALLBACK_PI_MODELS.
+ */
+export const PI_MODEL_OPTIONS = [
+  { value: 'google/gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+  { value: 'openai-codex/gpt-5.4', label: 'GPT-5.4' },
+  { value: 'anthropic/claude-sonnet-4', label: 'Claude Sonnet 4' },
+]
+
+/**
  * Supported agent providers.
  */
 export const AGENT_OPTIONS = [
   { id: 'claude', label: 'Claude' },
   { id: 'codex', label: 'Codex' },
   { id: 'cursor', label: 'Cursor' },
+  { id: 'pi', label: 'Pi' },
 ]
 
 /**
@@ -61,6 +71,7 @@ export const AGENT_BRAND_COLORS = {
   claude: '#D97757',
   codex: '#924FF7',
   cursor: '#2B7FFF',
+  pi: '#18A874',
 }
 
 /**
@@ -69,6 +80,7 @@ export const AGENT_BRAND_COLORS = {
 export function normalizeAgentId(agent) {
   if (agent === 'codex') return 'codex'
   if (agent === 'cursor') return 'cursor'
+  if (agent === 'pi') return 'pi'
   return 'claude'
 }
 

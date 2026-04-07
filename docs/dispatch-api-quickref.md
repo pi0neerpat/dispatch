@@ -99,7 +99,7 @@ GET /api/sessions/<sessionId>/summary
 GET /api/jobs/<jobId>
 ```
 
-Parse status / validation from the job payload until the job reaches a terminal state (e.g. completed + needs review, failed, killed).
+Parse status / validation from the job payload until the job reaches a terminal state (e.g. completed + needs review, failed, stopped).
 
 ---
 

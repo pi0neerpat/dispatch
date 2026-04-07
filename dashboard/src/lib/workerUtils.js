@@ -10,9 +10,9 @@ export function getRepoFlags(repoName, jobAgents, activeWorkers) {
 
   for (const agent of jobAgents) {
     if (agent.repo !== repoName) continue
-    if (agent.validation === 'needs_validation') hasReview = true
+    if (agent.validation === 'needs_validation' || agent.status === 'stopped') hasReview = true
     if (agent.status === 'in_progress') hasRunning = true
-    if (agent.status === 'failed' || agent.status === 'killed') failedCount += 1
+    if (agent.status === 'failed') failedCount += 1
   }
 
   if (activeWorkers) {
@@ -113,7 +113,8 @@ function buildWorkerItemsCore(jobAgents, activeWorkers, jobFileToSession, sessio
       repo: session.repo,
       agent: session.agent || 'claude',
       label: session.label,
-      needsReview: session.validation === 'needs_validation',
+      read: linkedAgent?.read === true,
+      needsReview: session.validation === 'needs_validation' || session.status === 'stopped',
       status: session.status,
       validation: session.validation,
       created: session.created,
@@ -144,7 +145,8 @@ function buildWorkerItemsCore(jobAgents, activeWorkers, jobFileToSession, sessio
       repo: agent.repo,
       agent: agent.agent || 'claude',
       label: agent.taskName || agent.id,
-      needsReview: agent.validation === 'needs_validation',
+      read: agent.read === true,
+      needsReview: agent.validation === 'needs_validation' || agent.status === 'stopped',
       status: agent.status,
       validation: agent.validation,
       created: agent.started,

@@ -6,7 +6,7 @@ A multi-repo coordination hub for Claude Code agent workflows. Aggregates tasks,
 
 ## Repos
 
-Defined in `config.json` (source of truth for all repo paths). Edit this to point to your repos.
+Defined in `config.local.json` when present, otherwise `config.json`. In this checkout, `config.local.json` is the effective source of truth for repo paths. Edit that first.
 
 | Field | Description |
 |-------|-------------|
@@ -41,7 +41,8 @@ config.json ─── loadConfig() ───┐
 
 ## Key Files
 
-- **config.json** -- Repo definitions. `hubRoot` (display path) and `monthlyBudget` (optional) are user-specific; set `hubRoot` to your local hub path (e.g. `.` for current dir). Server falls back to `HUB_DIR` env var when `hubRoot` is unset.
+- **config.local.json** -- Effective local repo definitions for this checkout. Dispatch loads this first when present.
+- **config.json** -- Fallback/shared repo definitions when `config.local.json` is absent. `hubRoot` (display path) and `monthlyBudget` (optional) are user-specific; set `hubRoot` to your local hub path (e.g. `.` for current dir). Server falls back to `HUB_DIR` env var when `hubRoot` is unset.
 - **parsers.js** -- CommonJS module. Primary job APIs: `parseJobFile`, `parseJobDir`, `writeJobValidation`, `writeJobKill`, `writeJobStatus`. Also owns task/activity parsing, task writes, and checkpoint helpers. Zero external dependencies.
 - **cli.js** -- Agent-friendly CLI. All output is JSON to stdout, errors as JSON to stderr. Commands: `status`, `tasks [--repo=name]`, `swarm [id]`, `repos`, `activity [--limit=N]`, `config`.
 - **terminal.js** -- Human-friendly ANSI terminal dashboard. Read-only display, no interactivity. Uses box-drawing characters.
@@ -109,7 +110,7 @@ yarn start           # Serve built SPA + API from port 3747
 
 ## Rules
 
-1. **`config.json` is the source of truth** for repo paths and file locations. Do not hardcode repo paths elsewhere.
+1. **`config.local.json` is the source of truth when present; otherwise use `config.json`** for repo paths and file locations. In this repo, prefer `config.local.json`. Do not hardcode repo paths elsewhere.
 2. **`parsers.js` is shared infrastructure.** Test changes against all three consumers (cli.js, terminal.js, dashboard/server.js) before committing.
 3. **Job progress files** go in `notes/jobs/YYYY-MM-DD-slug.md` with the standard format (see Conventions above).
 4. **All repos use the same task/activity pattern**: `todo.md` for tasks, `activity-log.md` for activity.

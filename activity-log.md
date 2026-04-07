@@ -2,6 +2,22 @@
 
 **Current stage:** Getting started
 
+## 2026-04-07
+
+- **Use the correct logo for Pi https://camo.githubusercontent.com/8b5a446dcbd5bea234898b8584e5484099dc0a939d8e59e542b7f5f23b259217/68747470733a2f2f736869747479636f64696e676167656e742e61692f6c6f676f2e737667**
+- **- Reorder active jobs to the top of the jobs list - Add a new status boolean for "Read" jobs- those in review, that I've read but i want to hide for now. Marking a job as read is done on the jobs list row with a eye icon button. Then in the review group, add a toggle to show/hide the "read" jobs.**
+- **Add a Stop job button for dangling / orphaned jobs**
+- **Add forward-and-backward linking to job details for related jobs. Eg. dispatching a follow-up job will create a new job. and on that new job i want to be able to easily navigate to the previous job. Maybe at the top of the job page we have a simple navigation <-- [Previous_job_name] and if there is a chain of jobs then something like this: [<-- [revious_job_name]. [next_job_name -->]**
+- **Please ensure this is persisted across page loads and navigation --- Previous job context: notes/jobs/2026-04-07-reorder-active-jobs-to-the-top-of-the-jobs-list-ad.md**
+
+---
+
+## 2026-04-05
+
+- **/add-repo ../local-ai-hardware/darby and make the color deep blue**
+
+---
+
 ## 2026-04-02
 
 - **Please implement code diffs in the markdown rendering for loops and tasks**

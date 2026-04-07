@@ -2,20 +2,37 @@ import { cn } from './utils'
 
 export const BUG_COLOR = '#7ea89a'
 
+export function getFilterChipClassName(active, className = '') {
+  return cn(
+    'border font-medium transition-colors',
+    active
+      ? 'hover:brightness-105'
+      : 'hover:brightness-110',
+    className
+  )
+}
+
+export function getFilterChipStyle(active, color) {
+  return {
+    backgroundColor: active
+      ? (color ? `${color}16` : 'var(--secondary)')
+      : 'var(--tertiary)',
+    color: active ? 'var(--secondary-foreground)' : 'var(--tertiary-foreground)',
+    borderColor: color
+      ? (active ? `${color}4a` : `${color}22`)
+      : (active ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.07)'),
+    boxShadow: active
+      ? (color ? `inset 0 0 0 1px ${color}10` : 'inset 0 0 0 1px rgba(255,255,255,0.03)')
+      : 'none',
+  }
+}
+
 export function FilterChip({ label, active, onClick, color }) {
   return (
     <button
       onClick={onClick}
-      className={cn(
-        'text-[11px] px-2.5 py-1 rounded-full border font-medium transition-all capitalize',
-        active
-          ? ''
-          : 'bg-card border-border text-muted-foreground/60 hover:text-muted-foreground hover:border-border'
-      )}
-      style={active ? (color
-        ? { borderColor: `${color}60`, backgroundColor: `${color}18`, color }
-        : { borderColor: 'rgba(255,255,255,0.10)', backgroundColor: 'rgba(255,255,255,0.04)', color: '#b0b1b8' }
-      ) : undefined}
+      className={getFilterChipClassName(active, 'text-[11px] px-2.5 py-1 rounded-full capitalize')}
+      style={getFilterChipStyle(active, color)}
     >
       {label}
     </button>

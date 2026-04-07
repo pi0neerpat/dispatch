@@ -82,7 +82,6 @@ export default function LoopsView({ loops, overview, onSelectLoop }) {
           return bTs - aTs
         }),
     }))
-    .filter(g => g.items.length > 0)
 
   return (
     <div className="space-y-4">
@@ -138,8 +137,6 @@ export default function LoopsView({ loops, overview, onSelectLoop }) {
           <p className="text-sm text-muted-foreground/60">No loop jobs yet.</p>
           <p className="text-[11px] text-muted-foreground/40 mt-1">Launch one from the Dispatch page.</p>
         </div>
-      ) : groups.length === 0 ? (
-        <p className="text-[12px] text-muted-foreground/50 py-2">No loops match filters.</p>
       ) : (
         <div className="space-y-6">
           {groups.map(group => (
@@ -155,6 +152,11 @@ export default function LoopsView({ loops, overview, onSelectLoop }) {
               </div>
 
               <div className="space-y-2">
+                {group.items.length === 0 && (
+                  <div className="w-full px-3.5 py-2.5 rounded-lg text-center">
+                    <span className="text-[13px] text-muted-foreground/40">Empty</span>
+                  </div>
+                )}
                 {group.items.map(job => {
                   const repoColor = repoIdentityColors[job.repo] || 'var(--primary)'
                   const statusColor = STATUS_COLORS[job.filterStatus] || STATUS_COLORS.active
