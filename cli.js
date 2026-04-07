@@ -113,7 +113,7 @@ function swarmSummary(agents) {
     if (a.status === 'in_progress') active++;
     else if (a.status === 'completed') completed++;
     else if (a.status === 'failed') failed++;
-    if (a.validation === 'needs_validation') needsValidation++;
+    if (a.validation === 'needs_validation' || a.status === 'stopped') needsValidation++;
   }
   return { active, completed, failed, needsValidation };
 }

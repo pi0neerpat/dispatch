@@ -159,7 +159,8 @@ hub/
       styles/          # CSS (Tailwind + theme)
     vite.config.js     # Build configuration
     package.json       # Dashboard-only dependencies
-  .hub-runtime/        # Runtime state: job-runs.json, staged prompts, event logs
+  .dispatch/
+    runtime/           # Runtime state: job-runs.json, staged prompts, event logs
   plans/               # Markdown planning documents
   notes/
     jobs/              # Primary job progress files (YYYY-MM-DD-slug.md)
@@ -400,7 +401,7 @@ Header fields (parsed from line-level patterns, not YAML frontmatter):
 - `# Job Task: <name>` — Preferred task title header.
 - `# Swarm Task: <name>` — Legacy header still accepted by parsers.
 - `Started: <date>` — Local-time timestamp, no timezone suffix (e.g. `2026-03-31 16:39:56`). **See Timestamp Rules below.**
-- `Status: <value>` — Normalized to: `in_progress`, `completed`, `failed`, or the raw lowercase value.
+- `Status: <value>` — Normalized to: `in_progress`, `completed`, `failed`, `stopped` (including legacy `Killed`), or the raw lowercase value.
 - `Validation: <value>` — Optional. Values like `needs_validation`, `validated`, `rejected`.
 - `Session: <id>` — PTY session ID used by the dashboard to reconnect/resume.
 - `SkipPermissions: <bool>` — Whether Claude was launched with `--dangerously-skip-permissions`.

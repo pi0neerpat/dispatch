@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
-import { ArrowLeft, TerminalSquare, ClipboardCheck } from 'lucide-react'
+import { ArrowLeft, ArrowRight, TerminalSquare, ClipboardCheck } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { cn } from '../lib/utils'
 import { repoIdentityColors, normalizeAgentId, getAgentBrandColor } from '../lib/constants'
 import AgentIcon, { getAgentLabel } from './AgentIcon'
@@ -64,6 +65,20 @@ export default function JobDetailView({
 
     return jobs.find(agent => agent.session === jobId) || null
   }, [swarm, taskInfo?.jobFile?.fileName, jobId])
+
+  const previousJob = useMemo(() => {
+    const previousJobId = linkedJob?.previousJobId || null
+    if (!previousJobId) return null
+    const jobs = swarm?.agents || []
+    return jobs.find(agent => agent.id === previousJobId) || { id: previousJobId, taskName: previousJobId }
+  }, [swarm, linkedJob?.previousJobId])
+
+  const nextJob = useMemo(() => {
+    const nextJobId = linkedJob?.nextJobId || null
+    if (!nextJobId) return null
+    const jobs = swarm?.agents || []
+    return jobs.find(agent => agent.id === nextJobId) || { id: nextJobId, taskName: nextJobId }
+  }, [swarm, linkedJob?.nextJobId])
 
   const repoName = taskInfo?.repoName || runDevSession?.repoName || linkedJob?.repo || ''
   const repoColor = repoIdentityColors[repoName] || 'var(--primary)'
@@ -186,6 +201,35 @@ export default function JobDetailView({
           </button>
         </div>
       </div>
+
+      {(previousJob || nextJob) && (
+        <div className="px-6 py-2 border-b border-border bg-background/30 shrink-0">
+          <div className="max-w-[50rem] mx-auto w-full flex items-center justify-between gap-3 text-[12px]">
+            <div className="min-w-0 flex-1">
+              {previousJob ? (
+                <Link
+                  to={`/jobs/${encodeURIComponent(previousJob.id)}`}
+                  className="inline-flex max-w-full items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <ArrowLeft size={13} />
+                  <span className="truncate">{previousJob.taskName || previousJob.id}</span>
+                </Link>
+              ) : null}
+            </div>
+            <div className="min-w-0 flex-1 flex justify-end">
+              {nextJob ? (
+                <Link
+                  to={`/jobs/${encodeURIComponent(nextJob.id)}`}
+                  className="inline-flex max-w-full items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <span className="truncate">{nextJob.taskName || nextJob.id}</span>
+                  <ArrowRight size={13} />
+                </Link>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Content area — terminal always mounted (hidden/shown), review conditionally rendered */}
       <div className="flex-1 min-h-0 relative">

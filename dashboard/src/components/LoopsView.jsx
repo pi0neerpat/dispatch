@@ -1,396 +1,222 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
-import { RefreshCcw, Clock, Code2, ScanSearch, GitFork } from 'lucide-react'
+import { useState, useMemo, useEffect } from 'react'
+import { RefreshCcw, Clock, Code2, ScanSearch, GitFork, Sparkles, CheckCircle2, XCircle } from 'lucide-react'
 import { cn, timeAgo } from '../lib/utils'
-import { repoIdentityColors, AGENT_OPTIONS, getAgentBrandColor } from '../lib/constants'
-import { useAgentModels } from '../lib/useAgentModels'
-import AgentIcon from './AgentIcon'
+import { repoIdentityColors } from '../lib/constants'
+import { FilterChip, toggleFilter, loadFilters, saveFilters } from '../lib/filterUtils.jsx'
+import { LOOP_TYPES } from './AgentModelPicker'
 
-const LOOP_TYPES = [
-  { id: 'linear-implementation', label: 'Linear Impl',     icon: Code2 },
-  { id: 'linear-review',         label: 'Linear Review',   icon: ScanSearch },
-  { id: 'parallel-review',       label: 'Parallel Review', icon: GitFork },
-]
+const STORAGE_KEY = 'loopsView:filters'
 
-/** Compact agent + model picker — mirrors DispatchSettingsRow's Agent+Model section */
-function AgentModelPicker({ label, value, onChange }) {
-  const models = useAgentModels(value.agent)
+const LOOP_STATUSES = ['active', 'completed', 'failed']
 
-  // Snap model to first option when agent changes and current model isn't valid
-  useEffect(() => {
-    if (models.length > 0 && !models.find(m => m.value === value.model)) {
-      onChange({ ...value, model: models[0].value })
-    }
-  }, [models, onChange, value])
-
-  return (
-    <div>
-      {label && <label className="block text-[11px] font-medium text-muted-foreground mb-1">{label}</label>}
-      <div className="flex items-center gap-1.5">
-        <div className="flex gap-1">
-          {AGENT_OPTIONS.map(opt => {
-            const isSelected = value.agent === opt.id
-            const brandColor = getAgentBrandColor(opt.id)
-            return (
-              <button
-                key={opt.id}
-                type="button"
-                onClick={() => onChange({ agent: opt.id, model: '' })}
-                style={isSelected ? { color: brandColor, borderColor: `${brandColor}40`, backgroundColor: `${brandColor}18` } : undefined}
-                className={cn(
-                  'flex items-center gap-1.5 px-2 py-1 rounded-md text-[12px] font-medium border transition-colors',
-                  isSelected
-                    ? 'border-transparent'
-                    : 'border-border bg-card text-muted-foreground hover:text-foreground hover:bg-card-hover'
-                )}
-              >
-                <AgentIcon agent={opt.id} size={12} />
-                {opt.label}
-              </button>
-            )
-          })}
-        </div>
-        <select
-          value={value.model}
-          onChange={e => onChange({ ...value, model: e.target.value })}
-          className="h-8 px-2.5 rounded-md border border-border bg-card text-[12px] text-foreground focus:outline-none focus:border-primary/30 w-44"
-        >
-          {models.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
-        </select>
-      </div>
-    </div>
-  )
-}
-
-function defaultAgentModel() {
-  return { agent: 'claude', model: '' }
-}
-
-function fmtAgent({ agent, model }) {
-  return model ? `${agent}:${model}` : agent
-}
-
-function classifyLoop(job) {
-  if (job.status === 'completed' || job.loopState?.complete) return 'completed'
-  if (job.status === 'failed') return 'failed'
-  if (job.status === 'in_progress') return 'active'
-  return 'active'
+const STATUS_LABELS = {
+  active: 'Active',
+  completed: 'Completed',
+  failed: 'Failed',
 }
 
 const STATUS_COLORS = {
   active: '#4ade80',
   completed: '#8bab8f',
-  rejected: '#f87171',
   failed: '#f87171',
+}
+
+const GROUP_CONFIG = {
+  active: { label: 'Active', dotClass: 'bg-status-active', icon: Sparkles },
+  completed: { label: 'Completed', dotClass: 'bg-status-complete', icon: CheckCircle2 },
+  failed: { label: 'Failed', dotClass: 'bg-status-failed', icon: XCircle },
+}
+
+function classifyLoop(job) {
+  if (job.status === 'completed' || job.loopState?.complete) return 'completed'
+  if (job.status === 'failed') return 'failed'
+  return 'active'
 }
 
 function getLoopTypeIcon(loopTypeId) {
   return LOOP_TYPES.find(lt => lt.id === loopTypeId)?.icon || RefreshCcw
 }
 
-export default function LoopsView({ loops, overview, onSelectLoop, onSelectSession }) {
+export default function LoopsView({ loops, overview, onSelectLoop }) {
   const jobs = loops?.jobs || []
   const repos = useMemo(() => (overview?.repos || []).map(r => r.name), [overview])
 
-  const [repo, setRepo] = useState('')
-  const [loopType, setLoopType] = useState('linear-implementation')
-  const [prompt, setPrompt] = useState('')
-  const [agentSpec, setAgentSpec] = useState(defaultAgentModel())
-  const [reviewers, setReviewers] = useState([defaultAgentModel()])
-  const [synthesizer, setSynthesizer] = useState(defaultAgentModel())
-  const [implementor, setImplementor] = useState(defaultAgentModel())
-  const [btnPhase, setBtnPhase] = useState('idle') // idle | shaking | sliding | hidden | returning
+  const allItems = useMemo(() => {
+    return jobs.map(job => ({ ...job, filterStatus: classifyLoop(job) }))
+  }, [jobs])
 
-  // Default repo once repos are available
+  const [savedFilters] = useState(() => loadFilters(STORAGE_KEY))
+  const [selectedStatuses, setSelectedStatuses] = useState(() => savedFilters?.statuses ?? new Set(LOOP_STATUSES))
+  const [selectedRepos, setSelectedRepos] = useState(() => savedFilters?.repos ?? new Set(repos))
+  const [selectedTypes, setSelectedTypes] = useState(() => savedFilters?.types ?? new Set(LOOP_TYPES.map(lt => lt.id)))
+
+  // Sync repo filter when repos change (only if empty)
   useEffect(() => {
-    if (repos.length > 0 && !repo) setRepo(repos[0])
-  }, [repos])
-
-  // Load prompt when repo or loopType changes
-  useEffect(() => {
-    if (!repo || !loopType) return
-    let cancelled = false
-    fetch(`/api/loops/${encodeURIComponent(repo)}/prompt?type=${encodeURIComponent(loopType)}`)
-      .then(r => r.json())
-      .then(d => { if (!cancelled) setPrompt(d.content || '') })
-      .catch(() => { if (!cancelled) setPrompt('') })
-    return () => { cancelled = true }
-  }, [repo, loopType])
-
-  const isReady = !!repo
-
-  const handleLaunch = useCallback(async () => {
-    if (!isReady || btnPhase !== 'idle') return
-
-    setBtnPhase('shaking')
-    setTimeout(() => setBtnPhase('sliding'), 400)
-    setTimeout(() => setBtnPhase('hidden'), 800)
-
-    try {
-      const body = { repo, loopType, promptContent: prompt }
-      if (loopType === 'parallel-review') {
-        body.reviewerAgents = reviewers.map(fmtAgent)
-        body.synthesizerAgent = fmtAgent(synthesizer)
-        body.implementorAgent = fmtAgent(implementor)
-      } else {
-        body.agentSpec = fmtAgent(agentSpec)
-      }
-      const res = await fetch('/api/loops/init', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        throw new Error(data.error || 'Loop launch failed')
-      }
-      if (data.sessionId) onSelectSession?.(data.sessionId)
-      setTimeout(() => setBtnPhase('returning'), 1800)
-      setTimeout(() => setBtnPhase('idle'), 2400)
-    } catch (err) {
-      console.error('Loop launch failed:', err)
-      setBtnPhase('idle')
+    if (repos.length > 0 && selectedRepos.size === 0) {
+      setSelectedRepos(new Set(repos))
     }
-  }, [repo, loopType, prompt, agentSpec, reviewers, synthesizer, implementor, onSelectSession, isReady, btnPhase])
+  }, [repos, selectedRepos.size])
+
+  useEffect(() => {
+    saveFilters(STORAGE_KEY, { statuses: selectedStatuses, repos: selectedRepos, types: selectedTypes })
+  }, [selectedStatuses, selectedRepos, selectedTypes])
+
+  const filteredItems = useMemo(() => {
+    return allItems.filter(w => {
+      if (selectedStatuses.size > 0 && !selectedStatuses.has(w.filterStatus)) return false
+      if (selectedRepos.size > 0 && !selectedRepos.has(w.repo)) return false
+      if (selectedTypes.size > 0 && !selectedTypes.has(w.loopType)) return false
+      return true
+    })
+  }, [allItems, selectedStatuses, selectedRepos, selectedTypes])
+
+  const groups = LOOP_STATUSES
+    .map(status => ({
+      ...GROUP_CONFIG[status],
+      status,
+      items: filteredItems
+        .filter(w => w.filterStatus === status)
+        .sort((a, b) => {
+          const aTs = a.started ? Date.parse(a.started) : 0
+          const bTs = b.started ? Date.parse(b.started) : 0
+          return bTs - aTs
+        }),
+    }))
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div>
         <h2 className="text-[13px] font-semibold text-foreground mb-1">Loops</h2>
         <p className="text-[11px] text-muted-foreground">Multi-agent implementation and review loops.</p>
       </div>
 
-      {/* Loop list */}
-      {jobs.length === 0 ? (
-        <p className="text-[12px] text-muted-foreground/50 py-2">No loop jobs yet. Launch one below.</p>
-      ) : (
-        <div className="space-y-2">
-          {jobs.map(job => {
-            const repoColor = repoIdentityColors[job.repo] || 'var(--primary)'
-            const category = classifyLoop(job)
-            const statusColor = STATUS_COLORS[category] || STATUS_COLORS.active
-            const duration = job.durationMinutes != null ? timeAgo(null, job.durationMinutes) : null
-            const TypeIcon = getLoopTypeIcon(job.loopType)
-            return (
-              <div
-                key={job.id}
-                role="button"
-                tabIndex={0}
-                onClick={() => onSelectLoop?.(job.id)}
-                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelectLoop?.(job.id) } }}
-                className="w-full text-left px-3.5 py-2.5 rounded-lg border bg-card hover:bg-card-hover transition-colors group cursor-pointer"
-                style={{ borderColor: 'rgba(255,255,255,0.05)' }}
-                onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(139,171,143,0.35)' }}
-                onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.05)' }}
-              >
-                <div className="flex items-center gap-3">
-                  <span
-                    className="w-5 h-5 rounded-md border flex items-center justify-center shrink-0"
-                    style={{ color: statusColor, background: `${statusColor}12`, borderColor: `${statusColor}30` }}
-                  >
-                    <TypeIcon size={11} />
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[13px] font-medium text-foreground truncate">{job.taskName || job.loopType || job.id}</p>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      {duration && (
-                        <span className="text-[10px] text-muted-foreground/40 flex items-center gap-1 font-mono">
-                          <Clock size={9} />{duration}
-                        </span>
-                      )}
-                      {job.loopState?.iteration > 0 && (
-                        <span className="text-[10px] text-muted-foreground/60">
-                          Iter {job.loopState.iteration}
-                          {job.loopState.lastVerdict && ` · ${job.loopState.lastVerdict}`}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span
-                      className="text-[9px] px-1.5 py-0.5 rounded-full border font-medium capitalize"
-                      style={{ background: `${repoColor}10`, color: repoColor, borderColor: `${repoColor}30` }}
-                    >
-                      {job.repo}
-                    </span>
-                    <span className="text-[11px] text-muted-foreground/40 transition-colors group-hover:text-primary">
-                      View
-                    </span>
-                  </div>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      )}
+      {/* Filter chips */}
+      <div className="space-y-2">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 mr-1 shrink-0">Status</span>
+          {LOOP_STATUSES.map(st => (
+            <FilterChip
+              key={st}
+              label={STATUS_LABELS[st]}
+              active={selectedStatuses.has(st)}
+              onClick={() => toggleFilter(selectedStatuses, setSelectedStatuses, st)}
+            />
+          ))}
 
-      {/* Launch form */}
-      <div className="border border-border rounded-lg p-4 space-y-4">
-        <h3 className="text-[12px] font-semibold text-foreground">Launch Loop</h3>
+          <div className="h-4 w-px bg-border mx-1" />
 
-        {/* Repo */}
-        <div>
-          <label className="block text-[11px] font-medium text-muted-foreground mb-1">Repository</label>
-          <div className="flex gap-1.5 flex-wrap">
-            {repos.map(name => {
-              const color = repoIdentityColors[name] || 'var(--primary)'
-              const isSelected = repo === name
-              return (
-                <button
-                  key={name}
-                  type="button"
-                  onClick={() => setRepo(name)}
-                  className={cn(
-                    'px-2.5 py-1 rounded-md text-[12px] font-medium capitalize border transition-all',
-                    isSelected
-                      ? 'border-primary/40 bg-primary/10 text-foreground'
-                      : 'border-border bg-card text-muted-foreground hover:text-foreground hover:bg-card-hover'
-                  )}
-                  style={isSelected ? { borderColor: `${color}40`, backgroundColor: `${color}10` } : undefined}
-                >
-                  <span className="inline-block w-1.5 h-1.5 rounded-full mr-1.5" style={{ background: color }} />
-                  {name}
-                </button>
-              )
-            })}
-          </div>
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 mr-1 shrink-0">Type</span>
+          {LOOP_TYPES.map(lt => (
+            <FilterChip
+              key={lt.id}
+              label={lt.label}
+              active={selectedTypes.has(lt.id)}
+              onClick={() => toggleFilter(selectedTypes, setSelectedTypes, lt.id)}
+            />
+          ))}
         </div>
 
-        {/* Loop type */}
-        <div>
-          <label className="block text-[11px] font-medium text-muted-foreground mb-1">Loop Type</label>
-          <div className="flex gap-1.5 flex-wrap">
-            {LOOP_TYPES.map(lt => {
-              const isSelected = loopType === lt.id
-              const Icon = lt.icon
-              return (
-                <button
-                  key={lt.id}
-                  type="button"
-                  onClick={() => setLoopType(lt.id)}
-                  className={cn(
-                    'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[12px] font-medium border transition-all',
-                    isSelected
-                      ? 'border-primary/40 bg-primary/10 text-foreground'
-                      : 'border-border bg-card text-muted-foreground hover:text-foreground hover:bg-card-hover'
-                  )}
-                  style={isSelected ? { borderColor: 'rgba(139,171,143,0.4)', backgroundColor: 'rgba(139,171,143,0.1)' } : undefined}
-                >
-                  <Icon size={11} />
-                  {lt.label}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-
-        {/* Prompt */}
-        <div>
-          <label className="block text-[11px] font-medium text-muted-foreground mb-1">Prompt</label>
-          <textarea
-            value={prompt}
-            onChange={e => setPrompt(e.target.value)}
-            rows={5}
-            className={cn(
-              'w-full px-3 py-2 rounded-md border border-border bg-card',
-              'text-[13px] text-foreground placeholder:text-muted-foreground/40 leading-relaxed',
-              'focus:outline-none focus:border-primary/30 focus:ring-1 focus:ring-primary/10',
-              'resize-y'
-            )}
-            placeholder="Describe the task for the loop..."
-          />
-        </div>
-
-        {/* Agent picker for linear types */}
-        {loopType !== 'parallel-review' && (
-          <AgentModelPicker label="Agent" value={agentSpec} onChange={setAgentSpec} />
-        )}
-
-        {/* Parallel-review agent pickers */}
-        {loopType === 'parallel-review' && (
-          <div className="space-y-3">
-            <div>
-              <label className="block text-[11px] font-medium text-muted-foreground mb-2">Reviewer Agents</label>
-              <div className="space-y-2">
-                {reviewers.map((r, i) => (
-                  <div key={i} className="flex items-end gap-2">
-                    <AgentModelPicker
-                      value={r}
-                      onChange={v => { const next = [...reviewers]; next[i] = v; setReviewers(next) }}
-                    />
-                    {reviewers.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => setReviewers(reviewers.filter((_, j) => j !== i))}
-                        className="h-8 px-2.5 rounded-md border border-border text-[11px] text-muted-foreground hover:text-foreground hover:bg-card-hover transition-colors shrink-0"
-                      >
-                        Remove
-                      </button>
-                    )}
-                  </div>
-                ))}
-                <button
-                  type="button"
-                  onClick={() => setReviewers([...reviewers, defaultAgentModel()])}
-                  className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  + Add reviewer
-                </button>
-              </div>
-            </div>
-
-            <AgentModelPicker label="Synthesizer" value={synthesizer} onChange={setSynthesizer} />
-            <AgentModelPicker label="Implementor" value={implementor} onChange={setImplementor} />
-          </div>
-        )}
-
-        {/* Glow launch button */}
-        <div className="flex justify-end">
-        <div
-          className={cn(
-            'relative inline-flex items-center justify-center',
-            btnPhase === 'idle' && 'transition-opacity duration-200',
-            btnPhase === 'shaking' && 'animate-dispatch-shake',
-            btnPhase === 'sliding' && 'animate-dispatch-btn-out',
-            btnPhase === 'returning' && 'animate-dispatch-btn-in',
-          )}
-          style={{
-            opacity: !isReady && btnPhase === 'idle' ? 0.4 : 1,
-            ...(btnPhase === 'hidden' && { transform: 'translateX(400px)' }),
-          }}
-        >
-          {/* Glow layers */}
-          <div
-            className="absolute inset-0 pointer-events-none transition-opacity duration-500"
-            style={{ opacity: isReady || btnPhase !== 'idle' ? 1 : 0 }}
-          >
-            <div className="absolute pointer-events-none animate-loading-halo" style={{ width: '204px', height: '66px', background: '#8bab8f', borderRadius: '50%', filter: 'blur(35px)', top: 'calc(50% - 33px)', left: 'calc(50% - 102px)' }} />
-            <div className="absolute pointer-events-none animate-loading-glow" style={{ width: '108px', height: '38px', background: '#8bab8f', borderRadius: '50%', filter: 'blur(19px)', top: 'calc(50% - 19px)', left: 'calc(50% - 54px)' }} />
-            <div className="absolute pointer-events-none animate-loading-glow-shift" style={{ width: '90px', height: '32px', background: '#7ea89a', borderRadius: '50%', filter: 'blur(17px)', top: 'calc(50% - 16px)', left: 'calc(50% - 45px)' }} />
-          </div>
-
-          <button
-            type="button"
-            onClick={handleLaunch}
-            style={{
-              background: 'linear-gradient(135deg, #8bab8f 0%, #6d9472 100%)',
-              color: '#1a1b1e',
-              boxShadow: btnPhase !== 'idle'
-                ? '0 0 18px 4px rgba(139,171,143,0.45)'
-                : '0 0 8px 2px rgba(139,171,143,0.18)',
-              transition: 'box-shadow 400ms ease',
-              cursor: !isReady && btnPhase === 'idle' ? 'not-allowed' : 'pointer',
-            }}
-            className={cn(
-              'inline-flex items-center gap-2.5 pl-5 pr-6 h-10 rounded-full text-[13px] font-semibold shrink-0 relative z-10',
-              btnPhase === 'idle' && 'transition-transform duration-150 ease-out hover:scale-105 active:scale-[0.97]',
-            )}
-          >
-            <RefreshCcw size={15} />
-            Dispatch
-          </button>
-        </div>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 mr-1 shrink-0">Repo</span>
+          {repos.map(name => (
+            <FilterChip
+              key={name}
+              label={name}
+              active={selectedRepos.has(name)}
+              onClick={() => toggleFilter(selectedRepos, setSelectedRepos, name)}
+              color={repoIdentityColors[name]}
+            />
+          ))}
         </div>
       </div>
+
+      {/* Grouped loop cards */}
+      {jobs.length === 0 ? (
+        <div className="py-16 text-center">
+          <RefreshCcw size={28} className="mx-auto mb-3 text-muted-foreground/30" />
+          <p className="text-sm text-muted-foreground/60">No loop jobs yet.</p>
+          <p className="text-[11px] text-muted-foreground/40 mt-1">Launch one from the Dispatch page.</p>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {groups.map(group => (
+            <div key={group.status}>
+              <div className="flex items-center gap-2 mb-3">
+                <span className={cn('w-1.5 h-1.5 rounded-full', group.dotClass)} />
+                <h3 className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                  {group.label}
+                </h3>
+                <span className="text-[10px] font-mono text-muted-foreground/40" style={{ fontFamily: 'var(--font-mono)' }}>
+                  {group.items.length}
+                </span>
+              </div>
+
+              <div className="space-y-2">
+                {group.items.length === 0 && (
+                  <div className="w-full px-3.5 py-2.5 rounded-lg text-center">
+                    <span className="text-[13px] text-muted-foreground/40">Empty</span>
+                  </div>
+                )}
+                {group.items.map(job => {
+                  const repoColor = repoIdentityColors[job.repo] || 'var(--primary)'
+                  const statusColor = STATUS_COLORS[job.filterStatus] || STATUS_COLORS.active
+                  const duration = job.durationMinutes != null ? timeAgo(null, job.durationMinutes) : null
+                  const TypeIcon = getLoopTypeIcon(job.loopType)
+                  return (
+                    <div
+                      key={job.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => onSelectLoop?.(job.id)}
+                      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelectLoop?.(job.id) } }}
+                      className="w-full text-left px-3.5 py-2.5 rounded-lg border bg-card hover:bg-card-hover transition-colors group cursor-pointer"
+                      style={{ borderColor: 'rgba(255,255,255,0.05)' }}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(139,171,143,0.35)' }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.05)' }}
+                    >
+                      <div className="flex items-center gap-3">
+                        <span
+                          className="w-5 h-5 rounded-md border flex items-center justify-center shrink-0"
+                          style={{ color: statusColor, background: `${statusColor}12`, borderColor: `${statusColor}30` }}
+                        >
+                          <TypeIcon size={11} />
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[13px] font-medium text-foreground truncate">{job.taskName || job.loopType || job.id}</p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            {duration && (
+                              <span className="text-[10px] text-muted-foreground/40 flex items-center gap-1 font-mono">
+                                <Clock size={9} />{duration}
+                              </span>
+                            )}
+                            {job.loopState?.iteration > 0 && (
+                              <span className="text-[10px] text-muted-foreground/60">
+                                Iter {job.loopState.iteration}
+                                {job.loopState.lastVerdict && ` · ${job.loopState.lastVerdict}`}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span
+                            className="text-[9px] px-1.5 py-0.5 rounded-full border font-medium capitalize"
+                            style={{ background: `${repoColor}10`, color: repoColor, borderColor: `${repoColor}30` }}
+                          >
+                            {job.repo}
+                          </span>
+                          <span className="text-[11px] text-muted-foreground/40 transition-colors group-hover:text-primary">
+                            View
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

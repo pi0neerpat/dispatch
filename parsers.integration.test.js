@@ -247,7 +247,8 @@ describe('normalizeStatus via parseJobFile', () => {
       ['Completed', 'completed'],
       ['In progress', 'in_progress'],
       ['Failed', 'failed'],
-      ['Killed', 'killed'],
+      ['Killed', 'stopped'],
+      ['Stopped', 'stopped'],
     ];
     for (const [input, expected] of cases) {
       const p = makeJob(input);

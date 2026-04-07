@@ -59,7 +59,11 @@ function AgentCard({ agentId, label, agentSettings, onUpdate, showMaxTurns = tru
         <div>
           <span className="text-[12px] text-foreground/80">Skip Permissions</span>
           <p className="text-[10px] text-muted-foreground/50">
-            {agentId === 'claude' ? '--dangerously-skip-permissions' : '--dangerously-bypass-approvals-and-sandbox'}
+            {agentId === 'claude'
+              ? '--dangerously-skip-permissions'
+              : agentId === 'cursor'
+                ? '--force'
+                : '--dangerously-bypass-approvals-and-sandbox'}
           </p>
         </div>
       </div>
@@ -74,7 +78,11 @@ function AgentCard({ agentId, label, agentSettings, onUpdate, showMaxTurns = tru
           <div>
             <span className="text-[12px] text-foreground/80">TUI Mode</span>
             <p className="text-[10px] text-muted-foreground/50">
-              {agentId === 'claude' ? 'Off: adds -p --output-format text' : 'Off: adds --quiet, runs headless'}
+              {agentId === 'claude'
+                ? 'Off: adds -p --output-format text'
+                : agentId === 'cursor'
+                  ? 'Off: adds --print --output-format text'
+                  : 'Off: adds --color never, runs headless'}
             </p>
           </div>
         </div>
@@ -117,6 +125,22 @@ export default function SettingsView({ settings, onUpdateAgent }) {
           agentId="codex"
           label="Codex"
           agentSettings={settings.agents.codex}
+          onUpdate={onUpdateAgent}
+          showMaxTurns={false}
+          showTuiMode={true}
+        />
+        <AgentCard
+          agentId="cursor"
+          label="Cursor"
+          agentSettings={settings.agents.cursor}
+          onUpdate={onUpdateAgent}
+          showMaxTurns={false}
+          showTuiMode={true}
+        />
+        <AgentCard
+          agentId="pi"
+          label="Pi"
+          agentSettings={settings.agents.pi}
           onUpdate={onUpdateAgent}
           showMaxTurns={false}
           showTuiMode={true}

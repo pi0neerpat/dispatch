@@ -22,10 +22,12 @@ export function useAppNavigation() {
     ? decodeURIComponent(segments[1])
     : null
 
-  // drillDownLoopId is derived from URL: /loops/:loopType/:timestamp
-  const drillDownLoopId = segments[0] === 'loops' && segments[1] && segments[2]
-    ? `${decodeURIComponent(segments[1])}/${decodeURIComponent(segments[2])}`
-    : null
+  // drillDownLoopId is derived from URL: /loops/:loopType/:timestamp or /loops/session/:sessionId
+  const drillDownLoopId = segments[0] === 'loops' && segments[1] === 'session' && segments[2]
+    ? `session:${decodeURIComponent(segments[2])}`
+    : segments[0] === 'loops' && segments[1] && segments[2]
+      ? `${decodeURIComponent(segments[1])}/${decodeURIComponent(segments[2])}`
+      : null
 
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
 
@@ -49,6 +51,10 @@ export function useAppNavigation() {
     // loopId is like "linear-review/2026-03-31T20:58:52"
     const parts = loopId.split('/')
     navigate(`/loops/${encodeURIComponent(parts[0])}/${encodeURIComponent(parts.slice(1).join('/'))}`)
+  }, [navigate])
+
+  const openLoopBySession = useCallback((sessionId) => {
+    navigate(`/loops/session/${encodeURIComponent(sessionId)}`)
   }, [navigate])
 
   const openDispatch = useCallback(() => {
@@ -78,6 +84,7 @@ export function useAppNavigation() {
     handleNavChange,
     openJobDetail,
     openLoopDetail,
+    openLoopBySession,
     openDispatch,
     closeJobDetail,
   }

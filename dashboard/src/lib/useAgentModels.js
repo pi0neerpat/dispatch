@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { MODEL_OPTIONS, CODEX_MODEL_OPTIONS, CURSOR_MODEL_OPTIONS } from './constants'
+import { MODEL_OPTIONS, CODEX_MODEL_OPTIONS, CURSOR_MODEL_OPTIONS, PI_MODEL_OPTIONS } from './constants'
 
 /**
  * Fetches available models for the given agent from the server, which queries
@@ -9,6 +9,7 @@ import { MODEL_OPTIONS, CODEX_MODEL_OPTIONS, CURSOR_MODEL_OPTIONS } from './cons
 export function useAgentModels(agent) {
   const fallback = agent === 'codex' ? CODEX_MODEL_OPTIONS
                  : agent === 'cursor' ? CURSOR_MODEL_OPTIONS
+                 : agent === 'pi' ? PI_MODEL_OPTIONS
                  : MODEL_OPTIONS
   const [models, setModels] = useState(fallback)
 

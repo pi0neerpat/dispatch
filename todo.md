@@ -5,12 +5,12 @@
 
 ## Present
 
-- [ ] change .hub-runtime to .dispatch and update all references to it.
+- [x] move dashboard runtime state to `.dispatch/runtime/` and update all references.
 - [ ] rename hub.root to dispatch.root in config.json, config.local.json, and config.example.json
 - [ ] Move tests to a separate directory. Update test command accordingly
 - [ ] add skills-lock.json to gitignore
-- [ ] Add multi-dispatch feature for task list. On right, to left of "Start", show a checkbox to select multiple tasks. When at least one is selected hide the "Start" button and show a "Start <n> tasks" button. When no tasks are selected, show the "Start" button. Then on the dispatch page, show each task in the prompt input. We also need a way to track multi-task completion for a single job. Show Mark Task done button for each task, but limit the text to a reasonable length, so we don't have large newlines. Hovering over the task name should show the full task text.
-- [ ] If work is added to the base repo, then worktree diffs show all these changes, since it currently uses the commit it was started from. We need to make sure that the worktree diffs show only the changes for the current job. It would also be nice to show the changes for the current job even without using worktrees, but im not sure how to do that.
+- [x] Add multi-dispatch feature for task list. On right, to left of "Start", show a checkbox to select multiple tasks. When at least one is selected hide the "Start" button and show a "Start <n> tasks" button. When no tasks are selected, show the "Start" button. Then on the dispatch page, show each task in the prompt input. We also need a way to track multi-task completion for a single job. Show Mark Task done button for each task, but limit the text to a reasonable length, so we don't have large newlines. Hovering over the task name should show the full task text.
+- [x] If work is added to the base repo, then worktree diffs show all these changes, since it currently uses the commit it was started from. We need to make sure that the worktree diffs show only the changes for the current job. It would also be nice to show the changes for the current job even without using worktrees, but im not sure how to do that.
 
 ## Workflows
 
@@ -39,7 +39,7 @@
 
 - [x] Review the current code for quality and brevity — *Feedback: reviewer assessed code quality as "Clean, well-structured." Focus review effort on parsers.js edge cases (fuzzy matching, stemming) and dual-state sync patterns rather than broad refactoring.*
 - [x] Make `maxTurns` required with sensible defaults; add rough cost-per-job tracking via token counts — *Feedback: the `monthlyBudget` field is purely informational today. Making maxTurns required prevents runaway jobs. Rough cost-per-job via token counts from Claude's output helps users understand spending.*
-- [x] Promote markdown job files as canonical state; derive `.hub-runtime/job-runs.json` as cache to reduce dual-state sync bugs — *Feedback: job state currently lives in markdown (notes/jobs/*.md), run state in job-runs.json, schedules in schedules.json, and config in config.json. A job's Status: line can disagree with run state, creating reconciliation complexity. Markdown should be canonical; JSON should be derived cache.*
+- [x] Promote markdown job files as canonical state; derive `.dispatch/runtime/job-runs.json` as cache to reduce dual-state sync bugs — *Feedback: job state currently lives in markdown (notes/jobs/*.md), run state in job-runs.json, schedules in schedules.json, and config in config.json. A job's Status: line can disagree with run state, creating reconciliation complexity. Markdown should be canonical; JSON should be derived cache.*
 - [ ] Add auth to the Express dashboard server (required before any remote/Tailscale access) — *Feedback: port 3001 has no authentication. Anyone who can reach it can read tasks, dispatch jobs, validate/reject work, and access live terminal WebSocket sessions. Fine for strict localhost; mandatory before any remote access (e.g. over Tailscale).*
 - [x] Write a product showcase video script for Work Down. I will handle video production using the /remotion skill when you are done. You should focus on the following items: open-source, local-first, lightweight.
 - [x] Create `/remove-repo` skill to uninstall hooks and remove config entries (inverse of `/add-repo`) — *Feedback: `/add-repo` copies hooks into other repos' `.claude/` directories and modifies their `settings.json`. If someone stops using Dispatch, those hooks remain orphaned (`hub-stop.js` is a no-op without env vars, but still unexpected). A `/remove-repo` skill should clean up hooks and remove the config entry.*

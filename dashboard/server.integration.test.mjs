@@ -66,8 +66,8 @@ function createTestHub() {
     '- Set up test hub',
   ].join('\n'));
 
-  // .hub-runtime directory
-  fs.mkdirSync(path.join(tmpDir, '.hub-runtime'), { recursive: true });
+  // .dispatch/runtime directory
+  fs.mkdirSync(path.join(tmpDir, '.dispatch', 'runtime'), { recursive: true });
 
   // Init git repo
   execSync(`git init -b main "${repoDir}"`, { encoding: 'utf8' });
@@ -200,6 +200,19 @@ describe('Dashboard GET endpoints', () => {
     assert.equal(json.repos[0].name, 'testrepo');
   });
 
+  it('GET /api/catalog returns repos, agents, models, modelSources', async () => {
+    const { status, json } = await api('GET', '/api/catalog');
+    assert.equal(status, 200);
+    assert.ok(Array.isArray(json.repos));
+    assert.equal(json.repos[0].name, 'testrepo');
+    assert.ok(json.repos[0].taskFile);
+    assert.ok(Array.isArray(json.agents));
+    assert.ok(json.agents.some((a) => a.id === 'claude'));
+    assert.ok(json.models && typeof json.models === 'object');
+    assert.ok(json.models.claude && Array.isArray(json.models.claude));
+    assert.ok(json.modelSources && json.modelSources.claude);
+  });
+
   it('GET /api/overview returns stage, repos, totals', async () => {
     const { status, json } = await api('GET', '/api/overview');
     assert.equal(status, 200);
@@ -285,6 +298,60 @@ describe('Dashboard POST write endpoints', () => {
     assert.ok(json.success);
   });
 
+  it('POST /api/jobs/init links follow-up jobs linearly', async () => {
+    const repoDir = path.join(tmpDir, 'testrepo');
+    createJobFile(repoDir, '2026-03-26-parent-job');
+
+    const { status, json } = await api('POST', '/api/jobs/init', {
+      repo: 'testrepo',
+      taskText: 'Follow up on parent job',
+      previousJobId: '2026-03-26-parent-job',
+    });
+    assert.equal(status, 200);
+    assert.ok(json.fileName);
+
+    const childId = json.fileName.replace(/\.md$/, '');
+    const childContent = fs.readFileSync(
+      path.join(repoDir, 'notes', 'jobs', `${childId}.md`),
+      'utf8'
+    );
+    const parentContent = fs.readFileSync(
+      path.join(repoDir, 'notes', 'jobs', '2026-03-26-parent-job.md'),
+      'utf8'
+    );
+
+    assert.ok(childContent.includes('PreviousJob: 2026-03-26-parent-job'));
+    assert.ok(parentContent.includes(`NextJob: ${childId}`));
+
+    await api('DELETE', `/api/sessions/${encodeURIComponent(json.sessionId)}`);
+    await api('DELETE', `/api/sessions/${encodeURIComponent(json.sessionId)}/purge`);
+  });
+
+  it('POST /api/jobs/init rejects branching from a job that already has a next link', async () => {
+    const repoDir = path.join(tmpDir, 'testrepo');
+    const filePath = path.join(repoDir, 'notes', 'jobs', '2026-03-26-linear-parent.md');
+    fs.writeFileSync(filePath, [
+      '# Job Task: Linear parent',
+      'Started: 2026-03-26 12:00:00',
+      'Status: Completed',
+      'Validation: Needs validation',
+      'Repo: testrepo',
+      'NextJob: 2026-03-26-existing-child',
+      '',
+      '## Progress',
+      '',
+      '## Results',
+    ].join('\n'));
+
+    const { status, json } = await api('POST', '/api/jobs/init', {
+      repo: 'testrepo',
+      taskText: 'Attempt second follow up',
+      previousJobId: '2026-03-26-linear-parent',
+    });
+    assert.equal(status, 409);
+    assert.ok(json.error);
+  });
+
   it('POST /api/jobs/:id/validate sets validation to Validated', async () => {
     const repoDir = path.join(tmpDir, 'testrepo');
     createJobFile(repoDir, '2026-03-26-validate-test');
@@ -300,7 +367,7 @@ describe('Dashboard POST write endpoints', () => {
     assert.ok(content.includes('Validation: Validated'));
   });
 
-  it('POST /api/jobs/:id/kill sets status to Killed', async () => {
+  it('POST /api/jobs/:id/kill sets status to Stopped and keeps it reviewable', async () => {
     const repoDir = path.join(tmpDir, 'testrepo');
     createJobFile(repoDir, '2026-03-26-kill-test', { status: 'In progress' });
 
@@ -310,7 +377,8 @@ describe('Dashboard POST write endpoints', () => {
     const content = fs.readFileSync(
       path.join(repoDir, 'notes', 'jobs', '2026-03-26-kill-test.md'), 'utf8'
     );
-    assert.ok(content.includes('Status: Killed'));
+    assert.ok(content.includes('Status: Stopped'));
+    assert.ok(content.includes('Validation: Needs validation'));
   });
 });
 

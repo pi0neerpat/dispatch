@@ -46,7 +46,7 @@ Primary naming has moved from "swarm" to "job". The parser exports the new `pars
 | `writeTaskEdit(filePath, taskNum, newText)` | Replaces the text of the Nth open task | `todo.md` |
 | `writeTaskMove(sourceFile, taskNum, destFile, section)` | Removes task from source, adds to destination | Two `todo.md` files |
 | `writeJobValidation(filePath, status, notes)` | Sets `Validation:` line, appends `## Validation Notes` | Job `.md` file |
-| `writeJobKill(filePath)` | Sets `Status: Killed`, writes `.kill` marker file | Job `.md` file |
+| `writeJobKill(filePath)` | Sets `Status: Stopped`, marks the job for review, writes `.kill` marker file | Job `.md` file |
 | `writeJobStatus(filePath, newStatus)` | Updates the `Status:` line to a new value | Job `.md` file |
 | `writeSwarmValidation(filePath, status, notes)` | Legacy alias of `writeJobValidation` | Job `.md` file |
 | `writeSwarmKill(filePath)` | Legacy alias of `writeJobKill` | Job `.md` file |

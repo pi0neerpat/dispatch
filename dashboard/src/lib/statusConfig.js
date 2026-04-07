@@ -1,4 +1,4 @@
-import { Activity, CheckCircle, XCircle, AlertCircle, Loader, Ban } from 'lucide-react'
+import { Activity, CheckCircle, XCircle, AlertCircle, Loader, Square } from 'lucide-react'
 
 /**
  * Status config for swarm agent states — icon, color, label, etc.
@@ -29,13 +29,21 @@ export const statusConfig = {
     label: 'Failed',
     dotColor: 'var(--status-failed)',
   },
+  stopped: {
+    icon: Square,
+    color: 'text-status-review',
+    borderColor: 'var(--status-review-border)',
+    bg: 'bg-status-review-bg',
+    label: 'Stopped',
+    dotColor: 'var(--status-review)',
+  },
   killed: {
-    icon: Ban,
-    color: 'text-status-failed',
-    borderColor: 'var(--status-failed-border)',
-    bg: 'bg-status-failed-bg',
-    label: 'Killed',
-    dotColor: 'var(--status-failed)',
+    icon: Square,
+    color: 'text-status-review',
+    borderColor: 'var(--status-review-border)',
+    bg: 'bg-status-review-bg',
+    label: 'Stopped',
+    dotColor: 'var(--status-review)',
   },
   needs_validation: {
     icon: AlertCircle,

@@ -83,17 +83,21 @@ function AgentHeader({ taskInfo }) {
     ? 'Running'
     : status === 'completed'
       ? 'Completed'
-      : status === 'failed' || status === 'killed'
-        ? 'Failed'
-        : 'Starting'
+      : status === 'stopped' || status === 'killed'
+        ? 'Stopped'
+        : status === 'failed'
+          ? 'Failed'
+          : 'Starting'
 
   const statusClass = status === 'in_progress'
     ? 'text-status-active bg-status-active-bg border-status-active-border'
     : status === 'completed'
       ? 'text-status-complete bg-status-complete-bg border-status-complete-border'
-      : status === 'failed' || status === 'killed'
-        ? 'text-status-failed bg-status-failed-bg border-status-failed-border'
-        : 'text-muted-foreground bg-card border-border'
+      : status === 'stopped' || status === 'killed'
+        ? 'text-status-review bg-status-review-bg border-status-review-border'
+        : status === 'failed'
+          ? 'text-status-failed bg-status-failed-bg border-status-failed-border'
+          : 'text-muted-foreground bg-card border-border'
 
   return (
     <div className="px-3 py-2.5 border-b border-border bg-card/60">

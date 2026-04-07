@@ -1,13 +1,41 @@
-import { useState, useMemo, useEffect } from 'react'
-import { Bot, Sparkles, AlertCircle, CheckCircle2, XCircle, Clock, GitBranch } from 'lucide-react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
+import { Bot, Sparkles, AlertCircle, CheckCircle2, XCircle, Clock, GitBranch, AlertTriangle, Square, Loader, Eye, EyeOff } from 'lucide-react'
 import { cn, timeAgo, truncateWithEllipsis, buildPlanPath } from '../lib/utils'
 import { repoIdentityColors, normalizeAgentId, getAgentBrandColor } from '../lib/constants'
 import { buildWorkerNavItems } from '../lib/workerUtils'
 import { FilterChip, toggleFilter, BUG_COLOR, loadFilters, saveFilters } from '../lib/filterUtils.jsx'
 import AgentIcon, { getAgentLabel } from './AgentIcon'
 
-const JOB_STATUSES = ['review', 'active', 'completed', 'failed', 'rejected']
+const JOB_STATUSES = ['active', 'review', 'completed', 'failed', 'rejected']
 const STORAGE_KEY = 'jobsView:filters'
+const READ_OVERRIDES_KEY = 'jobsView:readOverrides'
+
+function loadReadOverrides() {
+  try {
+    const raw = localStorage.getItem(READ_OVERRIDES_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object') return {}
+    return Object.fromEntries(
+      Object.entries(parsed).filter(([jobId, value]) => Boolean(jobId) && typeof value === 'boolean')
+    )
+  } catch {
+    return {}
+  }
+}
+
+function saveReadOverrides(overrides) {
+  try {
+    const entries = Object.entries(overrides || {}).filter(([, value]) => typeof value === 'boolean')
+    if (entries.length === 0) {
+      localStorage.removeItem(READ_OVERRIDES_KEY)
+      return
+    }
+    localStorage.setItem(READ_OVERRIDES_KEY, JSON.stringify(Object.fromEntries(entries)))
+  } catch {
+    // noop in non-browser/private contexts
+  }
+}
 
 const STATUS_LABELS = {
   active: 'Active',
@@ -24,9 +52,10 @@ function classifyItem(worker) {
   if (worker.validation === 'rejected' || worker.runState === 'rejected') return 'rejected'
   if (worker.needsReview || worker.validation === 'needs_validation' || worker.runState === 'awaiting_validation') return 'review'
   if (worker.status === 'in_progress') return 'active'
+  if (worker.status === 'stopped' || worker.status === 'killed') return 'review'
   if (worker.status === 'completed' && (!worker.validation || worker.validation === 'none')) return 'review'
   if (worker.status === 'completed') return 'completed'
-  if (worker.status === 'failed' || worker.status === 'killed') return 'failed'
+  if (worker.status === 'failed') return 'failed'
   return 'active'
 }
 
@@ -42,8 +71,53 @@ export default function JobsView({
   sessionRecords,
   overview,
   onSelectJob,
+  onJobsRefresh,
+  showToast,
 }) {
   const agents = swarm?.agents || []
+  const [stoppingJobs, setStoppingJobs] = useState(new Set())
+  const [confirmStopId, setConfirmStopId] = useState(null)
+  const [readOverrides, setReadOverrides] = useState(() => loadReadOverrides())
+  const [showReadReview, setShowReadReview] = useState(() => loadFilters(STORAGE_KEY)?.showReadReview ?? false)
+
+  const handleStopOrphan = useCallback(async (e, worker) => {
+    e.stopPropagation()
+    const jobId = worker.jobId || worker.id
+    if (confirmStopId !== jobId) {
+      setConfirmStopId(jobId)
+      setTimeout(() => setConfirmStopId(prev => prev === jobId ? null : prev), 3000)
+      return
+    }
+    setStoppingJobs(prev => new Set(prev).add(jobId))
+    setConfirmStopId(null)
+    try {
+      const res = await fetch(`/api/jobs/${jobId}/kill`, { method: 'POST' })
+      if (res.ok) {
+        showToast?.('Job stopped', 'info')
+        onJobsRefresh?.()
+      }
+    } catch { /* SSE will refresh */ }
+    setStoppingJobs(prev => { const next = new Set(prev); next.delete(jobId); return next })
+  }, [confirmStopId, onJobsRefresh, showToast])
+
+  const handleToggleRead = useCallback(async (e, worker) => {
+    e.stopPropagation()
+    const jobId = worker.jobId || worker.id
+    const nextRead = !worker.read
+    setReadOverrides(prev => ({ ...prev, [jobId]: nextRead }))
+    try {
+      const res = await fetch(`/api/jobs/${jobId}/read`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ read: nextRead }),
+      })
+      if (!res.ok) throw new Error('Failed to update read status')
+      onJobsRefresh?.()
+    } catch {
+      setReadOverrides(prev => ({ ...prev, [jobId]: worker.read === true }))
+      showToast?.('Failed to update read status', 'error')
+    }
+  }, [onJobsRefresh, showToast])
 
   // Build a set of bug task texts (lowercased) from overview for cross-referencing
   const bugTaskTexts = useMemo(() => {
@@ -58,14 +132,28 @@ export default function JobsView({
     return texts
   }, [overview])
 
-  const allItems = useMemo(() => {
+  const baseItems = useMemo(() => {
     const items = buildWorkerNavItems(agents, null, jobFileToSession, sessionRecords)
     return items.map(item => {
       const labelLower = (item.label || '').toLowerCase()
       const isBug = [...bugTaskTexts].some(bt => labelLower.includes(bt) || bt.includes(labelLower.slice(0, 40)))
-      return { ...item, filterStatus: classifyItem(item), isBug }
+      return {
+        ...item,
+        filterStatus: classifyItem(item),
+        isBug,
+      }
     })
   }, [agents, jobFileToSession, bugTaskTexts, sessionRecords])
+
+  const allItems = useMemo(() => {
+    return baseItems.map(item => {
+      const jobId = item.jobId || item.id
+      return {
+        ...item,
+        read: readOverrides[jobId] ?? item.read ?? false,
+      }
+    })
+  }, [baseItems, readOverrides])
 
   // Use overview repos so all configured repos appear as filter chips (including those with no jobs)
   const repoNames = useMemo(() => {
@@ -89,8 +177,41 @@ export default function JobsView({
   }, [repoNames.join(',')]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    saveFilters(STORAGE_KEY, { statuses: selectedStatuses, repos: selectedRepos, bugOnly: bugFilter })
-  }, [selectedStatuses, selectedRepos, bugFilter])
+    saveFilters(STORAGE_KEY, { statuses: selectedStatuses, repos: selectedRepos, bugOnly: bugFilter, showReadReview })
+  }, [selectedStatuses, selectedRepos, bugFilter, showReadReview])
+
+  useEffect(() => {
+    saveReadOverrides(readOverrides)
+  }, [readOverrides])
+
+  useEffect(() => {
+    setReadOverrides(prev => {
+      const prevEntries = Object.entries(prev)
+      if (prevEntries.length === 0) return prev
+
+      const serverReadByJobId = new Map(
+        baseItems
+          .map(item => [item.jobId || item.id, item.read === true])
+          .filter(([jobId]) => Boolean(jobId))
+      )
+
+      let changed = false
+      const next = {}
+      for (const [jobId, overrideValue] of prevEntries) {
+        if (!serverReadByJobId.has(jobId)) {
+          changed = true
+          continue
+        }
+        if (serverReadByJobId.get(jobId) === overrideValue) {
+          changed = true
+          continue
+        }
+        next[jobId] = overrideValue
+      }
+
+      return changed ? next : prev
+    })
+  }, [baseItems])
 
   const filteredItems = useMemo(() => {
     return allItems.filter(w => {
@@ -115,13 +236,13 @@ export default function JobsView({
       status,
       items: filteredItems
         .filter(w => w.filterStatus === status)
+        .filter(w => status !== 'review' || showReadReview || !w.read)
         .sort((a, b) => {
           const ta = a.created ? new Date(a.created).getTime() : 0
           const tb = b.created ? new Date(b.created).getTime() : 0
           return tb - ta
         }),
     }))
-    .filter(g => g.items.length > 0)
 
   if (allItems.length === 0) {
     return (
@@ -191,9 +312,30 @@ export default function JobsView({
                 <span className="text-[10px] font-mono text-muted-foreground/40" style={{ fontFamily: 'var(--font-mono)' }}>
                   {group.items.length}
                 </span>
+                {group.status === 'review' && (
+                  <button
+                    type="button"
+                    onClick={() => setShowReadReview(prev => !prev)}
+                    className={cn(
+                      'ml-2 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] transition-colors',
+                      showReadReview
+                        ? 'border-status-review-border bg-status-review-bg text-status-review'
+                        : 'border-border text-muted-foreground/70 hover:text-foreground'
+                    )}
+                    title={showReadReview ? 'Hide read jobs' : 'Show read jobs'}
+                  >
+                    {showReadReview ? <EyeOff size={10} /> : <Eye size={10} />}
+                    {showReadReview ? 'Hide read' : 'Show read'}
+                  </button>
+                )}
               </div>
 
               <div className="space-y-2">
+                {group.items.length === 0 && (
+                  <div className="w-full px-3.5 py-2.5 rounded-lg text-center">
+                    <span className="text-[13px] text-muted-foreground/40">Empty</span>
+                  </div>
+                )}
                 {group.items.map(worker => {
                   const repoColor = repoIdentityColors[worker.repo] || 'var(--primary)'
                   const normalizedAgent = normalizeAgentId(worker.agent)
@@ -259,6 +401,17 @@ export default function JobsView({
                               )}
                             </span>
                           )}
+                          {worker.lastError && (
+                            <div
+                              className="mt-1 flex items-start gap-1.5 text-[10px] text-status-failed/80 min-w-0"
+                              title={worker.lastError}
+                            >
+                              <AlertTriangle size={10} className="shrink-0 mt-[1px]" />
+                              <span className="truncate">
+                                {worker.lastErrorSubKind === 'rate_limit' ? 'Rate limit hit' : 'Error'}{worker.errorCount > 1 ? ` (${worker.errorCount})` : ''}
+                              </span>
+                            </div>
+                          )}
                           {worker.planSlug && (
                             <div className="mt-1 flex items-center gap-1 text-[10px] text-muted-foreground/70 min-w-0">
                               <span className="shrink-0">Plan:</span>
@@ -282,6 +435,45 @@ export default function JobsView({
                         </div>
 
                         <div className="flex items-center gap-2 shrink-0 self-center">
+                          {worker.filterStatus === 'review' && (
+                            <button
+                              type="button"
+                              onClick={(e) => handleToggleRead(e, worker)}
+                              className={cn(
+                                'p-1 rounded-md border transition-colors',
+                                worker.read
+                                  ? 'border-status-review-border bg-status-review-bg text-status-review'
+                                  : 'border-border text-muted-foreground/70 hover:text-foreground hover:border-status-review/30'
+                              )}
+                              title={worker.read ? 'Mark as unread' : 'Mark as read'}
+                              aria-label={worker.read ? 'Mark as unread' : 'Mark as read'}
+                            >
+                              {worker.read ? <EyeOff size={12} /> : <Eye size={12} />}
+                            </button>
+                          )}
+                          {worker.filterStatus === 'active' && !worker.alive && (() => {
+                            const jid = worker.jobId || worker.id
+                            const isStopping = stoppingJobs.has(jid)
+                            const isConfirming = confirmStopId === jid
+                            return (
+                              <button
+                                onClick={(e) => handleStopOrphan(e, worker)}
+                                disabled={isStopping}
+                                className={cn(
+                                  'px-2 py-0.5 rounded text-[10px] font-medium transition-all flex items-center gap-1',
+                                  isConfirming
+                                    ? 'bg-status-failed-bg text-status-failed border border-status-failed-border'
+                                    : 'text-status-failed/60 hover:text-status-failed bg-status-failed-bg/40 border border-status-failed-border/20 hover:border-status-failed-border'
+                                )}
+                                title="Stop orphaned job (no active session)"
+                              >
+                                {isStopping
+                                  ? <Loader size={9} className="animate-spin" />
+                                  : <Square size={9} />}
+                                {isConfirming ? 'Stop?' : 'Stop'}
+                              </button>
+                            )
+                          })()}
                           <span
                             className="text-[9px] px-1.5 py-0.5 rounded-full border font-medium capitalize"
                             style={{ background: `${repoColor}10`, color: repoColor, borderColor: `${repoColor}30` }}

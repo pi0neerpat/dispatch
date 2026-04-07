@@ -114,6 +114,7 @@ export function useSessionStore() {
         extraFlags: dispatchOpts.extraFlags || undefined,
         plainOutput: dispatchOpts.plainOutput || undefined,
         planSlug: dispatchOpts.planSlug || undefined,
+        previousJobId: dispatchOpts.previousJobId || undefined,
         skills: Array.isArray(dispatchOpts.skills) ? dispatchOpts.skills : undefined,
       }),
     })
@@ -173,6 +174,7 @@ export function useSessionStore() {
       next.set(sessionId, {
         taskText: data.taskText || '',
         repoName: data.repo || '',
+        agent: data.agent || 'claude',
         jobFile: data.jobFile || null,
         created: Date.now(),
         ptySessionId: sessionId,

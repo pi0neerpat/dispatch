@@ -113,7 +113,7 @@ function normalizeStatus(raw) {
   if (lower === 'complete' || lower === 'completed') return 'completed';
   if (lower === 'in progress' || lower === 'in_progress') return 'in_progress';
   if (lower === 'failed') return 'failed';
-  if (lower === 'killed') return 'killed';
+  if (lower === 'killed' || lower === 'stopped') return 'stopped';
   return lower;
 }
 
@@ -122,8 +122,10 @@ function parseJobFile(filePath) {
   let taskName = '', started = '', status = 'unknown', validation = 'none', agentId = null, skills = [];
   let originalTask = '', session = null, repo = null;
   let originalPrompt = '';
+  let previousJobId = null, nextJobId = null;
   let planSlug = null;
   let agent = 'claude';
+  let read = false;
   let skipPermissions = null;
   let resumeId = null, resumeCommand = null;
   let ai = null;
@@ -170,8 +172,21 @@ function parseJobFile(filePath) {
       const sessionMatch = line.match(/^Session:\s*(.+)/);
       if (sessionMatch) { session = sessionMatch[1].trim(); continue; }
 
+      const previousJobMatch = line.match(/^PreviousJob:\s*(.+)/);
+      if (previousJobMatch) { previousJobId = previousJobMatch[1].trim(); continue; }
+
+      const nextJobMatch = line.match(/^NextJob:\s*(.+)/);
+      if (nextJobMatch) { nextJobId = nextJobMatch[1].trim(); continue; }
+
       const agentMatch = line.match(/^Agent:\s*(.+)/);
       if (agentMatch) { agent = agentMatch[1].trim().toLowerCase() || 'claude'; continue; }
+
+      const readMatch = line.match(/^Read:\s*(.+)/);
+      if (readMatch) {
+        const raw = readMatch[1].trim().toLowerCase();
+        read = raw === 'true' || raw === 'yes' || raw === '1';
+        continue;
+      }
 
       const skipPermissionsMatch = line.match(/^SkipPermissions:\s*(.+)/);
       if (skipPermissionsMatch) {
@@ -249,7 +264,8 @@ function parseJobFile(filePath) {
   return {
     id, taskName, started, status, validation, agentId, skills,
     agent,
-    originalTask, originalPrompt, session, skipPermissions, resumeId, resumeCommand, repo, planSlug,
+    read,
+    originalTask, originalPrompt, session, previousJobId, nextJobId, skipPermissions, resumeId, resumeCommand, repo, planSlug,
     branch, worktreePath, startCommit, baseBranch,
     type, loopType,
     lastProgress, progressCount, durationMinutes, resultsSummary,
@@ -333,6 +349,97 @@ function parseLoopState(loopDir) {
     return { iteration: run.iteration, lastVerdict: run.lastVerdict, complete: run.complete, runDir };
   } catch { /* dir or log missing */ }
   return { iteration, lastVerdict, complete, runDir };
+}
+
+function parseLoopRunDetailed(runDir) {
+  const run = parseLoopRun(runDir);
+  const iterations = [];
+  const warnings = [];
+  const addWarning = (context, err) => {
+    const message = err instanceof Error ? err.message : String(err);
+    warnings.push(`${context}: ${message}`);
+  };
+  // Parse iteration info from loop.log body
+  try {
+    const logPath = path.join(runDir, 'loop.log');
+    const content = fs.readFileSync(logPath, 'utf8');
+    const lines = content.split('\n');
+    let pastHeader = false;
+    let currentIter = null;
+    for (const line of lines) {
+      if (!pastHeader) {
+        if (line.trim() === '---') pastHeader = true;
+        continue;
+      }
+      const iterMatch = line.match(/Iteration\s+(\d+)\s*[-–—]\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})/i);
+      if (iterMatch) {
+        currentIter = { number: parseInt(iterMatch[1], 10), timestamp: iterMatch[2], verdict: null };
+        iterations.push(currentIter);
+        continue;
+      }
+      // Also match iteration lines without timestamps
+      const iterMatchSimple = line.match(/Iteration\s+(\d+)/i);
+      if (iterMatchSimple && !iterMatch) {
+        const num = parseInt(iterMatchSimple[1], 10);
+        if (!currentIter || currentIter.number !== num) {
+          currentIter = { number: num, timestamp: null, verdict: null };
+          iterations.push(currentIter);
+        }
+      }
+      if (currentIter) {
+        if (line.includes('VERDICT: PASS') || line.includes('VERIFIED: PASS')) currentIter.verdict = 'PASS';
+        else if (line.includes('VERDICT: FAIL')) currentIter.verdict = 'FAIL';
+        else if (line.includes('ALL PHASES COMPLETE')) currentIter.verdict = 'PASS';
+        else if (line.includes('ALL ISSUES RESOLVED')) currentIter.verdict = 'PASS';
+      }
+    }
+  } catch (err) {
+    addWarning('failed to parse loop.log', err);
+  }
+
+  // Scan for artifact files
+  const artifacts = [];
+  try {
+    const files = fs.readdirSync(runDir).filter(f => f.endsWith('.txt')).sort();
+    for (const file of files) {
+      let type = 'unknown', iteration = null;
+      const reviewMatch = file.match(/^review_iter(\d+)/);
+      const synthMatch = file.match(/^synthesis_iter(\d+)/);
+      const verifyMatch = file.match(/^verification_iter(\d+)/);
+      if (reviewMatch) { type = 'review'; iteration = parseInt(reviewMatch[1], 10); }
+      else if (synthMatch) { type = 'synthesis'; iteration = parseInt(synthMatch[1], 10); }
+      else if (verifyMatch) { type = 'verification'; iteration = parseInt(verifyMatch[1], 10); }
+
+      let content = '';
+      try {
+        content = fs.readFileSync(path.join(runDir, file), 'utf8');
+      } catch (err) {
+        addWarning(`failed to read artifact "${file}"`, err);
+      }
+      artifacts.push({ name: file, type, iteration, content });
+    }
+  } catch (err) {
+    addWarning('failed to scan artifact directory', err);
+  }
+
+  // Read prompt
+  let prompt = '';
+  try {
+    const candidatePromptPaths = [
+      path.join(runDir, '..', 'prompt.md'),
+      path.join(runDir, 'prompt.md'),
+      path.join(path.dirname(path.dirname(runDir)), 'prompt.md'),
+    ];
+    for (const promptPath of candidatePromptPaths) {
+      if (!fs.existsSync(promptPath)) continue;
+      prompt = fs.readFileSync(promptPath, 'utf8');
+      break;
+    }
+  } catch (err) {
+    addWarning('failed to read prompt.md', err);
+  }
+
+  return { ...run, iterations, artifacts, prompt, warnings };
 }
 
 function loadConfig(hubDir) {
@@ -590,18 +697,22 @@ function writeJobValidation(filePath, newValidation, notes) {
 }
 
 /**
- * Kill a swarm agent by marking its file as Killed and writing a .kill marker.
+ * Stop a swarm agent by marking its file as Stopped and writing a .kill marker.
  * Returns { success, id, agentId }.
  */
 function writeJobKill(filePath) {
   const content = fs.readFileSync(filePath, 'utf8');
   const lines = content.split('\n');
   let statusLineIndex = -1;
+  let validationLineIndex = -1;
 
   for (let i = 0; i < lines.length; i++) {
-    if (lines[i].match(/^Status:\s/)) {
+    if (statusLineIndex === -1 && lines[i].match(/^Status:\s/)) {
       statusLineIndex = i;
-      break;
+      continue;
+    }
+    if (validationLineIndex === -1 && lines[i].match(/^Validation:\s/)) {
+      validationLineIndex = i;
     }
   }
 
@@ -609,14 +720,24 @@ function writeJobKill(filePath) {
     throw new Error('swarm file has no Status: line');
   }
 
-  // Change Status to Killed
-  lines[statusLineIndex] = 'Status: Killed';
+  // Change Status to Stopped so the work can still be reviewed/followed up.
+  lines[statusLineIndex] = 'Status: Stopped';
 
-  // Append a ## Killed section with timestamp
+  // Ensure stopped work is surfaced for review unless it has already been reviewed.
+  if (validationLineIndex !== -1) {
+    const currentVal = lines[validationLineIndex].replace(/^Validation:\s*/, '').trim().toLowerCase().replace(/\s+/g, '_');
+    if (currentVal !== 'validated' && currentVal !== 'rejected' && currentVal !== 'needs_validation') {
+      lines[validationLineIndex] = 'Validation: Needs validation';
+    }
+  } else {
+    lines.splice(statusLineIndex + 1, 0, 'Validation: Needs validation');
+  }
+
+  // Append a ## Stopped section with timestamp.
   const killTimestamp = new Date().toISOString();
   lines.push('');
-  lines.push('## Killed');
-  lines.push(`Killed at: ${killTimestamp}`);
+  lines.push('## Stopped');
+  lines.push(`Stopped at: ${killTimestamp}`);
 
   fs.writeFileSync(filePath, lines.join('\n'), 'utf8');
 
@@ -692,7 +813,8 @@ function writeJobStatus(filePath, newStatus) {
     completed: 'Completed',
     in_progress: 'In progress',
     failed: 'Failed',
-    killed: 'Killed',
+    stopped: 'Stopped',
+    killed: 'Stopped',
   };
   const validStatuses = Object.keys(displayMap);
   if (!validStatuses.includes(newStatus)) {
@@ -701,10 +823,10 @@ function writeJobStatus(filePath, newStatus) {
   const displayValue = displayMap[newStatus];
   lines[statusLineIndex] = `Status: ${displayValue}`;
 
-  // When completing, always force validation to "Needs validation".
+  // When completing, and when explicitly stopping a job, surface it for review.
   // This prevents agents from self-validating by writing Validation: Validated
   // directly to the swarm file before the PTY exits.
-  if (newStatus === 'completed') {
+  if (newStatus === 'completed' || newStatus === 'stopped' || newStatus === 'killed') {
     let validationLineIndex = -1;
     for (let i = 0; i < lines.length; i++) {
       if (lines[i].match(/^Validation:\s/)) {
@@ -714,7 +836,8 @@ function writeJobStatus(filePath, newStatus) {
     }
     if (validationLineIndex !== -1) {
       const currentVal = lines[validationLineIndex].replace(/^Validation:\s*/, '').trim().toLowerCase().replace(/\s+/g, '_');
-      if (currentVal !== 'needs_validation') {
+      const shouldForceReview = newStatus === 'completed' || (currentVal !== 'validated' && currentVal !== 'rejected');
+      if (shouldForceReview && currentVal !== 'needs_validation') {
         lines[validationLineIndex] = 'Validation: Needs validation';
       }
     } else {
@@ -726,7 +849,7 @@ function writeJobStatus(filePath, newStatus) {
   fs.writeFileSync(filePath, lines.join('\n'), 'utf8');
 
   const parsed = parseJobFile(filePath);
-  return { success: true, id: parsed.id, status: newStatus };
+  return { success: true, id: parsed.id, status: parsed.status };
 }
 
 /**
@@ -1436,6 +1559,7 @@ module.exports = {
   dismissCheckpoint,
   listCheckpoints,
   parseLoopRun,
+  parseLoopRunDetailed,
   parseAllLoopRuns,
   parseLoopState,
 };

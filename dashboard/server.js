@@ -1,12 +1,16 @@
 // ── Security / Threat Model ──────────────────────────────
-// This server is designed as a **single-user localhost tool**.
+// This server is designed as a **single-user localhost tool** by default.
 //
 // Trust boundary:
-//   - Binds to 127.0.0.1 only — not reachable from the LAN.
-//   - CORS restricts HTTP API access to the dashboard's own origin.
-//   - WebSocket connections are validated against the same origin allowlist.
+//   - Binds to 127.0.0.1 only unless `DISPATCH_BIND` is set (e.g. 0.0.0.0 for LAN).
+//   - Optional `DISPATCH_API_KEY`: required on all `/api/*` HTTP routes and `/ws/terminal`
+//     when set (Bearer, X-API-Key, or `apiKey` query on WebSocket).
+//   - CORS restricts browser API access to the dashboard's own origin (no origin = allowed).
+//   - WebSocket connections are validated against the same origin allowlist after auth.
 //
-// If you need to expose this on a shared machine or LAN, you MUST add:
+// If you expose this on a LAN, you MUST set `DISPATCH_API_KEY` and prefer TLS in front.
+//
+// Legacy note — if you need to expose without the below, you MUST add:
 //   1. Authentication on all HTTP and WebSocket routes.
 //   2. Per-user authorization for destructive operations (job control, merge,
 //      checkpoint, session management).
@@ -22,14 +26,14 @@
 // ─────────────────────────────────────────────────────────
 
 import { createRequire } from 'module'
-import { execFileSync, execSync } from 'child_process'
+import { execFileSync, execSync, spawnSync } from 'child_process'
 import express from 'express'
 import cors from 'cors'
 import path from 'path'
 import os from 'os'
 import { fileURLToPath } from 'url'
 import fs from 'fs'
-import { createHash, randomUUID } from 'crypto'
+import { createHash, randomUUID, timingSafeEqual } from 'crypto'
 import { WebSocketServer } from 'ws'
 import {
   createSessionEventStore,
@@ -43,7 +47,7 @@ const require = createRequire(import.meta.url)
 const pty = require('node-pty')
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const {
-  parseTaskFile, parseActivityLog, getGitInfo, parseJobFile, parseJobDir, parsePlansDir, parseFrontmatter, parseSkillsDir, loadConfig, parseLoopState, parseAllLoopRuns,
+  parseTaskFile, parseActivityLog, getGitInfo, parseJobFile, parseJobDir, parsePlansDir, parseFrontmatter, parseSkillsDir, loadConfig, parseLoopState, parseAllLoopRuns, parseLoopRunDetailed,
   writeTaskDone, writeTaskDoneByText, writeTaskReopenByText, writeTaskAdd, writeTaskEdit, writeTaskMove,
   writeActivityEntry, writeJobValidation, writeJobKill, writeJobStatus, writeJobResults,
   createCheckpoint, revertCheckpoint, dismissCheckpoint, listCheckpoints,
@@ -53,10 +57,16 @@ const {
 
 const HUB_DIR = process.env.HUB_DIR ? path.resolve(process.env.HUB_DIR) : path.resolve(__dirname, '..')
 const PORT = process.env.PORT || 3747
-const RUNTIME_DIR = path.join(HUB_DIR, '.hub-runtime')
+/** When set, all `/api/*` requests must send this key (Bearer or X-API-Key). */
+const DISPATCH_API_KEY = (process.env.DISPATCH_API_KEY || '').trim()
+/** Listen address (default 127.0.0.1). Use e.g. 0.0.0.0 for LAN access behind a firewall + API key. */
+const DISPATCH_BIND = (process.env.DISPATCH_BIND || '127.0.0.1').trim()
+const DISPATCH_DIR = path.join(HUB_DIR, '.dispatch')
+const RUNTIME_DIR = path.join(DISPATCH_DIR, 'runtime')
 const JOB_RUNS_FILE = path.join(RUNTIME_DIR, 'job-runs.json')
 const PROMPTS_DIR = path.join(RUNTIME_DIR, 'prompts')
 const WORKTREES_DIR = path.join(RUNTIME_DIR, 'worktrees')
+const PI_SESSIONS_DIR = path.join(RUNTIME_DIR, 'pi-sessions')
 const RUN_STATE = Object.freeze({
   QUEUED: 'queued',
   STARTING: 'starting',
@@ -253,6 +263,7 @@ const VALID_RESUME_ID_RE = /^[A-Za-z0-9._:-]{1,200}$/
 function isValidResumeId(id) {
   return typeof id === 'string' && VALID_RESUME_ID_RE.test(id)
 }
+const VALID_LOOP_TIMESTAMP_RE = /^[A-Za-z0-9._:-]{1,120}$/
 
 // Branch names: alphanumeric, dots, hyphens, forward slashes
 const VALID_BRANCH_RE = /^[a-zA-Z0-9._\-/]+$/
@@ -267,7 +278,54 @@ function buildResumeClaudeCommand(resumeId, flags = '') {
   return `claude${flags} --resume "${id}"`
 }
 
-function buildDispatchPrompt(taskText, jobFilePath = null, selectedSkillNames = [], worktreePath = null) {
+function buildResumeCursorCommand(resumeId, flags = '', binary = detectCursorBinary()) {
+  const id = String(resumeId ?? '').trim()
+  if (!id) return null
+  if (!isValidResumeId(id)) return null
+  return `${binary === 'agent' ? 'agent' : 'cursor-agent'}${flags} --resume "${id}"`
+}
+
+function detectCursorBinary() {
+  if (detectCursorBinary.cached) return detectCursorBinary.cached
+  try {
+    execFileSync('bash', ['-lc', 'command -v cursor-agent >/dev/null 2>&1'], { stdio: 'ignore' })
+    detectCursorBinary.cached = 'cursor-agent'
+    return detectCursorBinary.cached
+  } catch {
+    detectCursorBinary.cached = 'agent'
+    return detectCursorBinary.cached
+  }
+}
+
+function buildCursorResumeCommand(resumeId, flags = '', binary = detectCursorBinary()) {
+  return buildResumeCursorCommand(resumeId, flags, binary)
+}
+
+function getPiSessionFilePath({ repoName, jobId }) {
+  return path.join(PI_SESSIONS_DIR, sanitizeRepoName(repoName || 'repo'), `${jobId}.jsonl`)
+}
+
+function buildResumePiCommand(sessionFilePath) {
+  const resolved = String(sessionFilePath || '').trim()
+  if (!resolved) return null
+  return `pi --session ${shellQuote(resolved)}`
+}
+
+function extractPiSessionPath(command) {
+  if (!command) return null
+  const match = String(command).match(/--session\s+(?:"([^"]+)"|'([^']+)'|(\S+))/i)
+  const value = match?.[1] || match?.[2] || match?.[3] || null
+  return value ? path.resolve(value) : null
+}
+
+function isSafePiSessionFilePath(sessionFilePath) {
+  if (!sessionFilePath) return false
+  const resolved = path.resolve(sessionFilePath)
+  const root = path.resolve(PI_SESSIONS_DIR)
+  return resolved.startsWith(`${root}${path.sep}`)
+}
+
+function buildDispatchPrompt(taskText, jobFilePath = null, selectedSkillNames = [], worktreePath = null, agent = 'claude') {
   let prompt = ''
 
   if (worktreePath) {
@@ -278,10 +336,11 @@ function buildDispatchPrompt(taskText, jobFilePath = null, selectedSkillNames = 
   prompt += String(taskText || '')
 
   if (Array.isArray(selectedSkillNames) && selectedSkillNames.length > 0) {
+    const skillPrefix = agent === 'pi' ? '/skill:' : '/'
     const names = selectedSkillNames
       .map(name => String(name || '').trim())
       .filter(Boolean)
-      .map(name => `/${name}`)
+      .map(name => `${skillPrefix}${name}`)
     if (names.length > 0) {
       prompt += `\n\nYou have access to the following skills: ${names.join(', ')}.`
     }
@@ -390,6 +449,58 @@ function buildTrackedCodexCommand({
   const envPrefix = buildClaudeEnvPrefix({ sessionId, jobId, repoName })
   const cmd = `cat ${shellQuote(promptFilePath)} | ${envPrefix}codex exec ${flags} -`
   return `${cmd}; __hub_code=$?; echo "__HUB_CLAUDE_EXIT_CODE:\${__hub_code}__"; exit $__hub_code`
+}
+
+function buildTrackedCursorCommand({
+  promptFilePath = null,
+  model = null,
+  skipPermissions = false,
+  plainOutput = false,
+  resumeId = null,
+  sessionId = null,
+  jobId = null,
+  repoName = null,
+  extraFlags = '',
+} = {}) {
+  if (!promptFilePath && !resumeId) return null
+  const cursorBinary = detectCursorBinary()
+  let flags = ''
+  if (skipPermissions) flags += ' --force'
+  if (model) flags += ` --model ${shellQuote(model)}`
+  if (plainOutput) flags += ' --print --output-format text --trust'
+  const sanitized = sanitizeExtraFlags(extraFlags)
+  if (sanitized) flags += ` ${sanitized}`
+  const envPrefix = buildClaudeEnvPrefix({ sessionId, jobId, repoName })
+  const cursorCommand = resumeId
+    ? `${envPrefix}${buildCursorResumeCommand(resumeId, flags, cursorBinary)}`
+    : cursorBinary === 'agent'
+      ? `${envPrefix}agent -p "$(cat ${shellQuote(promptFilePath)})"${flags}`
+      : `${envPrefix}cursor-agent${flags} "$(cat ${shellQuote(promptFilePath)})"`
+  const withExit = `${cursorCommand}; __hub_code=$?; echo "__HUB_CLAUDE_EXIT_CODE:\${__hub_code}__"; exit $__hub_code`
+  return plainOutput ? `echo '__HUB_OUTPUT_START__'; ${withExit}` : withExit
+}
+
+function buildTrackedPiCommand({
+  promptFilePath = null,
+  model = null,
+  plainOutput = false,
+  sessionId = null,
+  jobId = null,
+  repoName = null,
+  extraFlags = '',
+  piSessionPath = null,
+} = {}) {
+  if (!promptFilePath) return null
+  let flags = ''
+  if (plainOutput) flags += ' -p'
+  if (model) flags += ` --model ${shellQuote(model)}`
+  if (piSessionPath) flags += ` --session ${shellQuote(piSessionPath)}`
+  const sanitized = sanitizeExtraFlags(extraFlags)
+  if (sanitized) flags += ` ${sanitized}`
+  const envPrefix = buildClaudeEnvPrefix({ sessionId, jobId, repoName })
+  const cmd = `${envPrefix}pi${flags} "$(cat ${shellQuote(promptFilePath)})"`
+  const withExit = `${cmd}; __hub_code=$?; echo "__HUB_CLAUDE_EXIT_CODE:\${__hub_code}__"; exit $__hub_code`
+  return plainOutput ? `echo '__HUB_OUTPUT_START__'; ${withExit}` : withExit
 }
 
 // Strip ANSI escape sequences for clean log output
@@ -532,6 +643,43 @@ app.param('name', (req, res, next, value) => {
   next()
 })
 
+function extractApiKeyFromRequest(req) {
+  const x = req.headers['x-api-key']
+  if (x && typeof x === 'string') return x.trim()
+  const auth = req.headers.authorization
+  if (auth && typeof auth === 'string' && auth.startsWith('Bearer ')) return auth.slice(7).trim()
+  return ''
+}
+
+function extractApiKeyFromWsRequest(req) {
+  try {
+    const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`)
+    const q = url.searchParams.get('apiKey')
+    if (q) return q.trim()
+  } catch { /* ignore */ }
+  const x = req.headers['x-api-key']
+  if (x && typeof x === 'string') return x.trim()
+  const auth = req.headers.authorization
+  if (auth && typeof auth === 'string' && auth.startsWith('Bearer ')) return auth.slice(7).trim()
+  return ''
+}
+
+function apiKeyMatches(key) {
+  const provided = createHash('sha256').update(String(key || ''), 'utf8').digest()
+  const expected = createHash('sha256').update(DISPATCH_API_KEY, 'utf8').digest()
+  return timingSafeEqual(provided, expected)
+}
+
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/api/')) return next()
+  if (!DISPATCH_API_KEY) return next()
+  const key = extractApiKeyFromRequest(req)
+  if (!apiKeyMatches(key)) {
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
+  next()
+})
+
 let wss = null
 const JOB_EVENT = '\x01JOBS_CHANGED:'
 const LEGACY_SWARM_EVENT = '\x01SWARM_CHANGED:'
@@ -561,6 +709,8 @@ function collectAvailableSkills() {
   const globalDirs = [
     path.join(os.homedir(), '.claude'),
     path.join(os.homedir(), '.codex'),
+    path.join(os.homedir(), '.pi', 'agent'),
+    path.join(os.homedir(), '.agents'),
   ]
   const globalSkills = []
   for (const dir of globalDirs) {
@@ -754,31 +904,51 @@ app.get(['/api/jobs', '/api/swarm'], (req, res) => {
     if ((a.status === 'in_progress' && a.session && liveSessionIds.has(a.session)) || (runSessionAlive && runStateIsActive)) active++
     else if (a.status === 'completed') completed++
     else if (a.status === 'failed') failed++
-    if (a.validation === 'needs_validation') needsValidation++
+    if (a.validation === 'needs_validation' || a.status === 'stopped') needsValidation++
+  }
+
+  const sessionErrorSummary = new Map()
+  for (const [sid, s] of ptySessions) {
+    const summary = s.eventStore?.summary
+    if (summary?.lastError) {
+      sessionErrorSummary.set(sid, {
+        lastError: summary.lastError,
+        lastErrorSubKind: summary.lastErrorSubKind || null,
+        errorCount: summary.errorCount || 0,
+      })
+    }
   }
 
   const jobs = allAgents
     .filter(a => a.type !== 'loop')
-    .map(a => ({
-      id: a.id,
-      repo: a.repo,
-      taskName: a.taskName,
-      agent: a.agent || 'claude',
-      started: a.started,
-      status: a.status,
-      validation: a.validation,
-      lastProgress: a.lastProgress,
-      progressCount: a.progressCount,
-      durationMinutes: a.durationMinutes,
-      skills: a.skills,
-      session: latestRunByJob.get(a.id)?.sessionId || a.session,
-      runState: latestRunByJob.get(a.id)?.state || null,
-      branch: a.branch || null,
-      worktreePath: a.worktreePath || null,
-      planSlug: a.planSlug || null,
-      planTitle: a.planTitle || null,
-      planRepo: a.planRepo || a.repo || null,
-    }))
+    .map(a => {
+      const sessionId = latestRunByJob.get(a.id)?.sessionId || a.session
+      const errInfo = sessionId ? sessionErrorSummary.get(sessionId) : null
+      return {
+        id: a.id,
+        repo: a.repo,
+        taskName: a.taskName,
+        agent: a.agent || 'claude',
+        read: a.read === true,
+        started: a.started,
+        status: a.status,
+        validation: a.validation,
+        lastProgress: a.lastProgress,
+        progressCount: a.progressCount,
+        durationMinutes: a.durationMinutes,
+        skills: a.skills,
+        session: sessionId,
+        runState: latestRunByJob.get(a.id)?.state || null,
+        branch: a.branch || null,
+        worktreePath: a.worktreePath || null,
+        planSlug: a.planSlug || null,
+        planTitle: a.planTitle || null,
+        planRepo: a.planRepo || a.repo || null,
+        lastError: errInfo?.lastError || null,
+        lastErrorSubKind: errInfo?.lastErrorSubKind || null,
+        errorCount: errInfo?.errorCount || 0,
+      }
+    })
   res.json({
     jobs,
     agents: jobs,
@@ -799,8 +969,8 @@ app.get('/api/loops', (req, res) => {
       const runs = parseAllLoopRuns(typeDir)
       for (const run of runs) {
         const dirName = path.basename(run.runDir)
-        const id = `${loopType}/${dirName}`
-        const sessionActive = run.session ? ptySessions.has(run.session) : false
+        const id = `${repo.name}/${loopType}/${dirName}`
+        const sessionActive = run.session ? ptySessions.get(run.session)?.alive === true : false
         let status = 'unknown'
         if (sessionActive) status = 'in_progress'
         else if (run.loopStatus === 'completed' || run.complete) status = 'completed'
@@ -872,12 +1042,15 @@ app.post('/api/loops/init', (req, res) => {
   const repoConfig = findRepoConfig(repo)
   if (!repoConfig) return res.status(404).json({ error: `repo "${repo}" not found` })
 
-  // Write prompt file if provided
-  if (promptContent != null) {
-    const promptPath = path.join(repoConfig.resolvedPath, '.dispatch', 'loops', loopType, 'prompt.md')
-    fs.mkdirSync(path.dirname(promptPath), { recursive: true })
-    fs.writeFileSync(promptPath, promptContent, 'utf8')
+  const promptPath = path.join(repoConfig.resolvedPath, '.dispatch', 'loops', loopType, 'prompt.md')
+  const promptText = typeof promptContent === 'string'
+    ? promptContent
+    : (fs.existsSync(promptPath) ? fs.readFileSync(promptPath, 'utf8') : '')
+  if (!promptText.trim()) {
+    return res.status(400).json({ error: 'Loop prompt is required' })
   }
+  fs.mkdirSync(path.dirname(promptPath), { recursive: true })
+  fs.writeFileSync(promptPath, promptText, 'utf8')
 
   const sessionId = makeSessionId()
 
@@ -903,6 +1076,60 @@ app.post('/api/loops/init', (req, res) => {
 
   emitJobsChanged({ repo, id: sessionId, reason: 'loop-init' })
   res.json({ sessionId, shellCommand })
+})
+
+app.get('/api/loops/:loopType/:timestamp/artifacts', (req, res) => {
+  const { loopType, timestamp } = req.params
+  const repoName = typeof req.query.repo === 'string' ? req.query.repo.trim() : ''
+  if (!VALID_LOOP_TYPES.has(loopType)) {
+    return res.status(400).json({ error: `Invalid loop type` })
+  }
+  if (!VALID_LOOP_TIMESTAMP_RE.test(timestamp)) {
+    return res.status(400).json({ error: 'Invalid timestamp' })
+  }
+  try {
+    const config = getConfig()
+    let reposToSearch = config.repos
+    if (repoName) {
+      const targetRepo = findRepoConfig(repoName)
+      if (!targetRepo) return res.status(404).json({ error: `repo "${repoName}" not found` })
+      reposToSearch = [targetRepo]
+    }
+
+    const matches = []
+    for (const repo of reposToSearch) {
+      const runDir = path.join(repo.resolvedPath, '.dispatch', 'loops', loopType, timestamp)
+      if (fs.existsSync(runDir)) matches.push({ repo, runDir })
+    }
+
+    if (matches.length === 0) {
+      return res.status(404).json({ error: 'Loop run not found' })
+    }
+    if (!repoName && matches.length > 1) {
+      return res.status(409).json({
+        error: 'Ambiguous loop run id. Specify repo query parameter.',
+        repos: matches.map(match => match.repo.name),
+      })
+    }
+
+    const match = matches[0]
+    try {
+      const detailed = parseLoopRunDetailed(match.runDir)
+      return res.json({
+        repo: match.repo.name,
+        iterations: detailed.iterations,
+        artifacts: detailed.artifacts,
+        prompt: detailed.prompt,
+        warnings: detailed.warnings || [],
+      })
+    } catch (err) {
+      console.error('[loops/artifacts] failed to parse run', { runDir: match.runDir, error: err?.message || String(err) })
+      return res.status(500).json({ error: 'Failed to parse loop artifacts' })
+    }
+  } catch (err) {
+    console.error('[loops/artifacts] failed to load config', { error: err?.message || String(err) })
+    return res.status(500).json({ error: 'Failed to load loop artifacts' })
+  }
 })
 
 // ── End loop endpoints ──────────────────────────────────────────────────────
@@ -983,6 +1210,14 @@ app.get(['/api/jobs/:id', '/api/swarm/:id'], (req, res) => {
       if (fs.existsSync(filePath)) {
         const agent = parseJobFile(filePath)
         agent.repo = repo.name
+        const sessionId = agent.session
+        const session = sessionId ? ptySessions.get(sessionId) : null
+        const summary = session?.eventStore?.summary
+        if (summary?.lastError) {
+          agent.lastError = summary.lastError
+          agent.lastErrorSubKind = summary.lastErrorSubKind || null
+          agent.errorCount = summary.errorCount || 0
+        }
         return res.json(enrichAgentWithPlanLink(agent, planLookup))
       }
     }
@@ -1186,6 +1421,12 @@ const FALLBACK_CURSOR_MODELS = [
   { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
 ]
 
+const FALLBACK_PI_MODELS = [
+  { value: 'google/gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+  { value: 'openai-codex/gpt-5.4', label: 'GPT-5.4' },
+  { value: 'anthropic/claude-sonnet-4', label: 'Claude Sonnet 4' },
+]
+
 function readCodexModelsCache() {
   const cachePath = path.join(os.homedir(), '.codex', 'models_cache.json')
   try {
@@ -1218,13 +1459,56 @@ function readClaudeOAuthToken() {
   }
 }
 
-app.get('/api/agents/models', async (req, res) => {
-  const { agent = 'claude' } = req.query
+function readPiModels() {
   try {
-    if (agent === 'claude') {
-      // Prefer env API key, fall back to Claude Code's stored OAuth token
+    const response = spawnSync('pi', ['--mode', 'rpc', '--no-session'], {
+      input: JSON.stringify({ id: 'models-1', type: 'get_available_models' }) + '\n',
+      encoding: 'utf8',
+      timeout: 5000,
+    })
+    if (response.error) throw response.error
+    if (response.status !== 0) throw new Error(response.stderr || `pi exited with ${response.status}`)
+    const payloads = String(response.stdout || '')
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(line => line.startsWith('{') && line.endsWith('}'))
+      .map(line => {
+        try { return JSON.parse(line) } catch { return null }
+      })
+      .filter(Boolean)
+    const matching = payloads.find(item => item.id === 'models-1' || item.replyTo === 'models-1' || item.reply_to === 'models-1')
+    const rawModels = Array.isArray(matching?.models)
+      ? matching.models
+      : Array.isArray(matching?.result?.models)
+        ? matching.result.models
+        : Array.isArray(matching?.result)
+          ? matching.result
+          : Array.isArray(matching?.data?.models)
+            ? matching.data.models
+            : null
+    if (!rawModels || rawModels.length === 0) return null
+    const models = rawModels
+      .filter(model => model?.id && model?.provider)
+      .map(model => ({
+        value: `${model.provider}/${model.id}`,
+        label: model.name || model.id,
+        description: `${model.provider}${model.reasoning ? ' • thinking' : ''}`,
+      }))
+    return models.length > 0 ? models : null
+  } catch {
+    return null
+  }
+}
+
+const DISPATCH_AGENT_KINDS = ['claude', 'codex', 'cursor', 'pi']
+const DISPATCH_AGENT_LABELS = { claude: 'Claude', codex: 'Codex', cursor: 'Cursor', pi: 'Pi' }
+
+async function getModelsForAgent(agent) {
+  const a = String(agent || 'claude')
+  try {
+    if (a === 'claude') {
       const apiKey = process.env.ANTHROPIC_API_KEY || readClaudeOAuthToken()
-      if (!apiKey) return res.json({ models: FALLBACK_CLAUDE_MODELS, source: 'fallback' })
+      if (!apiKey) return { models: FALLBACK_CLAUDE_MODELS, source: 'fallback' }
       const response = await fetch('https://api.anthropic.com/v1/models?limit=100', {
         headers: {
           'x-api-key': apiKey,
@@ -1232,26 +1516,71 @@ app.get('/api/agents/models', async (req, res) => {
           'anthropic-beta': 'oauth-2023-09-01',
         },
       })
-      if (!response.ok) return res.json({ models: FALLBACK_CLAUDE_MODELS, source: 'fallback' })
+      if (!response.ok) return { models: FALLBACK_CLAUDE_MODELS, source: 'fallback' }
       const data = await response.json()
       const models = (data.data || [])
         .filter(m => m.id.startsWith('claude') && !m.id.endsWith('-latest'))
         .sort((a, b) => b.id.localeCompare(a.id))
         .map(m => ({ value: m.id, label: m.display_name || m.id }))
-      return res.json({ models: models.length > 0 ? models : FALLBACK_CLAUDE_MODELS, source: 'api' })
+      return { models: models.length > 0 ? models : FALLBACK_CLAUDE_MODELS, source: 'api' }
     }
-    if (agent === 'codex') {
-      // Read directly from Codex's own models cache — same source as the Codex TUI
+    if (a === 'codex') {
       const cached = readCodexModelsCache()
-      if (cached) return res.json({ models: cached, source: 'codex-cache' })
-      return res.json({ models: FALLBACK_CLAUDE_MODELS, source: 'fallback' })
+      if (cached) return { models: cached, source: 'codex-cache' }
+      return { models: FALLBACK_CLAUDE_MODELS, source: 'fallback' }
     }
-    if (agent === 'cursor') {
-      return res.json({ models: FALLBACK_CURSOR_MODELS, source: 'fallback' })
+    if (a === 'cursor') {
+      return { models: FALLBACK_CURSOR_MODELS, source: 'fallback' }
     }
-    return res.json({ models: [], source: 'unknown' })
+    if (a === 'pi') {
+      const models = readPiModels()
+      return { models: models || FALLBACK_PI_MODELS, source: models ? 'pi-rpc' : 'fallback' }
+    }
+    return { models: [], source: 'unknown' }
   } catch {
-    return res.json({ models: FALLBACK_CLAUDE_MODELS, source: 'fallback' })
+    const fallback = a === 'cursor'
+      ? FALLBACK_CURSOR_MODELS
+      : a === 'pi'
+        ? FALLBACK_PI_MODELS
+        : FALLBACK_CLAUDE_MODELS
+    return { models: fallback, source: 'fallback' }
+  }
+}
+
+app.get('/api/agents/models', async (req, res) => {
+  const { agent = 'claude' } = req.query
+  const result = await getModelsForAgent(agent)
+  res.json({ models: result.models, source: result.source })
+})
+
+app.get('/api/catalog', async (req, res) => {
+  try {
+    const config = getConfig()
+    const repos = config.repos.map(r => ({
+      name: r.name,
+      path: r.path,
+      taskFile: r.taskFile,
+      activityFile: r.activityFile,
+      ...(r.bugsFile ? { bugsFile: r.bugsFile } : {}),
+    }))
+    const models = {}
+    const modelSources = {}
+    const modelResults = await Promise.all(DISPATCH_AGENT_KINDS.map(agent => getModelsForAgent(agent)))
+    for (let i = 0; i < DISPATCH_AGENT_KINDS.length; i++) {
+      const agent = DISPATCH_AGENT_KINDS[i]
+      const result = modelResults[i]
+      models[agent] = result.models
+      modelSources[agent] = result.source
+    }
+    res.json({
+      hubRoot: config.hubRoot || HUB_DIR,
+      repos,
+      agents: DISPATCH_AGENT_KINDS.map(id => ({ id, label: DISPATCH_AGENT_LABELS[id] || id })),
+      models,
+      modelSources,
+    })
+  } catch (err) {
+    res.status(500).json({ error: err?.message || 'catalog failed' })
   }
 })
 
@@ -1279,6 +1608,7 @@ app.post(['/api/jobs/init', '/api/swarm/init'], (req, res) => {
     plainOutput,
     planSlug,
     skills,
+    previousJobId,
   } = req.body
   if (!repo || !taskText) return res.status(400).json({ error: 'repo and taskText required' })
   // Validate baseBranch if provided — reject shell metacharacters and path traversal
@@ -1286,10 +1616,26 @@ app.post(['/api/jobs/init', '/api/swarm/init'], (req, res) => {
   if (baseBranch && !validBranchRe.test(baseBranch)) {
     return res.status(400).json({ error: `Invalid base branch name: ${baseBranch}` })
   }
+  if (previousJobId && !isValidJobId(previousJobId)) {
+    return res.status(400).json({ error: `Invalid previous job id: ${previousJobId}` })
+  }
 
   const repoConfig = findRepoConfig(repo)
   if (!repoConfig) return res.status(404).json({ error: `repo "${repo}" not found` })
   const knownSkills = collectAvailableSkills().all
+  const previousJob = previousJobId ? findJobFileById(previousJobId) : null
+  if (previousJobId && !previousJob) {
+    return res.status(404).json({ error: `Previous job "${previousJobId}" not found` })
+  }
+  if (previousJob) {
+    const previousDetail = parseJobFile(previousJob.filePath)
+    if (previousDetail.nextJobId) {
+      return res.status(409).json({ error: `Job "${previousJobId}" already links to next job "${previousDetail.nextJobId}"` })
+    }
+  }
+  const normalizedAgent = DISPATCH_AGENT_KINDS.includes(String(agent || '').trim()) ? String(agent).trim() : 'claude'
+  const effectiveSkipPermissions = normalizedAgent === 'pi' ? false : Boolean(skipPermissions)
+  const effectiveMaxTurns = ['codex', 'cursor', 'pi'].includes(normalizedAgent) ? null : maxTurns
   const skillNameById = new Map(
     knownSkills.map(skill => [String(skill?.id || '').trim(), String(skill?.name || skill?.id || '').trim()])
   )
@@ -1338,10 +1684,11 @@ app.post(['/api/jobs/init', '/api/swarm/init'], (req, res) => {
   }
   if (headerOriginalPrompt) lines.push(`OriginalPrompt: ${headerOriginalPrompt}`)
   lines.push(`Session: ${assignedSessionId}`)
-  lines.push(`SkipPermissions: ${Boolean(skipPermissions)}`)
-  if (agent && agent !== 'claude') lines.push(`Agent: ${agent}`)
+  if (previousJobId) lines.push(`PreviousJob: ${previousJobId}`)
+  lines.push(`SkipPermissions: ${effectiveSkipPermissions}`)
+  if (normalizedAgent !== 'claude') lines.push(`Agent: ${normalizedAgent}`)
   if (model) lines.push(`Model: ${model}`)
-  if (maxTurns) lines.push(`MaxTurns: ${maxTurns}`)
+  if (effectiveMaxTurns) lines.push(`MaxTurns: ${effectiveMaxTurns}`)
   if (autoMerge) lines.push('AutoMerge: true')
   if (baseBranch) lines.push(`BaseBranch: ${baseBranch}`)
   if (planSlug) lines.push(`Plan: ${singleLine(planSlug)}`)
@@ -1349,6 +1696,11 @@ app.post(['/api/jobs/init', '/api/swarm/init'], (req, res) => {
 
   const relativePath = `notes/jobs/${fileName}`
   const jobId = fileName.replace(/\.md$/, '')
+  const piSessionPath = normalizedAgent === 'pi' ? getPiSessionFilePath({ repoName: repo, jobId }) : null
+  if (piSessionPath) {
+    fs.mkdirSync(path.dirname(piSessionPath), { recursive: true })
+    lines.push(`ResumeCommand: ${buildResumePiCommand(piSessionPath)}`)
+  }
 
   // Create a git worktree if requested
   let worktreeInfo = null
@@ -1372,6 +1724,9 @@ app.post(['/api/jobs/init', '/api/swarm/init'], (req, res) => {
 
   lines.push('', '## Progress', `- [${timestamp}] Task initiated from dashboard`, '', '## Results', '')
   fs.writeFileSync(filePath, lines.join('\n'), 'utf8')
+  if (previousJob) {
+    upsertHeaderLine(previousJob.filePath, 'NextJob', jobId)
+  }
 
   // Determine PTY working directory — use worktree if available, else repo root
   const ptyCwd = worktreeInfo ? worktreeInfo.worktreePath : repoConfig.resolvedPath
@@ -1388,7 +1743,7 @@ app.post(['/api/jobs/init', '/api/swarm/init'], (req, res) => {
   try {
     const promptFilePath = persistPromptFile(
       assignedSessionId,
-      buildDispatchPrompt(taskText, jobFilePathForPrompt, selectedSkillNames, worktreeInfo?.worktreePath || null)
+      buildDispatchPrompt(taskText, jobFilePathForPrompt, selectedSkillNames, worktreeInfo?.worktreePath || null, normalizedAgent)
     )
     createPtySession(
       assignedSessionId,
@@ -1400,14 +1755,15 @@ app.post(['/api/jobs/init', '/api/swarm/init'], (req, res) => {
       {
         promptFilePath,
         model,
-        maxTurns: agent === 'codex' ? null : maxTurns,
-        skipPermissions: Boolean(skipPermissions),
+        maxTurns: effectiveMaxTurns,
+        skipPermissions: effectiveSkipPermissions,
         plainOutput: Boolean(plainOutput),
         sessionId: assignedSessionId,
         jobId,
         repoName: repo,
-        agent: agent || 'claude',
+        agent: normalizedAgent,
         extraFlags: extraFlags || '',
+        piSessionPath,
       }
     )
   } catch (err) {
@@ -1659,6 +2015,20 @@ function extractResumeId(resumeCommand) {
   return isValidResumeId(match[1]) ? match[1] : null
 }
 
+function buildResumeCommandForJob(detail) {
+  const agentId = detail?.agent || 'claude'
+  if (agentId === 'pi') return detail?.resumeCommand || null
+  const resumeId = detail?.resumeId || extractResumeId(detail?.resumeCommand)
+  if (!resumeId || !isValidResumeId(resumeId)) return null
+  const skipPermissions = detail?.skipPermissions == null ? true : detail.skipPermissions === true
+  const resumeFlags = agentId === 'cursor'
+    ? (skipPermissions ? ' --force' : '')
+    : (skipPermissions ? ' --dangerously-skip-permissions' : '')
+  return agentId === 'cursor'
+    ? buildCursorResumeCommand(resumeId, resumeFlags)
+    : buildResumeClaudeCommand(resumeId, resumeFlags)
+}
+
 function markJobReadyForValidation({ jobId, sessionId = null, reason = 'stop_hook' } = {}) {
   const found = findJobFileById(jobId)
   if (!found) return { status: 404, body: { error: `Job "${jobId}" not found` } }
@@ -1714,26 +2084,34 @@ app.post(['/api/jobs/:id/resume', '/api/swarm/:id/resume'], (req, res) => {
 
   try {
     const detail = parseJobFile(found.filePath)
+    const agentId = detail.agent || 'claude'
     const sessionId = detail.session || null
     if (!sessionId || !isValidSessionId(sessionId)) {
       return res.status(409).json({
         error: 'This job has no valid tracked terminal session to resume.',
       })
     }
-    const resumeId = detail.resumeId || extractResumeId(detail.resumeCommand)
-    if (!resumeId || !isValidResumeId(resumeId)) {
-      return res.status(409).json({
-        error: 'No valid resume id is recorded for this job yet.',
-      })
-    }
-    const skipPermissions = detail.skipPermissions == null ? true : detail.skipPermissions === true
-    const resumeFlags = skipPermissions ? ' --dangerously-skip-permissions' : ''
-    const resumeCommand = buildResumeClaudeCommand(resumeId, resumeFlags)
+    const resumeCommand = buildResumeCommandForJob(detail)
     if (!resumeCommand) {
       return res.status(409).json({
         error: 'No resume command is recorded for this job yet.',
       })
     }
+    const resumeId = agentId === 'pi' ? null : (detail.resumeId || extractResumeId(detail.resumeCommand))
+    if (agentId !== 'pi' && (!resumeId || !isValidResumeId(resumeId))) {
+      return res.status(409).json({
+        error: 'No valid resume id is recorded for this job yet.',
+      })
+    }
+    const piSessionPath = agentId === 'pi' ? extractPiSessionPath(resumeCommand) : null
+    if (agentId === 'pi' && !isSafePiSessionFilePath(piSessionPath)) {
+      return res.status(409).json({
+        error: 'The recorded Pi session path is invalid.',
+      })
+    }
+    const skipPermissions = agentId === 'pi'
+      ? false
+      : (detail.skipPermissions == null ? true : detail.skipPermissions === true)
 
     const latestRun = getLatestRunByJobId(req.params.id)
     if (latestRun?.state === RUN_STATE.VALIDATED) {
@@ -1754,7 +2132,9 @@ app.post(['/api/jobs/:id/resume', '/api/swarm/:id/resume'], (req, res) => {
       ptySessions.delete(sessionId)
     }
 
-    const cwd = found.repo?.resolvedPath || HUB_DIR
+    const cwd = detail.worktreePath && detail.worktreePath !== '(merged)'
+      ? detail.worktreePath
+      : found.repo?.resolvedPath || HUB_DIR
     createPtySession(
       sessionId,
       cwd,
@@ -1768,6 +2148,8 @@ app.post(['/api/jobs/:id/resume', '/api/swarm/:id/resume'], (req, res) => {
         sessionId,
         jobId: req.params.id,
         repoName: found.repo?.name || null,
+        agent: agentId,
+        piSessionPath,
       }
     )
 
@@ -1797,6 +2179,7 @@ app.post(['/api/jobs/:id/resume', '/api/swarm/:id/resume'], (req, res) => {
       resumeCommand,
       resumeId,
       skipPermissions,
+      agent: agentId,
       taskText: detail.taskName || detail.originalTask || req.params.id,
       status: 'in_progress',
       validation: 'none',
@@ -1807,6 +2190,27 @@ app.post(['/api/jobs/:id/resume', '/api/swarm/:id/resume'], (req, res) => {
         absolutePath: found.filePath,
       },
     })
+  } catch (err) {
+    return res.status(400).json({ error: err.message })
+  }
+})
+
+app.post(['/api/jobs/:id/read', '/api/swarm/:id/read'], (req, res) => {
+  const found = findJobFileById(req.params.id)
+  if (!found) {
+    return res.status(404).json({ error: `Job "${req.params.id}" not found` })
+  }
+
+  const nextRead = req.body?.read
+  if (typeof nextRead !== 'boolean') {
+    return res.status(400).json({ error: 'read boolean required' })
+  }
+
+  try {
+    upsertHeaderLine(found.filePath, 'Read', nextRead ? 'true' : 'false')
+    const detail = parseJobFile(found.filePath)
+    emitJobsChanged({ repo: found.repo.name, id: req.params.id, reason: nextRead ? 'read' : 'unread' })
+    return res.json({ ok: true, id: detail.id, read: detail.read })
   } catch (err) {
     return res.status(400).json({ error: err.message })
   }
@@ -1968,33 +2372,31 @@ app.post(['/api/jobs/:id/kill', '/api/swarm/:id/kill'], (req, res) => {
   try {
     const detail = parseJobFile(found.filePath)
     const latestRun = getLatestRunByJobId(req.params.id)
-    if (detail.status !== 'killed') {
+    if (detail.status !== 'stopped') {
       writeJobKill(found.filePath)
     }
     if (latestRun) {
+      const reviewValidation = latestRun.validation === 'validated' || latestRun.validation === 'rejected'
+        ? latestRun.validation
+        : 'needs_validation'
       transitionRun(latestRun, RUN_STATE.KILLED, {
-        validation: latestRun.validation || 'none',
-        reason: 'user_killed_job',
+        validation: reviewValidation,
+        reason: 'user_stopped_job',
         force: latestRun.state === RUN_STATE.KILLED,
       })
     }
-    // Terminate the underlying shell if still running, but keep session record
-    // so scrollback remains viewable in the dashboard.
+    // Terminate the underlying shell if still running.
     if (detail.session && ptySessions.has(detail.session)) {
       const s = ptySessions.get(detail.session)
       s.killRequested = true
-      try { transitionRun(getLatestRunBySessionId(detail.session), RUN_STATE.STOPPING, { reason: 'user_kill_requested', force: true }) } catch {}
+      try { transitionRun(getLatestRunBySessionId(detail.session), RUN_STATE.STOPPING, { reason: 'user_stop_requested', force: true }) } catch {}
       if (s.tmuxName) killTmuxSession(s.tmuxName)
       try { s?.shell?.kill() } catch {}
     }
     purgePtySessionHard(`run-dev-${req.params.id}`)
-    // Clean up worktree and branch — killed jobs are abandoned
-    if (detail.worktreePath) {
-      try { removeJobWorktree(found.repo.resolvedPath, req.params.id, { deleteBranch: true, repoName: found.repo.name }) } catch {}
-    }
     invalidateGitInfoCache(found.repo.resolvedPath)
-    emitJobsChanged({ repo: found.repo.name, id: req.params.id, reason: 'killed' })
-    return res.json({ success: true, id: req.params.id, status: 'killed' })
+    emitJobsChanged({ repo: found.repo.name, id: req.params.id, reason: 'stopped' })
+    return res.json({ success: true, id: req.params.id, status: 'stopped' })
   } catch (err) {
     return res.status(400).json({ error: err.message })
   }
@@ -2259,9 +2661,8 @@ if (fs.existsSync(distDir)) {
   })
 }
 
-const BIND_HOST = '127.0.0.1'
-const server = process.env.TESTING ? null : app.listen(PORT, BIND_HOST, () => {
-  console.log(`Hub dashboard API running at http://${BIND_HOST}:${PORT}`)
+const server = process.env.TESTING ? null : app.listen(PORT, DISPATCH_BIND, () => {
+  console.log(`Hub dashboard API running at http://${DISPATCH_BIND}:${PORT}`)
 })
 
 // ── Persistent PTY sessions ──────────────────────────────
@@ -2362,6 +2763,58 @@ function garbageCollectSessions() {
   }
 }
 
+function reconcileOrphanedTmuxSessions() {
+  let metaChanged = false
+
+  for (const [sessionId, meta] of Object.entries(ptySessionsMeta)) {
+    if (!meta?.tmuxName) continue
+    if (ptySessions.get(sessionId)?.alive) continue
+    if (tmuxSessionAlive(meta.tmuxName)) continue
+
+    delete ptySessionsMeta[sessionId]
+    metaChanged = true
+
+    const jobFilePath = meta.jobFilePath
+    if (!jobFilePath || !fs.existsSync(jobFilePath)) continue
+
+    try {
+      const detail = parseJobFile(jobFilePath)
+      if (detail.session && detail.session !== sessionId) continue
+
+      let nextReason = null
+      if (detail.status === 'in_progress') {
+        writeJobStatus(jobFilePath, 'completed')
+        writeJobValidation(jobFilePath, 'needs_validation', null)
+        nextReason = 'orphaned_tmux_completed'
+      } else if (detail.status === 'completed' && (!detail.validation || detail.validation === 'none')) {
+        writeJobValidation(jobFilePath, 'needs_validation', null)
+        nextReason = 'orphaned_tmux_needs_validation'
+      }
+
+      const run = getLatestRunBySessionId(sessionId) || (detail.id ? getLatestRunByJobId(detail.id) : null)
+      if (run && [RUN_STATE.STARTING, RUN_STATE.RUNNING, RUN_STATE.STOPPING].includes(run.state)) {
+        transitionRun(run, RUN_STATE.AWAITING_VALIDATION, {
+          reason: 'orphaned_tmux_session',
+          validation: 'needs_validation',
+          force: true,
+        })
+      }
+
+      if (meta.repoName) {
+        const repoConfig = findRepoConfig(meta.repoName)
+        invalidateGitInfoCache(repoConfig?.resolvedPath)
+      }
+      if (nextReason && detail.id) {
+        emitJobsChanged({ repo: meta.repoName || detail.repo || null, id: detail.id, reason: nextReason })
+      }
+    } catch (err) {
+      console.error(`Failed to reconcile orphaned tmux session ${sessionId}:`, err.message)
+    }
+  }
+
+  if (metaChanged) savePtySessionsMeta()
+}
+
 function startPendingLaunch(session) {
   if (!session || session.launchStarted || !session.pendingLaunch) return
   const launch = session.pendingLaunch
@@ -2370,7 +2823,11 @@ function startPendingLaunch(session) {
     ? (shellCommand ? `${shellCommand}\n` : null)
     : launch.agent === 'codex'
       ? buildTrackedCodexCommand(launch)
-      : buildTrackedClaudeCommand(launch)
+      : launch.agent === 'cursor'
+        ? buildTrackedCursorCommand(launch)
+        : launch.agent === 'pi'
+          ? buildTrackedPiCommand(launch)
+        : buildTrackedClaudeCommand(launch)
   if (!command) return
   session.launchStarted = true
   if (launch.agent !== 'shell') {
@@ -2395,6 +2852,8 @@ function startPendingLaunch(session) {
   }
 }
 setInterval(garbageCollectSessions, SESSION_GC_INTERVAL_MS).unref()
+setInterval(reconcileOrphanedTmuxSessions, 15 * 1000).unref()
+reconcileOrphanedTmuxSessions()
 
 function createPtySession(sessionId, cwd, repoName, jobFilePath, initialScrollback = '', launch = null, pendingLaunch = null) {
   let spawnSpec = launch || { file: '/bin/zsh', args: ['--login'] }
@@ -2444,7 +2903,7 @@ function createPtySession(sessionId, cwd, repoName, jobFilePath, initialScrollba
     plainOutput: Boolean(pendingLaunch?.plainOutput),
     pendingLaunch: pendingLaunch || null,
     launchStarted: Boolean(launch),
-    resumeCommand: null,
+    resumeCommand: pendingLaunch?.agent === 'pi' ? buildResumePiCommand(pendingLaunch.piSessionPath) : null,
     resumeId: null,
     tmuxName: tmuxName || null,
     eventStore: createSessionEventStore({
@@ -2482,12 +2941,18 @@ function createPtySession(sessionId, cwd, repoName, jobFilePath, initialScrollba
         if (fs.existsSync(session.jobFilePath)) {
           const agent = parseJobFile(session.jobFilePath)
           const run = getLatestRunByJobId(agent.id) || getLatestRunBySessionId(sessionId)
-          const isKilled = session.killRequested || reason === 'killed'
+          const isStopped = session.killRequested || reason === 'killed'
+          const hasRateLimitError = session.eventStore?.summary?.lastErrorSubKind === 'rate_limit'
           if (run) {
-            if (isKilled) {
-              transitionRun(run, RUN_STATE.KILLED, { reason, validation: run.validation || 'none', force: true })
+            if (isStopped) {
+              const reviewValidation = run.validation === 'validated' || run.validation === 'rejected'
+                ? run.validation
+                : 'needs_validation'
+              transitionRun(run, RUN_STATE.KILLED, { reason, validation: reviewValidation, force: true })
             } else if (reason === 'write_error') {
               transitionRun(run, RUN_STATE.FAILED, { reason, validation: run.validation || 'none', force: true })
+            } else if (hasRateLimitError) {
+              transitionRun(run, RUN_STATE.FAILED, { reason: 'rate_limit', validation: run.validation || 'none', force: true })
             } else if (run.state !== RUN_STATE.AWAITING_VALIDATION) {
               transitionRun(run, RUN_STATE.AWAITING_VALIDATION, {
                 reason,
@@ -2497,18 +2962,15 @@ function createPtySession(sessionId, cwd, repoName, jobFilePath, initialScrollba
             }
           }
 
-          if (isKilled) {
-            if (agent.status !== 'killed') {
+          if (isStopped) {
+            if (agent.status !== 'stopped') {
               writeJobKill(session.jobFilePath)
             }
             if (session.repo) {
               const repoConfig = findRepoConfig(session.repo)
-              if (agent.worktreePath) {
-                try { removeJobWorktree(repoConfig?.resolvedPath, agent.id, { deleteBranch: true }) } catch {}
-              }
               invalidateGitInfoCache(repoConfig?.resolvedPath)
             }
-            emitJobsChanged({ repo: session.repo, id: agent.id, reason: `${reason}_killed` })
+            emitJobsChanged({ repo: session.repo, id: agent.id, reason: `${reason}_stopped` })
             return
           }
 
@@ -2527,7 +2989,15 @@ function createPtySession(sessionId, cwd, repoName, jobFilePath, initialScrollba
             return
           }
 
-          if (agent.status === 'in_progress') {
+          if (hasRateLimitError && agent.status === 'in_progress') {
+            writeJobStatus(session.jobFilePath, 'failed')
+            if (session.repo) {
+              const repoConfig = findRepoConfig(session.repo)
+              invalidateGitInfoCache(repoConfig?.resolvedPath)
+            }
+            emitJobsChanged({ repo: session.repo, id: agent.id, reason: 'rate_limit_failed' })
+            console.log(`Session end (${reason}): marked job file as failed (rate limit): ${session.jobFilePath}`)
+          } else if (agent.status === 'in_progress') {
             writeJobStatus(session.jobFilePath, 'completed')
             writeJobValidation(session.jobFilePath, 'needs_validation', null)
             if (session.repo) {
@@ -2587,15 +3057,20 @@ function createPtySession(sessionId, cwd, repoName, jobFilePath, initialScrollba
     }
 
     const stripped = stripAnsi(chunk)
-    // Capture resume command emitted by Claude so the job can be resumed later.
-    const cmdMatch = stripped.match(/(claude(?:\s+code)?\s+(?:resume|--resume)\s+(?:["'])?[A-Za-z0-9._:-]+(?:["'])?)/i)
+    // Capture resume commands emitted by supported agent CLIs so the job can be resumed later.
+    const cmdMatch = stripped.match(/((?:claude(?:\s+code)?|cursor-agent)\s+(?:resume|--resume)\s+(?:["'])?[A-Za-z0-9._:-]+(?:["'])?)/i)
     if (cmdMatch) {
       const nextResumeId = extractResumeId(cmdMatch[1])
       const headerDetail = session.jobFilePath && fs.existsSync(session.jobFilePath)
         ? parseJobFile(session.jobFilePath)
         : null
-      const resumeFlags = headerDetail?.skipPermissions ? ' --dangerously-skip-permissions' : ''
-      const nextResumeCommand = buildResumeClaudeCommand(nextResumeId, resumeFlags)
+      const sessionAgent = headerDetail?.agent || session.pendingLaunch?.agent || 'claude'
+      const resumeFlags = sessionAgent === 'cursor'
+        ? (headerDetail?.skipPermissions ? ' --force' : '')
+        : (headerDetail?.skipPermissions ? ' --dangerously-skip-permissions' : '')
+      const nextResumeCommand = sessionAgent === 'cursor'
+        ? buildCursorResumeCommand(nextResumeId, resumeFlags)
+        : buildResumeClaudeCommand(nextResumeId, resumeFlags)
       if (nextResumeCommand && nextResumeCommand !== session.resumeCommand) {
         session.resumeCommand = nextResumeCommand
         session.resumeId = nextResumeId
@@ -2764,6 +3239,12 @@ wss = new WebSocketServer({
   server,
   path: '/ws/terminal',
   verifyClient({ req }, done) {
+    if (DISPATCH_API_KEY) {
+      const key = extractApiKeyFromWsRequest(req)
+      if (!apiKeyMatches(key)) {
+        return done(false, 401, 'Unauthorized')
+      }
+    }
     const origin = req.headers.origin || ''
     // Allow connections with no origin (non-browser clients, curl, server hooks)
     if (!origin || ALLOWED_ORIGINS.has(origin)) {
