@@ -1,16 +1,11 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
-import { ArrowLeft, TerminalSquare, ClipboardCheck, Clock, Code2, ScanSearch, GitFork, RefreshCcw } from 'lucide-react'
+import { ArrowLeft, TerminalSquare, ClipboardCheck, Clock, RefreshCcw } from 'lucide-react'
 import { cn, timeAgo } from '../lib/utils'
 import { repoIdentityColors, normalizeAgentId, getAgentBrandColor } from '../lib/constants'
+import { LOOP_TYPE_META } from '../lib/loopConstants'
 import AgentIcon, { getAgentLabel } from './AgentIcon'
 import TerminalPanel from './TerminalPanel'
 import LoopReviewPanel from './LoopReviewPanel'
-
-const LOOP_TYPE_META = {
-  'linear-implementation': { label: 'Linear Implementation', icon: Code2 },
-  'linear-review':         { label: 'Linear Review',         icon: ScanSearch },
-  'parallel-review':       { label: 'Parallel Review',       icon: GitFork },
-}
 
 const STATUS_COLORS = {
   in_progress: '#4ade80',

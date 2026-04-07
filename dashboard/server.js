@@ -61,7 +61,8 @@ const PORT = process.env.PORT || 3747
 const DISPATCH_API_KEY = (process.env.DISPATCH_API_KEY || '').trim()
 /** Listen address (default 127.0.0.1). Use e.g. 0.0.0.0 for LAN access behind a firewall + API key. */
 const DISPATCH_BIND = (process.env.DISPATCH_BIND || '127.0.0.1').trim()
-const RUNTIME_DIR = path.join(HUB_DIR, '.hub-runtime')
+const DISPATCH_DIR = path.join(HUB_DIR, '.dispatch')
+const RUNTIME_DIR = path.join(DISPATCH_DIR, 'runtime')
 const JOB_RUNS_FILE = path.join(RUNTIME_DIR, 'job-runs.json')
 const PROMPTS_DIR = path.join(RUNTIME_DIR, 'prompts')
 const WORKTREES_DIR = path.join(RUNTIME_DIR, 'worktrees')
@@ -277,11 +278,11 @@ function buildResumeClaudeCommand(resumeId, flags = '') {
   return `claude${flags} --resume "${id}"`
 }
 
-function buildResumeCursorCommand(resumeId, flags = '') {
+function buildResumeCursorCommand(resumeId, flags = '', binary = detectCursorBinary()) {
   const id = String(resumeId ?? '').trim()
   if (!id) return null
   if (!isValidResumeId(id)) return null
-  return `cursor-agent${flags} --resume "${id}"`
+  return `${binary === 'agent' ? 'agent' : 'cursor-agent'}${flags} --resume "${id}"`
 }
 
 function detectCursorBinary() {
@@ -297,11 +298,7 @@ function detectCursorBinary() {
 }
 
 function buildCursorResumeCommand(resumeId, flags = '', binary = detectCursorBinary()) {
-  const id = String(resumeId ?? '').trim()
-  if (!id) return null
-  if (!isValidResumeId(id)) return null
-  if (binary === 'agent') return `agent${flags} --resume "${id}"`
-  return buildResumeCursorCommand(id, flags)
+  return buildResumeCursorCommand(resumeId, flags, binary)
 }
 
 function getPiSessionFilePath({ repoName, jobId }) {

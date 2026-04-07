@@ -165,7 +165,7 @@ export function parseChunkWithAdapters(chunk, state = {}) {
 
 export function createSessionEventStore({ sessionId, repo, baseDir, ringSize = 1200 }) {
   const created = Date.now()
-  const runtimeDir = path.join(baseDir, '.hub-runtime', 'events')
+  const runtimeDir = path.join(baseDir, '.dispatch', 'runtime', 'events')
   fs.mkdirSync(runtimeDir, { recursive: true })
   const snapshotPath = path.join(runtimeDir, `${sessionId}.ndjson`)
 

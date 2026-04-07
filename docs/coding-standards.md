@@ -159,7 +159,8 @@ hub/
       styles/          # CSS (Tailwind + theme)
     vite.config.js     # Build configuration
     package.json       # Dashboard-only dependencies
-  .hub-runtime/        # Runtime state: job-runs.json, staged prompts, event logs
+  .dispatch/
+    runtime/           # Runtime state: job-runs.json, staged prompts, event logs
   plans/               # Markdown planning documents
   notes/
     jobs/              # Primary job progress files (YYYY-MM-DD-slug.md)

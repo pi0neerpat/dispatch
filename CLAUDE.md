@@ -49,13 +49,13 @@ config.json ─── loadConfig() ───┐
 - **todo.md** -- Hub's own task tracker (markdown checkboxes).
 - **activity-log.md** -- Hub's own activity log. Contains `**Current stage:**` metadata.
 - **notes/jobs/** -- Job progress files (gitignored — runtime artifacts). Named `YYYY-MM-DD-slug.md`.
-- **.hub-runtime/** -- Server runtime state (gitignored): `.hub-runtime/job-runs.json` for job run state, `.hub-runtime/prompts/` for staged Claude prompts, `.hub-runtime/events/` for terminal event snapshots/NDJSON.
+- **.dispatch/runtime/** -- Server runtime state (gitignored): `.dispatch/runtime/job-runs.json` for job run state, `.dispatch/runtime/prompts/` for staged Claude prompts, `.dispatch/runtime/events/` for terminal event snapshots/NDJSON.
 
 ### Dashboard (`dashboard/`)
 
 Separate Node.js project with its own `package.json` (ESM, `"type": "module"`).
 
-- **server.js** -- Express backend on port 3747. Imports `../parsers.js` via `createRequire`. REST API for overview, tasks, bugs, jobs (`/api/jobs`), sessions, schedules, checkpoints, and events. WebSocket terminal server (`/ws/terminal`) keeps PTY sessions alive across reconnects, stages server-managed Claude launches/resumes, persists run state in `.hub-runtime/job-runs.json`.
+- **server.js** -- Express backend on port 3747. Imports `../parsers.js` via `createRequire`. REST API for overview, tasks, bugs, jobs (`/api/jobs`), sessions, schedules, checkpoints, and events. WebSocket terminal server (`/ws/terminal`) keeps PTY sessions alive across reconnects, stages server-managed Claude launches/resumes, persists run state in `.dispatch/runtime/job-runs.json`.
 - **eventPipeline.js** -- Captures terminal output into structured NDJSON events. Line classification, agent detection, event search, session summaries.
 - **src/** -- React SPA with Tailwind CSS v4. Navigation: `ActivityBar` (icon tabs) → views (`StatusView`, `JobsView`, `AllTasksView`, `DispatchView`, `SchedulesView`) with `JobDetailView` drill-down. Hooks: `usePolling`, `useSessionStore`, `useTerminal`, `useSearch`.
 - **vite.config.js** -- Proxies `/api` and `/ws` to `localhost:3747` during dev.

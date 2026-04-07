@@ -87,7 +87,7 @@ dashboard/
 
 ESM module. Bridges to `parsers.js` (CommonJS) via `createRequire`.
 
-The dashboard is the canonical job runtime. It reads both `notes/jobs/` and legacy `notes/swarm/`, stores run state in `.hub-runtime/job-runs.json`, stages prompt files in `.hub-runtime/prompts/`, and stores terminal event output in `.hub-runtime/events/`.
+The dashboard is the canonical job runtime. It reads both `notes/jobs/` and legacy `notes/swarm/`, stores run state in `.dispatch/runtime/job-runs.json`, stages prompt files in `.dispatch/runtime/prompts/`, and stores terminal event output in `.dispatch/runtime/events/`.
 
 ### REST API Endpoints
 
@@ -107,7 +107,7 @@ The dashboard is the canonical job runtime. It reads both `notes/jobs/` and lega
 | `GET /api/repos/:name/checkpoints` | `listCheckpoints` |
 | `GET /api/schedules` | Reads `schedules.json` |
 | `GET /api/events/search` | `eventPipeline.searchEvents` |
-| `GET /api/job-runs` | Reads `.hub-runtime/job-runs.json` |
+| `GET /api/job-runs` | Reads `.dispatch/runtime/job-runs.json` |
 
 #### Write Endpoints
 
@@ -175,7 +175,7 @@ Captures and structures terminal session output into queryable events.
 
 1. **Line classification** — Categorizes terminal output lines as: error, warning, progress, tool, file, thought, action
 2. **Agent detection** — Identifies session agent kind (claude, codex, generic)
-3. **Event persistence** — Writes NDJSON files to `.hub-runtime/events/<sessionId>.ndjson`
+3. **Event persistence** — Writes NDJSON files to `.dispatch/runtime/events/<sessionId>.ndjson`
 4. **Coalescing** — Deduplicates and merges related output lines
 5. **Summary tracking** — Maintains per-session stats: last step, errors, files touched, tool calls
 6. **Search** — Full-text search across session event history

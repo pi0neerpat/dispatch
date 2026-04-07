@@ -66,8 +66,8 @@ function createTestHub() {
     '- Set up test hub',
   ].join('\n'));
 
-  // .hub-runtime directory
-  fs.mkdirSync(path.join(tmpDir, '.hub-runtime'), { recursive: true });
+  // .dispatch/runtime directory
+  fs.mkdirSync(path.join(tmpDir, '.dispatch', 'runtime'), { recursive: true });
 
   // Init git repo
   execSync(`git init -b main "${repoDir}"`, { encoding: 'utf8' });

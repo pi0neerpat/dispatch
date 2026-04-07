@@ -1,18 +1,13 @@
 import { useMemo } from 'react'
-import { Clock, Code2, ScanSearch, GitFork, RefreshCcw, CheckCircle2, XCircle, Loader2, ChevronRight } from 'lucide-react'
+import { Clock, RefreshCcw, CheckCircle2, XCircle, Loader2, ChevronRight } from 'lucide-react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { cn, timeAgo } from '../lib/utils'
 import { repoIdentityColors, normalizeAgentId, getAgentBrandColor } from '../lib/constants'
+import { LOOP_TYPE_META } from '../lib/loopConstants'
 import { usePolling } from '../lib/usePolling'
 import { mdComponents } from './mdComponents'
 import AgentIcon, { getAgentLabel } from './AgentIcon'
-
-const LOOP_TYPE_META = {
-  'linear-implementation': { label: 'Linear Implementation', icon: Code2 },
-  'linear-review':         { label: 'Linear Review',         icon: ScanSearch },
-  'parallel-review':       { label: 'Parallel Review',       icon: GitFork },
-}
 
 const VERDICT_COLORS = {
   PASS: '#4ade80',
