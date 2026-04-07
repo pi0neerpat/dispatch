@@ -442,15 +442,19 @@ function parseLoopRunDetailed(runDir) {
   return { ...run, iterations, artifacts, prompt, warnings };
 }
 
-function loadConfig(hubDir) {
-  const localConfigPath = path.join(hubDir, 'config.local.json');
-  const configPath = fs.existsSync(localConfigPath) ? localConfigPath : path.join(hubDir, 'config.json');
+function loadConfig(dispatchRootDir) {
+  const localConfigPath = path.join(dispatchRootDir, 'config.local.json');
+  const configPath = fs.existsSync(localConfigPath) ? localConfigPath : path.join(dispatchRootDir, 'config.json');
   const raw = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  const { hubRoot, dispatchRoot: rawDispatchRoot, ...rawRest } = raw;
+  const dispatchRoot =
+    rawDispatchRoot !== undefined && rawDispatchRoot !== null ? rawDispatchRoot : hubRoot;
   return {
-    ...raw,
+    ...rawRest,
+    ...(dispatchRoot !== undefined && dispatchRoot !== null ? { dispatchRoot } : {}),
     repos: raw.repos.map(repo => ({
       ...repo,
-      resolvedPath: path.resolve(hubDir, repo.path),
+      resolvedPath: path.resolve(dispatchRootDir, repo.path),
     })),
   };
 }

@@ -7,8 +7,8 @@
 const path = require('path');
 const { parseTaskFile, parseActivityLog, getGitInfo, loadConfig } = require('./parsers');
 
-const HUB_DIR = path.dirname(__filename);
-const config = loadConfig(HUB_DIR);
+const DISPATCH_ROOT = path.dirname(__filename);
+const config = loadConfig(DISPATCH_ROOT);
 const COLS = Math.min(Math.max(process.stdout.columns || 70, 50), 72);
 
 // ── ANSI helpers ──────────────────────────────────────────────
@@ -72,7 +72,7 @@ const stage = repos.find(r => r.activity.stage)?.activity.stage || '';
 
 const out = [];
 out.push(boxTop());
-out.push(boxLine(c.bold('SCRIBULAR HUB')));
+out.push(boxLine(c.bold('SCRIBULAR DISPATCH')));
 if (stage) out.push(boxLine(c.cyan(`Stage: ${stage}`)));
 out.push(boxDivider());
 out.push(boxLine(''));

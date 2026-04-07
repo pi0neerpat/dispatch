@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { Clock, Loader, CheckCircle2, PlayCircle, XCircle, ListChecks } from 'lucide-react'
 import { cn } from '../lib/utils'
-import { repoIdentityColors } from '../lib/constants'
+import { DEFAULT_REPO_MUTED_COLOR } from '../lib/constants'
 import { usePolling } from '../lib/usePolling'
 import { POLL_INTERVALS } from '../lib/pollingIntervals'
 
@@ -92,7 +92,7 @@ export default function ActivityFeed() {
 
                   <div className="space-y-1">
                     {items.map((item, ii) => {
-                      const dotColor = repoIdentityColors[item.repo] || 'var(--muted-foreground)'
+                      const dotColor = item.color || DEFAULT_REPO_MUTED_COLOR
                       return (
                         <div key={`${item.repo}-${ii}`} className="flex items-start gap-1.5 text-[11px] leading-snug">
                           <span className="mt-1 w-1 h-1 rounded-full shrink-0" style={{ background: dotColor }} />

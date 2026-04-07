@@ -1,15 +1,19 @@
+/** Fallback when a repo has no `color` in hub config.json / config.local.json */
+export const DEFAULT_REPO_COLOR = 'var(--primary)'
+
+/** Fallback for subtle repo dots in activity UIs when config has no color */
+export const DEFAULT_REPO_MUTED_COLOR = 'var(--muted-foreground)'
+
 /**
- * Repo identity colors — used for color-coding repos across the dashboard.
- * Single source of truth. Update here when adding repos or changing colors.
+ * Resolves a repo accent color from `/api/overview` (each repo may include `color` from config).
+ * @param {object|null|undefined} overview - `{ repos: [{ name, color?, ... }] }`
+ * @param {string|null|undefined} repoName
+ * @param {string} [fallback=DEFAULT_REPO_COLOR]
  */
-export const repoIdentityColors = {
-  marketing: '#b5a06e',  // warm gold
-  website: '#8488a8',    // cool lavender-grey
-  electron: '#7ea89a',   // sage green
-  'prompt-guard': '#c8844a',  // orange
-  dispatch: '#8bab8f',   // sage green (primary)
-  hub: '#7a9eaa',        // steel blue (legacy)
-  clauffice: '#a87a8e',  // dusty mauve
+export function getRepoColor(overview, repoName, fallback = DEFAULT_REPO_COLOR) {
+  if (!repoName) return fallback
+  const c = overview?.repos?.find(r => r.name === repoName)?.color
+  return typeof c === 'string' && c.trim() ? c.trim() : fallback
 }
 
 /**

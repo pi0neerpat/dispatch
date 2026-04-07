@@ -182,7 +182,7 @@ hub/
    npm dependencies.
 
 4. **Configuration lives in `config.json`** at the repo root. It defines the
-   list of coordinated repos, each with a `name`, `path` (relative to hub root),
+   list of coordinated repos, each with a `name`, `path` (relative to dispatch root),
    `taskFile`, and `activityFile`.
 
 ---
@@ -323,13 +323,13 @@ The dashboard API mirrors the CLI commands:
       "activityFile": "activity-log.md"
     }
   ],
-  "hubRoot": "/Volumes/My Shared Files/scribular/hub"
+  "dispatchRoot": "/Volumes/My Shared Files/scribular/dispatch"
 }
 ```
 
 Fields:
 - `name` — Short identifier (used in CLI output and dashboard labels).
-- `path` — Relative to the hub root directory.
+- `path` — Relative to the dispatch root directory.
 - `taskFile` — Markdown file with `## Section` headers and `- [ ]`/`- [x]` checkboxes.
 - `activityFile` — Markdown file with `## YYYY-MM-DD` date headers and bullet entries.
 
@@ -495,9 +495,9 @@ dashboard.
 | Functions | camelCase | `parseTaskFile`, `getGitInfo`, `loadConfig` |
 | React components | PascalCase | `SwarmPanel`, `AgentCard`, `HeaderBar` |
 | Local variables | camelCase | `openCount`, `currentSection`, `dirtyCount` |
-| Constants (config-like) | UPPER_SNAKE_CASE | `HUB_DIR`, `PORT`, `COLS` |
+| Constants (config-like) | UPPER_SNAKE_CASE | `DISPATCH_ROOT`, `PORT`, `COLS` |
 | CSS custom properties | `--kebab-case` | `--background`, `--status-active`, `--card-border` |
-| Config keys (JSON) | camelCase | `taskFile`, `activityFile`, `resolvedPath`, `hubRoot` |
+| Config keys (JSON) | camelCase | `taskFile`, `activityFile`, `resolvedPath`, `dispatchRoot` |
 | API endpoint paths | kebab-case | `/api/overview`, `/api/jobs/:id` |
 | CLI commands | lowercase single word | `status`, `tasks`, `swarm`, `repos` |
 

@@ -19,7 +19,7 @@ let server;
 let baseUrl;
 
 /**
- * Create a test hub filesystem structure and set HUB_DIR before importing server.
+ * Create a test dispatch root filesystem structure and set DISPATCH_ROOT before importing server.
  */
 function createTestHub() {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dash-int-'));
@@ -40,7 +40,7 @@ function createTestHub() {
         activityFile: 'activity-log.md',
       },
     ],
-    hubRoot: '.',
+    dispatchRoot: '.',
   }, null, 2));
 
   // todo.md
@@ -109,7 +109,7 @@ before(async () => {
   const { repoDir } = createTestHub();
 
   // Set env vars before importing server
-  process.env.HUB_DIR = tmpDir;
+  process.env.DISPATCH_ROOT = tmpDir;
   process.env.TESTING = '1';
 
   const mod = await import('./server.js');
@@ -133,7 +133,7 @@ after(async () => {
   if (tmpDir) {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
-  delete process.env.HUB_DIR;
+  delete process.env.DISPATCH_ROOT;
   delete process.env.TESTING;
 });
 

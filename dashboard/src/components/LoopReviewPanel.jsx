@@ -3,7 +3,7 @@ import { Clock, RefreshCcw, CheckCircle2, XCircle, Loader2, ChevronRight } from 
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { cn, timeAgo } from '../lib/utils'
-import { repoIdentityColors, normalizeAgentId, getAgentBrandColor } from '../lib/constants'
+import { getRepoColor, normalizeAgentId, getAgentBrandColor } from '../lib/constants'
 import { LOOP_TYPE_META } from '../lib/loopConstants'
 import { usePolling } from '../lib/usePolling'
 import { mdComponents } from './mdComponents'
@@ -137,10 +137,10 @@ function summarizeArtifact(text, type) {
   return { status: verdict || 'Open artifact', details: [] }
 }
 
-export default function LoopReviewPanel({ loop }) {
+export default function LoopReviewPanel({ loop, overview }) {
   const meta = LOOP_TYPE_META[loop?.loopType] || { label: loop?.loopType || 'Unknown', icon: RefreshCcw }
   const TypeIcon = meta.icon
-  const repoColor = repoIdentityColors[loop?.repo] || 'var(--primary)'
+  const repoColor = getRepoColor(overview, loop?.repo)
   const agentId = normalizeAgentId((loop?.agent || 'claude').split(':')[0])
   const agentLabel = getAgentLabel(agentId)
   const agentColor = getAgentBrandColor(agentId)

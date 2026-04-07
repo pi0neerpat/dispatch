@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import { RefreshCcw, Clock, Code2, ScanSearch, GitFork, Sparkles, CheckCircle2, XCircle } from 'lucide-react'
 import { cn, timeAgo } from '../lib/utils'
-import { repoIdentityColors } from '../lib/constants'
+import { getRepoColor } from '../lib/constants'
 import { FilterChip, toggleFilter, loadFilters, saveFilters } from '../lib/filterUtils.jsx'
 import { LOOP_TYPES } from './AgentModelPicker'
 
@@ -124,7 +124,7 @@ export default function LoopsView({ loops, overview, onSelectLoop }) {
               label={name}
               active={selectedRepos.has(name)}
               onClick={() => toggleFilter(selectedRepos, setSelectedRepos, name)}
-              color={repoIdentityColors[name]}
+              color={getRepoColor(overview, name)}
             />
           ))}
         </div>
@@ -158,7 +158,7 @@ export default function LoopsView({ loops, overview, onSelectLoop }) {
                   </div>
                 )}
                 {group.items.map(job => {
-                  const repoColor = repoIdentityColors[job.repo] || 'var(--primary)'
+                  const repoColor = getRepoColor(overview, job.repo)
                   const statusColor = STATUS_COLORS[job.filterStatus] || STATUS_COLORS.active
                   const duration = job.durationMinutes != null ? timeAgo(null, job.durationMinutes) : null
                   const TypeIcon = getLoopTypeIcon(job.loopType)

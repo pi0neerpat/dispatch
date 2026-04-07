@@ -33,7 +33,7 @@ Returns JSON including:
 - **`agents`** — supported kinds: `claude`, `codex`, `cursor`.
 - **`models`** — per-agent model lists (`value` / `label`).
 - **`modelSources`** — how each list was resolved (`api`, `fallback`, `codex-cache`, …).
-- **`hubRoot`** — hub root path hint.
+- **`dispatchRoot`** — dispatch root path hint.
 
 ---
 

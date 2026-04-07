@@ -4,7 +4,7 @@ import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { cn, timeAgo, truncateWithEllipsis, buildPlanPath } from '../lib/utils'
 import { statusConfig, validationConfig } from '../lib/statusConfig'
-import { repoIdentityColors, FOLLOWUP_TEMPLATES } from '../lib/constants'
+import { getRepoColor, FOLLOWUP_TEMPLATES } from '../lib/constants'
 import { useAgentModels } from '../lib/useAgentModels'
 import { usePolling } from '../lib/usePolling'
 import { POLL_INTERVALS } from '../lib/pollingIntervals'
@@ -808,7 +808,7 @@ function buildPlanHref(detail) {
 
 /* ── Main component ────────────────────────────────────── */
 
-export default function ResultsPanel({ agentId, hasLiveTerminal = false, onJobsRefresh, onOverviewRefresh, onStartTask, onResumeJob, onBack, onRemoveSession, onRunDev, showToast, settings }) {
+export default function ResultsPanel({ agentId, hasLiveTerminal = false, onJobsRefresh, onOverviewRefresh, onStartTask, onResumeJob, onBack, onRemoveSession, onRunDev, showToast, settings, overview }) {
   const detailPolling = usePolling(agentId ? `/api/jobs/${agentId}` : null, POLL_INTERVALS.jobDetail)
   const [detail, setDetail] = useState(null)
   const loading = detailPolling.loading
@@ -1024,7 +1024,7 @@ export default function ResultsPanel({ agentId, hasLiveTerminal = false, onJobsR
   const st = statusConfig[detail.status] || statusConfig.unknown
   const StatusIcon = st.icon
   const val = validationConfig[detail.validation]
-  const repoColor = repoIdentityColors[detail.repo] || 'var(--primary)'
+  const repoColor = getRepoColor(overview, detail.repo)
   const relativeTime = timeAgo(detail.started, detail.durationMinutes)
   const statusColor = st.borderColor || 'var(--primary)'
   const planHref = buildPlanHref(detail)

@@ -11,13 +11,14 @@ Defined in `config.local.json` when present, otherwise `config.json`. In this ch
 | Field | Description |
 |-------|-------------|
 | `name` | Short name used in CLI output and dashboard |
-| `path` | Relative path from hub root to the repo |
+| `path` | Relative path from dispatch root to the repo |
 | `taskFile` | Markdown file for tasks (default: `todo.md`) |
 | `bugsFile` | Markdown file for bugs (default: `bugs.md`) |
 | `activityFile` | Markdown file for activity (default: `activity-log.md`) |
 | `startScript` | Command to start the repo's dev server |
 | `testScript` | Command to run tests |
 | `cleanupScript` | Command to clean build artifacts |
+| `color` | Optional hex string (e.g. `#8bab8f`) for dashboard repo accents in `/api/overview`, activity feed, and filters |
 
 Every repo tracks tasks in `todo.md` and activity in `activity-log.md`.
 
@@ -42,12 +43,12 @@ config.json ─── loadConfig() ───┐
 ## Key Files
 
 - **config.local.json** -- Effective local repo definitions for this checkout. Dispatch loads this first when present.
-- **config.json** -- Fallback/shared repo definitions when `config.local.json` is absent. `hubRoot` (display path) and `monthlyBudget` (optional) are user-specific; set `hubRoot` to your local hub path (e.g. `.` for current dir). Server falls back to `HUB_DIR` env var when `hubRoot` is unset.
+- **config.json** -- Fallback/shared repo definitions when `config.local.json` is absent. `dispatchRoot` (display path) and `monthlyBudget` (optional) are user-specific; set `dispatchRoot` to your local dispatch root (e.g. `.` for current dir). Dashboard server falls back to `DISPATCH_ROOT` env var when unset (legacy `HUB_DIR` is still read for compatibility). Legacy `hubRoot` in JSON is normalized to `dispatchRoot` on load.
 - **parsers.js** -- CommonJS module. Primary job APIs: `parseJobFile`, `parseJobDir`, `writeJobValidation`, `writeJobKill`, `writeJobStatus`. Also owns task/activity parsing, task writes, and checkpoint helpers. Zero external dependencies.
 - **cli.js** -- Agent-friendly CLI. All output is JSON to stdout, errors as JSON to stderr. Commands: `status`, `tasks [--repo=name]`, `swarm [id]`, `repos`, `activity [--limit=N]`, `config`.
 - **terminal.js** -- Human-friendly ANSI terminal dashboard. Read-only display, no interactivity. Uses box-drawing characters.
-- **todo.md** -- Hub's own task tracker (markdown checkboxes).
-- **activity-log.md** -- Hub's own activity log. Contains `**Current stage:**` metadata.
+- **todo.md** -- Dispatch root's own task tracker (markdown checkboxes).
+- **activity-log.md** -- Dispatch root's own activity log. Contains `**Current stage:**` metadata.
 - **notes/jobs/** -- Job progress files (gitignored — runtime artifacts). Named `YYYY-MM-DD-slug.md`.
 - **.dispatch/runtime/** -- Server runtime state (gitignored): `.dispatch/runtime/job-runs.json` for job run state, `.dispatch/runtime/prompts/` for staged Claude prompts, `.dispatch/runtime/events/` for terminal event snapshots/NDJSON.
 
@@ -110,7 +111,7 @@ yarn start           # Serve built SPA + API from port 3747
 
 ## Rules
 
-1. **`config.local.json` is the source of truth when present; otherwise use `config.json`** for repo paths and file locations. In this repo, prefer `config.local.json`. Do not hardcode repo paths elsewhere.
+1. **`config.local.json` is the source of truth when present; otherwise use `config.json`** for repo paths and file locations. In this repo, prefer `config.local.json`. Do not hardcode repo paths elsewhere. Use **`DISPATCH_ROOT`** (absolute path to the dispatch root) when overriding the server’s working directory; **`HUB_DIR`** is deprecated but still honored by the dashboard server.
 2. **`parsers.js` is shared infrastructure.** Test changes against all three consumers (cli.js, terminal.js, dashboard/server.js) before committing.
 3. **Job progress files** go in `notes/jobs/YYYY-MM-DD-slug.md` with the standard format (see Conventions above).
 4. **All repos use the same task/activity pattern**: `todo.md` for tasks, `activity-log.md` for activity.

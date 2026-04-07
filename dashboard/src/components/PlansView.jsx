@@ -8,7 +8,7 @@ import SkillsSelector from './SkillsSelector'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { buildPlanPath, cn, truncateWithEllipsis } from '../lib/utils'
-import { repoIdentityColors } from '../lib/constants'
+import { DEFAULT_REPO_COLOR, getRepoColor } from '../lib/constants'
 import { getFilterChipClassName, getFilterChipStyle } from '../lib/filterUtils.jsx'
 import { mdComponents } from './mdComponents'
 
@@ -101,8 +101,8 @@ function CountBadge({ n }) {
   )
 }
 
-function PlanCard({ plan, onSelect }) {
-  const color = repoIdentityColors[plan.repo] || 'var(--primary)'
+function PlanCard({ plan, onSelect, overview }) {
+  const color = getRepoColor(overview, plan.repo)
 
   return (
     <button
@@ -276,14 +276,14 @@ function PlanDispatchBar({ plan, swarm, settings: appSettings, onNavigateToDispa
   )
 }
 
-function PlanDetail({ plan: initialPlan, onBack, onNavigateToDispatch, settings, swarm }) {
+function PlanDetail({ plan: initialPlan, onBack, onNavigateToDispatch, settings, swarm, overview }) {
   const [plan, setPlan] = useState(initialPlan)
   const [isEditing, setIsEditing] = useState(false)
   const [editContent, setEditContent] = useState('')
   const [saving, setSaving] = useState(false)
   const [updatingStatus, setUpdatingStatus] = useState(false)
 
-  const color = repoIdentityColors[plan.repo] || 'var(--primary)'
+  const color = getRepoColor(overview, plan.repo)
   const jobStatus = resolveJobStatus(plan, swarm)
   const isRunning = jobStatus === 'in_progress'
   const isReady = plan.planStatus === 'ready'
@@ -571,6 +571,7 @@ export default function PlansView({ overview, swarm, onNavigateToDispatch, setti
         onNavigateToDispatch={onNavigateToDispatch}
         settings={settings}
         swarm={swarm}
+        overview={overview}
       />
     )
   }
@@ -601,7 +602,7 @@ export default function PlansView({ overview, swarm, onNavigateToDispatch, setti
             All
           </button>
           {repos.map(r => {
-            const color = repoIdentityColors[r.name] || 'var(--primary)'
+            const color = r.color || DEFAULT_REPO_COLOR
             const isActive = repoFilter === r.name
             return (
               <button
@@ -645,6 +646,7 @@ export default function PlansView({ overview, swarm, onNavigateToDispatch, setti
                       key={`${plan.repo}/${plan.slug}`}
                       plan={plan}
                       onSelect={handleSelectPlan}
+                      overview={overview}
                     />
                   ))
                 )}

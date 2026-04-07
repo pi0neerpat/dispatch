@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { GitBranch, FileText, Save, RotateCcw, X, AlertTriangle, Loader2 } from 'lucide-react'
 import { cn } from '../lib/utils'
-import { repoIdentityColors } from '../lib/constants'
+import { DEFAULT_REPO_COLOR } from '../lib/constants'
 
 function ProgressRing({ open, done, size = 32 }) {
   const total = open + done
@@ -38,7 +38,7 @@ function ProgressRing({ open, done, size = 32 }) {
 
 function RepoCard({ repo, index, onRefresh }) {
   const isDirty = repo.git.dirtyCount > 0
-  const identityColor = repoIdentityColors[repo.name] || 'var(--primary)'
+  const identityColor = repo.color || DEFAULT_REPO_COLOR
   const open = repo.tasks.openCount
   const done = repo.tasks.doneCount
 

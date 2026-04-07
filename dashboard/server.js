@@ -55,13 +55,15 @@ const {
   writePlanStatus,
 } = require('../parsers')
 
-const HUB_DIR = process.env.HUB_DIR ? path.resolve(process.env.HUB_DIR) : path.resolve(__dirname, '..')
+const DISPATCH_ROOT = (process.env.DISPATCH_ROOT || process.env.HUB_DIR)
+  ? path.resolve(process.env.DISPATCH_ROOT || process.env.HUB_DIR)
+  : path.resolve(__dirname, '..')
 const PORT = process.env.PORT || 3747
 /** When set, all `/api/*` requests must send this key (Bearer or X-API-Key). */
 const DISPATCH_API_KEY = (process.env.DISPATCH_API_KEY || '').trim()
 /** Listen address (default 127.0.0.1). Use e.g. 0.0.0.0 for LAN access behind a firewall + API key. */
 const DISPATCH_BIND = (process.env.DISPATCH_BIND || '127.0.0.1').trim()
-const DISPATCH_DIR = path.join(HUB_DIR, '.dispatch')
+const DISPATCH_DIR = path.join(DISPATCH_ROOT, '.dispatch')
 const RUNTIME_DIR = path.join(DISPATCH_DIR, 'runtime')
 const JOB_RUNS_FILE = path.join(RUNTIME_DIR, 'job-runs.json')
 const PROMPTS_DIR = path.join(RUNTIME_DIR, 'prompts')
@@ -369,11 +371,11 @@ function cleanupPromptFile(filePath) {
 function buildClaudeEnvPrefix({ sessionId = null, jobId = null, repoName = null } = {}) {
   if (!sessionId || !jobId) return ''
   const envVars = {
-    HUB_API_BASE: `http://127.0.0.1:${PORT}`,
-    HUB_SESSION_ID: sessionId,
-    HUB_JOB_ID: jobId,
+    DISPATCH_API_BASE: `http://127.0.0.1:${PORT}`,
+    DISPATCH_SESSION_ID: sessionId,
+    DISPATCH_JOB_ID: jobId,
   }
-  if (repoName) envVars.HUB_REPO = repoName
+  if (repoName) envVars.DISPATCH_REPO = repoName
   return `${Object.entries(envVars).map(([key, value]) => `${key}=${shellQuote(value)}`).join(' ')} `
 }
 
@@ -424,10 +426,10 @@ function buildTrackedClaudeCommand({
   const claudeCommand = resumeId
     ? `${envPrefix}${buildResumeClaudeCommand(resumeId, flags)}`
     : `${envPrefix}claude${flags} "$(cat ${shellQuote(promptFilePath)})"`
-  const withExit = `${claudeCommand}; __hub_code=$?; echo "__HUB_CLAUDE_EXIT_CODE:\${__hub_code}__"; exit $__hub_code`
+  const withExit = `${claudeCommand}; __dispatch_code=$?; echo "__DISPATCH_CLAUDE_EXIT_CODE:\${__dispatch_code}__"; exit $__dispatch_code`
   // In plain output mode, wrap with sentinels so the server can capture Claude's
   // text response and write it to the job file's ## Results section.
-  return plainOutput ? `echo '__HUB_OUTPUT_START__'; ${withExit}` : withExit
+  return plainOutput ? `echo '__DISPATCH_OUTPUT_START__'; ${withExit}` : withExit
 }
 
 function buildTrackedCodexCommand({
@@ -448,7 +450,7 @@ function buildTrackedCodexCommand({
   if (sanitizedCodex) flags += ` ${sanitizedCodex}`
   const envPrefix = buildClaudeEnvPrefix({ sessionId, jobId, repoName })
   const cmd = `cat ${shellQuote(promptFilePath)} | ${envPrefix}codex exec ${flags} -`
-  return `${cmd}; __hub_code=$?; echo "__HUB_CLAUDE_EXIT_CODE:\${__hub_code}__"; exit $__hub_code`
+  return `${cmd}; __dispatch_code=$?; echo "__DISPATCH_CLAUDE_EXIT_CODE:\${__dispatch_code}__"; exit $__dispatch_code`
 }
 
 function buildTrackedCursorCommand({
@@ -476,8 +478,8 @@ function buildTrackedCursorCommand({
     : cursorBinary === 'agent'
       ? `${envPrefix}agent -p "$(cat ${shellQuote(promptFilePath)})"${flags}`
       : `${envPrefix}cursor-agent${flags} "$(cat ${shellQuote(promptFilePath)})"`
-  const withExit = `${cursorCommand}; __hub_code=$?; echo "__HUB_CLAUDE_EXIT_CODE:\${__hub_code}__"; exit $__hub_code`
-  return plainOutput ? `echo '__HUB_OUTPUT_START__'; ${withExit}` : withExit
+  const withExit = `${cursorCommand}; __dispatch_code=$?; echo "__DISPATCH_CLAUDE_EXIT_CODE:\${__dispatch_code}__"; exit $__dispatch_code`
+  return plainOutput ? `echo '__DISPATCH_OUTPUT_START__'; ${withExit}` : withExit
 }
 
 function buildTrackedPiCommand({
@@ -499,8 +501,8 @@ function buildTrackedPiCommand({
   if (sanitized) flags += ` ${sanitized}`
   const envPrefix = buildClaudeEnvPrefix({ sessionId, jobId, repoName })
   const cmd = `${envPrefix}pi${flags} "$(cat ${shellQuote(promptFilePath)})"`
-  const withExit = `${cmd}; __hub_code=$?; echo "__HUB_CLAUDE_EXIT_CODE:\${__hub_code}__"; exit $__hub_code`
-  return plainOutput ? `echo '__HUB_OUTPUT_START__'; ${withExit}` : withExit
+  const withExit = `${cmd}; __dispatch_code=$?; echo "__DISPATCH_CLAUDE_EXIT_CODE:\${__dispatch_code}__"; exit $__dispatch_code`
+  return plainOutput ? `echo '__DISPATCH_OUTPUT_START__'; ${withExit}` : withExit
 }
 
 // Strip ANSI escape sequences for clean log output
@@ -570,7 +572,7 @@ function removeJobWorktree(repoPath, jobId, { deleteBranch = false, repoName = '
 }
 
 try {
-  loadConfig(HUB_DIR)
+  loadConfig(DISPATCH_ROOT)
 } catch (err) {
   console.error('Failed to load config.local.json or config.json:', err.message)
   process.exit(1)
@@ -581,7 +583,7 @@ const gitInfoCache = new Map() // repoPath -> { value, expiresAt }
 const planLookupCache = { signature: null, lookup: null }
 
 function getConfig() {
-  return loadConfig(HUB_DIR)
+  return loadConfig(DISPATCH_ROOT)
 }
 
 function getCachedGitInfo(repoPath) {
@@ -699,7 +701,7 @@ function emitJobsChanged({ repo = null, id = null, reason = null } = {}) {
 }
 
 function collectAvailableSkills() {
-  const localSkills = parseSkillsDir(HUB_DIR, {
+  const localSkills = parseSkillsDir(DISPATCH_ROOT, {
     source: 'local',
     includeSource: true,
     idPrefix: 'local:',
@@ -782,6 +784,7 @@ app.get('/api/overview', (req, res) => {
 
     return {
       name: repo.name,
+      ...(repo.color ? { color: repo.color } : {}),
       git,
       tasks: { openCount: tasks.openCount, doneCount: tasks.doneCount, sections: tasks.sections, allTasks: tasks.allTasks },
       bugs: { openCount: bugs.openCount, doneCount: bugs.doneCount, sections: bugs.sections, allTasks: bugs.allTasks },
@@ -795,7 +798,7 @@ app.get('/api/overview', (req, res) => {
   const totalOpen = repos.reduce((s, r) => s + r.tasks.openCount, 0)
   const totalDone = repos.reduce((s, r) => s + r.tasks.doneCount, 0)
 
-  res.json({ hubRoot: config.hubRoot || HUB_DIR, stage, repos, totals: { openTasks: totalOpen, doneTasks: totalDone }, monthlyBudget: config.monthlyBudget || null })
+  res.json({ dispatchRoot: config.dispatchRoot || DISPATCH_ROOT, stage, repos, totals: { openTasks: totalOpen, doneTasks: totalDone }, monthlyBudget: config.monthlyBudget || null })
 })
 
 function collectJobAgents(config = getConfig()) {
@@ -1056,7 +1059,7 @@ app.post('/api/loops/init', (req, res) => {
 
   // Build shell command — no job file, loop.log is the source of truth
   const scriptPath = `loops/${loopType}.sh`
-  let shellCommand = `cd "${HUB_DIR}" && bash "${scriptPath}" --repo "${repoConfig.resolvedPath}" --session "${sessionId}"`
+  let shellCommand = `cd "${DISPATCH_ROOT}" && bash "${scriptPath}" --repo "${repoConfig.resolvedPath}" --session "${sessionId}"`
   if (loopType === 'parallel-review') {
     const agents = Array.isArray(reviewerAgents) && reviewerAgents.length > 0 ? reviewerAgents : ['claude']
     for (const a of agents) shellCommand += ` --agent "${String(a).replace(/"/g, '')}"`
@@ -1328,7 +1331,12 @@ app.get('/api/activity', (req, res) => {
     const activity = parseActivityLog(path.join(repo.resolvedPath, repo.activityFile))
     for (const entry of activity.entries) {
       if (entry.bullet) {
-        allEntries.push({ date: entry.date, bullet: entry.bullet, repo: repo.name })
+        allEntries.push({
+          date: entry.date,
+          bullet: entry.bullet,
+          repo: repo.name,
+          ...(repo.color ? { color: repo.color } : {}),
+        })
       }
     }
   }
@@ -1562,6 +1570,7 @@ app.get('/api/catalog', async (req, res) => {
       taskFile: r.taskFile,
       activityFile: r.activityFile,
       ...(r.bugsFile ? { bugsFile: r.bugsFile } : {}),
+      ...(r.color ? { color: r.color } : {}),
     }))
     const models = {}
     const modelSources = {}
@@ -1573,7 +1582,7 @@ app.get('/api/catalog', async (req, res) => {
       modelSources[agent] = result.source
     }
     res.json({
-      hubRoot: config.hubRoot || HUB_DIR,
+      dispatchRoot: config.dispatchRoot || DISPATCH_ROOT,
       repos,
       agents: DISPATCH_AGENT_KINDS.map(id => ({ id, label: DISPATCH_AGENT_LABELS[id] || id })),
       models,
@@ -2134,7 +2143,7 @@ app.post(['/api/jobs/:id/resume', '/api/swarm/:id/resume'], (req, res) => {
 
     const cwd = detail.worktreePath && detail.worktreePath !== '(merged)'
       ? detail.worktreePath
-      : found.repo?.resolvedPath || HUB_DIR
+      : found.repo?.resolvedPath || DISPATCH_ROOT
     createPtySession(
       sessionId,
       cwd,
@@ -2574,7 +2583,7 @@ app.delete('/api/repos/:name/checkpoint/:id', (req, res) => {
 
 // ── Schedules CRUD ──────────────────────────────────────
 
-const SCHEDULES_FILE = path.join(HUB_DIR, 'schedules.json')
+const SCHEDULES_FILE = path.join(DISPATCH_ROOT, 'schedules.json')
 
 function loadSchedules() {
   try {
@@ -2909,7 +2918,7 @@ function createPtySession(sessionId, cwd, repoName, jobFilePath, initialScrollba
     eventStore: createSessionEventStore({
       sessionId,
       repo: repoName || null,
-      baseDir: HUB_DIR,
+      baseDir: DISPATCH_ROOT,
     }),
   }
 
@@ -3029,18 +3038,21 @@ function createPtySession(sessionId, cwd, repoName, jobFilePath, initialScrollba
 
   shell.onData((data) => {
     let chunk = String(data || '')
-    const exitMatch = chunk.match(/__HUB_CLAUDE_EXIT_CODE:(\d+)__/)
+    const exitMatch = chunk.match(/__DISPATCH_CLAUDE_EXIT_CODE:(\d+)__/)
+      || chunk.match(/__HUB_CLAUDE_EXIT_CODE:(\d+)__/)
     if (exitMatch) {
       session.commandExitCode = parseInt(exitMatch[1], 10)
+      chunk = chunk.replace(/__DISPATCH_CLAUDE_EXIT_CODE:\d+__/g, '')
       chunk = chunk.replace(/__HUB_CLAUDE_EXIT_CODE:\d+__/g, '')
     }
 
     // Plain output mode: capture Claude's text response between sentinels
     // and write to the job file's ## Results section when done.
     if (session.plainOutput) {
-      if (chunk.includes('__HUB_OUTPUT_START__')) {
+      if (chunk.includes('__DISPATCH_OUTPUT_START__') || chunk.includes('__HUB_OUTPUT_START__')) {
         session.capturingPlainOutput = true
         session.plainOutputBuffer = ''
+        chunk = chunk.replace(/[^\n]*__DISPATCH_OUTPUT_START__[^\n]*\r?\n?/g, '')
         chunk = chunk.replace(/[^\n]*__HUB_OUTPUT_START__[^\n]*\r?\n?/g, '')
       }
       if (session.capturingPlainOutput) {
@@ -3329,7 +3341,7 @@ wss.on('connection', (ws, req) => {
     }
   } else {
     // New session — resolve cwd and spawn PTY
-    let cwd = HUB_DIR
+    let cwd = DISPATCH_ROOT
     if (repoName) {
       const config = getConfig()
       const repoConfig = config.repos.find(r => r.name === repoName)

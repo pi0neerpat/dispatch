@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useCallback, useRef, useLayoutEffect } from 'react'
 import { Play, Check, Plus, ChevronDown, ExternalLink } from 'lucide-react'
 import { cn } from '../lib/utils'
-import { repoIdentityColors } from '../lib/constants'
+import { getRepoColor } from '../lib/constants'
 import { FilterChip, toggleFilter, BUG_COLOR, loadFilters, saveFilters } from '../lib/filterUtils.jsx'
 
 const TIMEFRAMES = ['past', 'present', 'future']
@@ -290,8 +290,8 @@ export default function AllTasksView({
               type="button"
               onClick={() => setRepoDropdownOpen(p => !p)}
               className="flex items-center gap-1.5 px-3 py-2.5 text-[12px] font-medium capitalize"
-              style={newTaskRepo && repoIdentityColors[newTaskRepo]
-                ? { color: repoIdentityColors[newTaskRepo] }
+              style={newTaskRepo
+                ? { color: getRepoColor(overview, newTaskRepo) }
                 : { color: 'var(--muted-foreground)' }}
             >
               {newTaskRepo || 'Repo'}
@@ -300,7 +300,7 @@ export default function AllTasksView({
             {repoDropdownOpen && (
               <div className="absolute z-20 top-full mt-1 left-0 min-w-[120px] rounded-lg border shadow-lg py-1" style={{ background: '#242329', borderColor: 'rgba(255,255,255,0.06)' }}>
                 {repoNames.map(name => {
-                  const color = repoIdentityColors[name]
+                  const color = getRepoColor(overview, name)
                   return (
                     <button
                       key={name}
@@ -415,7 +415,7 @@ export default function AllTasksView({
               label={name}
               active={selectedRepos.has(name)}
               onClick={() => toggleFilter(selectedRepos, setSelectedRepos, name)}
-              color={repoIdentityColors[name]}
+              color={getRepoColor(overview, name)}
             />
           ))}
         </div>
@@ -429,7 +429,7 @@ export default function AllTasksView({
           const doneTasks = filteredTasks.filter(t => t.status === 'done')
 
           const renderTask = (task, i) => {
-            const repoColor = repoIdentityColors[task.repoName] || 'var(--primary)'
+            const repoColor = getRepoColor(overview, task.repoName)
             const isClickable = (task.status === 'in_progress' || task.status === 'review') && task.jobId
             const taskKey = `${task.repoName}-${task.section}-${task.status}-${i}`
             const isEditing = editingTaskKey === taskKey

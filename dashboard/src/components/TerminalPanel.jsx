@@ -42,12 +42,12 @@ function buildSpawnPrompt(taskInfo) {
 function wrapTrackedCommand(command) {
   const cmd = String(command || '').trim()
   if (!cmd) return ''
-  return `${cmd}; __hub_code=$?; echo "__HUB_CLAUDE_EXIT_CODE:\${__hub_code}__"; exit $__hub_code`
+  return `${cmd}; __dispatch_code=$?; echo "__DISPATCH_CLAUDE_EXIT_CODE:\${__dispatch_code}__"; exit $__dispatch_code`
 }
 
 function buildPromptArgFromHeredoc(prompt) {
   const text = String(prompt ?? '').replace(/\r\n/g, '\n')
-  let marker = '__HUB_PROMPT__'
+  let marker = '__DISPATCH_PROMPT__'
   while (text.includes(marker)) {
     marker += '_X'
   }

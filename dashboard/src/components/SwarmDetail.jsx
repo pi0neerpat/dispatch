@@ -4,10 +4,10 @@ import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { cn, timeAgo } from '../lib/utils'
 import { statusConfig, validationConfig } from '../lib/statusConfig'
-import { repoIdentityColors } from '../lib/constants'
+import { getRepoColor } from '../lib/constants'
 import { mdComponents } from './mdComponents'
 
-export default function SwarmDetail({ agentId, onJobsRefresh, onOverviewRefresh }) {
+export default function SwarmDetail({ agentId, overview, onJobsRefresh, onOverviewRefresh }) {
   const [detail, setDetail] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -151,7 +151,7 @@ export default function SwarmDetail({ agentId, onJobsRefresh, onOverviewRefresh 
   const st = statusConfig[detail.status] || statusConfig.unknown
   const StatusIcon = st.icon
   const val = validationConfig[detail.validation]
-  const repoColor = repoIdentityColors[detail.repo] || 'var(--primary)'
+  const repoColor = getRepoColor(overview, detail.repo)
   const relativeTime = timeAgo(detail.started, detail.durationMinutes)
 
   const canAct = (detail.validation === 'needs_validation' || detail.validation === 'none') &&

@@ -19,7 +19,7 @@ All fields except `name` and `path` are optional (use `null` if unknown).
 
 **Field notes:**
 - `name` — short identifier used in CLI output and dashboard labels. Lowercase, no spaces.
-- `path` — relative path from the hub root. Always `../repo-name` for sibling repos, `.` for the hub itself.
+- `path` — relative path from the dispatch root. Always `../repo-name` for sibling repos, `.` for the dispatch repo itself.
 - `taskFile` — almost always `todo.md`. Only change if the repo uses a different name.
 - `bugsFile` — optional. Set to `null` if the repo doesn't track bugs separately.
 - `activityFile` — almost always `activity-log.md`.
@@ -27,7 +27,7 @@ All fields except `name` and `path` are optional (use `null` if unknown).
 - `testScript` — command to run tests. `null` if not applicable.
 - `cleanupScript` — command to clean build artifacts. `null` if not applicable.
 
-The `hub` entry (path `.`) must always remain in the list and should not be modified.
+The `dispatch` entry (path `.`) for this coordination repo must always remain in the list and should not be removed.
 
 ---
 

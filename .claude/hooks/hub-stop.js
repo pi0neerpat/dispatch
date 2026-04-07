@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * hub-stop.js — Stop hook for Work-Down managed Claude sessions.
+ * hub-stop.js — Stop hook for dashboard-managed Claude sessions.
  *
- * Only signals Hub when Work-Down specific env vars are present.
- * Outside Work-Down dispatched sessions, this hook is a no-op.
+ * Signals the Dispatch dashboard when DISPATCH_* (or legacy HUB_*) env vars are present.
+ * Outside dispatched sessions, this hook is a no-op.
  */
 
 const fs = require("fs");
@@ -50,9 +50,11 @@ function postJson(urlString, payload, callback) {
 }
 
 function main() {
-  const apiBase = process.env.HUB_API_BASE || "";
-  const sessionId = process.env.HUB_SESSION_ID || "";
-  const jobId = process.env.HUB_JOB_ID || "";
+  const apiBase =
+    process.env.DISPATCH_API_BASE || process.env.HUB_API_BASE || "";
+  const sessionId =
+    process.env.DISPATCH_SESSION_ID || process.env.HUB_SESSION_ID || "";
+  const jobId = process.env.DISPATCH_JOB_ID || process.env.HUB_JOB_ID || "";
 
   if (!apiBase || !sessionId || !jobId) {
     process.exit(0);

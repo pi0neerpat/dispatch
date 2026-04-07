@@ -195,6 +195,7 @@ export default function App() {
       <LoopDetailView
         loopId={drillDownLoopId}
         loops={loops.data}
+        overview={overview.data}
         onBack={closeJobDetail}
         agentTerminals={agentTerminals}
         onKillSession={killSession}
@@ -214,6 +215,7 @@ export default function App() {
         agentTerminals={agentTerminals}
         jobFileToSession={jobFileToSession}
         swarm={jobs.data}
+        overview={overview.data}
         skipPermissions={settings.agents.claude?.skipPermissions ?? true}
         onKillSession={killSession}
         onUpdateSessionId={updateSessionId}

@@ -5,7 +5,7 @@ argument-hint: [repo-name or path]
 allowed-tools: Read, Write, Edit, Bash(ls *), Bash(test *), Bash(mkdir *), Bash(cp *), Bash(node *)
 ---
 
-# /add-repo — Add a Repository to the Hub
+# /add-repo — Add a Repository to Dispatch
 
 Add a new repo to `config.json`, scaffold its tracking files, and install the hub completion hook so the dashboard can track dispatched jobs.
 
@@ -19,7 +19,7 @@ Add a new repo to `config.json`, scaffold its tracking files, and install the hu
 node cli.js config
 ```
 
-Note the existing repos (for duplicate detection) and the hub's resolved path (you'll need it to locate the hook file to copy).
+Note the existing repos (for duplicate detection) and the dispatch root’s resolved path (you'll need it to locate the hook file to copy).
 
 ---
 
@@ -30,7 +30,7 @@ If `$ARGUMENTS` was provided, infer the repo name or path from it. Otherwise ask
 > **To add a repo I need a few details:**
 >
 > 1. **Repo name** — short identifier for the dashboard (e.g. `backend`, `mobile`, `docs`)
-> 2. **Path** — relative path from the hub root (e.g. `../my-backend`)
+> 2. **Path** — relative path from the dispatch root (e.g. `../my-backend`)
 > 3. **Start script** — command to run the dev server (e.g. `npm run dev`), or skip
 > 4. **Test script** — command to run tests, or skip
 > 5. **Cleanup script** — command to remove build artifacts, or skip

@@ -38,7 +38,7 @@ dashboard/
     │   ├── Toast.jsx            # Toast notification component
     │   └── mdComponents.jsx     # Shared react-markdown component overrides
     ├── lib/
-    │   ├── constants.js      # repoIdentityColors, modelOptions
+    │   ├── constants.js      # getRepoColor (reads overview from API), modelOptions
     │   ├── statusConfig.js   # statusConfig, validationConfig for swarm states
     │   ├── usePolling.js     # Hook: poll API endpoint at interval
     │   ├── useSearch.js      # Hook: indexes repos, tasks, agents for search
@@ -241,7 +241,7 @@ The app uses a flat navigation with optional drill-down:
 
 **Repo identity colors** — Single source of truth in `lib/constants.js`:
 ```js
-import { repoIdentityColors } from '../lib/constants'
+import { getRepoColor } from '../lib/constants'
 // { marketing: '#e0b44a', website: '#818cf8', electron: '#34d399', hub: '#7dd3fc' }
 ```
 

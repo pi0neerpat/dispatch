@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { CalendarClock, Plus, Pencil, Trash2, Loader, X } from 'lucide-react'
 import { cn } from '../lib/utils'
-import { repoIdentityColors, MODEL_OPTIONS } from '../lib/constants'
+import { DEFAULT_REPO_COLOR, MODEL_OPTIONS } from '../lib/constants'
 import Toggle from './Toggle'
 
 function ScheduleForm({ repos, initial, onSave, onCancel, saving }) {
@@ -228,7 +228,7 @@ export default function SchedulesView({ overview }) {
       ) : (
         <div className="space-y-3">
           {schedules.map(schedule => {
-            const repoColor = repoIdentityColors[schedule.repo] || 'var(--primary)'
+            const repoColor = repos.find(r => r.name === schedule.repo)?.color || DEFAULT_REPO_COLOR
             const isEditing = editingId === schedule.id
 
             if (isEditing) {

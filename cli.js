@@ -36,7 +36,7 @@ const {
   createCheckpoint, revertCheckpoint, dismissCheckpoint, listCheckpoints,
 } = require('./parsers');
 
-const HUB_DIR = path.dirname(__filename);
+const DISPATCH_ROOT = path.dirname(__filename);
 
 function fail(msg) {
   process.stderr.write(JSON.stringify({ error: msg }) + '\n');
@@ -65,7 +65,7 @@ flags._positional = positionals[0] || null;
 // Load config
 let config;
 try {
-  config = loadConfig(HUB_DIR);
+  config = loadConfig(DISPATCH_ROOT);
 } catch {
   fail('config.local.json or config.json not found or invalid');
 }
