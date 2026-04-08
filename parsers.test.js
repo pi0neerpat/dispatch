@@ -603,7 +603,7 @@ describe('loadConfig', () => {
 
   it('loads config.json and resolves repo paths', () => {
     tmp('config.json', JSON.stringify({
-      hubRoot: '.',
+      dispatchRoot: '.',
       repos: [
         { name: 'app', path: '../app', taskFile: 'todo.md' },
         { name: 'api', path: '../api' },
@@ -614,14 +614,25 @@ describe('loadConfig', () => {
     assert.equal(config.repos.length, 2);
     assert.equal(config.repos[0].name, 'app');
     assert.ok(path.isAbsolute(config.repos[0].resolvedPath));
+    assert.equal(config.dispatchRoot, '.');
   });
 
   it('prefers config.local.json over config.json', () => {
-    tmp('config.json', JSON.stringify({ hubRoot: '.', repos: [{ name: 'a', path: './a' }] }));
-    tmp('config.local.json', JSON.stringify({ hubRoot: '.', repos: [{ name: 'local', path: './local' }] }));
+    tmp('config.json', JSON.stringify({ dispatchRoot: '.', repos: [{ name: 'a', path: './a' }] }));
+    tmp('config.local.json', JSON.stringify({ dispatchRoot: '.', repos: [{ name: 'local', path: './local' }] }));
 
     const config = loadConfig(tmpDir);
     assert.equal(config.repos[0].name, 'local');
+  });
+
+  it('maps legacy hubRoot to dispatchRoot when dispatchRoot is absent', () => {
+    tmp('config.json', JSON.stringify({
+      hubRoot: '../hub',
+      repos: [{ name: 'a', path: './a' }],
+    }));
+    const config = loadConfig(tmpDir);
+    assert.equal(config.dispatchRoot, '../hub');
+    assert.equal(config.hubRoot, undefined);
   });
 });
 

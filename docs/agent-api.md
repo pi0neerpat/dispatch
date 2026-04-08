@@ -35,7 +35,7 @@ Returns all repos with task counts, recent activity, git status, and checkpoints
 
 ```json
 {
-  "hubRoot": ".",
+  "dispatchRoot": ".",
   "stage": "...",
   "repos": [
     {
@@ -57,7 +57,7 @@ Returns all repos with task counts, recent activity, git status, and checkpoints
 ```
 GET /api/config
 ```
-Returns `config.json` (repo list, paths, hubRoot, etc.).
+Returns `config.json` (repo list, paths, dispatchRoot, etc.).
 
 ### Jobs
 ```
@@ -163,7 +163,7 @@ Single response for orchestrators: connected **repos** (name, relative `path`, t
 
 ```json
 {
-  "hubRoot": ".",
+  "dispatchRoot": ".",
   "repos": [
     { "name": "my-app", "path": "../my-app", "taskFile": "todo.md", "activityFile": "activity-log.md", "bugsFile": "bugs.md" }
   ],
@@ -398,9 +398,9 @@ When the server launches a Claude session, it injects:
 
 | Variable | Value |
 |----------|-------|
-| `HUB_API_BASE` | `http://127.0.0.1:3747` |
-| `HUB_SESSION_ID` | The session ID |
-| `HUB_JOB_ID` | The job ID |
-| `HUB_REPO` | The repo name |
+| `DISPATCH_API_BASE` | `http://127.0.0.1:3747` |
+| `DISPATCH_SESSION_ID` | The session ID |
+| `DISPATCH_JOB_ID` | The job ID |
+| `DISPATCH_REPO` | The repo name |
 
-Agents can use these to call back to the hub (e.g. to mark progress or signal completion).
+Agents can use these to call back to the dashboard (e.g. to mark progress or signal completion). The stop hook also accepts legacy `HUB_*` names for a transition period.

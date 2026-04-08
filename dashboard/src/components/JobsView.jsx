@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { Bot, Sparkles, AlertCircle, CheckCircle2, XCircle, Clock, GitBranch, AlertTriangle, Square, Loader, Eye, EyeOff } from 'lucide-react'
 import { cn, timeAgo, truncateWithEllipsis, buildPlanPath } from '../lib/utils'
-import { repoIdentityColors, normalizeAgentId, getAgentBrandColor } from '../lib/constants'
+import { getRepoColor, normalizeAgentId, getAgentBrandColor } from '../lib/constants'
 import { buildWorkerNavItems } from '../lib/workerUtils'
 import { FilterChip, toggleFilter, BUG_COLOR, loadFilters, saveFilters } from '../lib/filterUtils.jsx'
 import AgentIcon, { getAgentLabel } from './AgentIcon'
@@ -291,7 +291,7 @@ export default function JobsView({
               label={name}
               active={selectedRepos.has(name)}
               onClick={() => toggleFilter(selectedRepos, setSelectedRepos, name)}
-              color={repoIdentityColors[name]}
+              color={getRepoColor(overview, name)}
             />
           ))}
         </div>
@@ -337,7 +337,7 @@ export default function JobsView({
                   </div>
                 )}
                 {group.items.map(worker => {
-                  const repoColor = repoIdentityColors[worker.repo] || 'var(--primary)'
+                  const repoColor = getRepoColor(overview, worker.repo)
                   const normalizedAgent = normalizeAgentId(worker.agent)
                   const agentLabel = getAgentLabel(normalizedAgent)
                   const agentColor = getAgentBrandColor(normalizedAgent)

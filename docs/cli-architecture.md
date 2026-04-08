@@ -27,7 +27,7 @@ Primary naming has moved from "swarm" to "job". The parser exports the new `pars
 
 | Function | Input | Output | What It Parses |
 |----------|-------|--------|----------------|
-| `loadConfig(hubDir)` | Hub root path | `{ repos: [{ name, path, resolvedPath, taskFile, activityFile }] }` | `config.json` — resolves relative repo paths to absolute |
+| `loadConfig(dispatchRootDir)` | Dispatch root path | `{ repos: [{ name, path, resolvedPath, taskFile, activityFile }], dispatchRoot? }` | `config.json` — resolves relative repo paths to absolute |
 | `parseTaskFile(filePath)` | Path to `todo.md` | `{ sections: [{ name, tasks: [{ text, done }] }], openCount, doneCount }` | Markdown `## Section` headers + `- [ ]`/`- [x]` checkboxes |
 | `parseActivityLog(filePath)` | Path to `activity-log.md` | `{ stage, entries: [{ date, bullet }] }` | `**Current stage:**` line + `## YYYY-MM-DD` headers + first bullet per date |
 | `getGitInfo(repoPath)` | Repo directory path | `{ branch, dirtyCount }` | `git branch --show-current` + `git status --porcelain` |
@@ -140,7 +140,7 @@ terminal.js
 ├── ANSI helpers (bold, dim, italic, cyan, yellow, green)
 ├── Layout helpers (boxLine, boxTop, boxBottom, boxDivider, boxSeparator, pad, truncate)
 └── Main render loop
-    ├── Header (SCRIBULAR HUB + stage)
+    ├── Header (SCRIBULAR DISPATCH + stage)
     ├── Per-repo section (name, git status, task count, task list, activity)
     └── Footer (totals + date)
 ```
@@ -153,7 +153,7 @@ terminal.js
 config.json
     │
     ▼
-loadConfig(hubDir)
+loadConfig(dispatchRootDir)
     │
     ├──► parseTaskFile(todo.md)      ──► { sections, openCount, doneCount }
     ├──► parseActivityLog(activity-log.md) ──► { stage, entries }

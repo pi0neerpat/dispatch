@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { ArrowLeft, ArrowRight, TerminalSquare, ClipboardCheck } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { cn } from '../lib/utils'
-import { repoIdentityColors, normalizeAgentId, getAgentBrandColor } from '../lib/constants'
+import { getRepoColor, normalizeAgentId, getAgentBrandColor } from '../lib/constants'
 import AgentIcon, { getAgentLabel } from './AgentIcon'
 import TerminalPanel from './TerminalPanel'
 import ResultsPanel from './ResultsPanel'
@@ -13,6 +13,7 @@ export default function JobDetailView({
   agentTerminals,
   jobFileToSession,
   swarm,
+  overview,
   skipPermissions,
   onKillSession,
   onUpdateSessionId,
@@ -81,7 +82,7 @@ export default function JobDetailView({
   }, [swarm, linkedJob?.nextJobId])
 
   const repoName = taskInfo?.repoName || runDevSession?.repoName || linkedJob?.repo || ''
-  const repoColor = repoIdentityColors[repoName] || 'var(--primary)'
+  const repoColor = getRepoColor(overview, repoName)
 
   const swarmFileId = taskInfo?.jobFile?.fileName?.replace(/\.md$/, '') || null
   const reviewAgentId = swarmFileId || (hasTerminal ? null : jobId)
@@ -261,6 +262,7 @@ export default function JobDetailView({
               onRunDev={handleRunDev}
               showToast={showToast}
               settings={settings}
+              overview={overview}
             />
           </div>
         </div>

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Send, FileText, X, RefreshCcw } from 'lucide-react'
 import { cn } from '../lib/utils'
-import { repoIdentityColors } from '../lib/constants'
+import { DEFAULT_REPO_COLOR } from '../lib/constants'
 import { useAgentModels } from '../lib/useAgentModels'
 import { useSkills } from '../lib/useSkills'
 import DispatchSettingsRow from './DispatchSettingsRow'
@@ -225,7 +225,7 @@ export default function DispatchView({ overview, onDispatch, onLoopDispatch, ini
       <label className="block text-[11px] font-medium text-muted-foreground mb-1">Repository</label>
       <div className="flex gap-1.5 flex-wrap">
         {repos.map(r => {
-          const color = repoIdentityColors[r.name] || 'var(--primary)'
+          const color = r.color || DEFAULT_REPO_COLOR
           const isSelected = repo === r.name
           return (
             <button

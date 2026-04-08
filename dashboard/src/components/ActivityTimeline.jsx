@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Clock } from 'lucide-react'
 import { cn } from '../lib/utils'
-import { repoIdentityColors } from '../lib/constants'
+import { DEFAULT_REPO_MUTED_COLOR } from '../lib/constants'
 
 function formatRelativeDate(dateStr) {
   if (!dateStr) return ''
@@ -127,7 +127,7 @@ export default function ActivityTimeline() {
                   {/* Entries under this date */}
                   <div className={cn('space-y-1', gi < grouped.length - 1 ? 'mb-4' : 'mb-0')}>
                     {group.items.map((item, ii) => {
-                      const dotColor = repoIdentityColors[item.repo] || 'var(--muted-foreground)'
+                      const dotColor = item.color || DEFAULT_REPO_MUTED_COLOR
                       return (
                         <div
                           key={`${item.repo}-${ii}`}

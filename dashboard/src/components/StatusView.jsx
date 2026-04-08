@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { Activity, Bot, CheckCircle2, XCircle, AlertCircle, Clock } from 'lucide-react'
 import { cn } from '../lib/utils'
-import { repoIdentityColors } from '../lib/constants'
+import { DEFAULT_REPO_COLOR } from '../lib/constants'
 import ActivityFeed from './ActivityFeed'
 
 function StatCard({ label, value, icon: Icon, colorClass }) {
@@ -28,7 +28,7 @@ export default function StatusView({ overview, swarm }) {
       const repoAgents = agents.filter(a => a.repo === repo.name)
       return {
         name: repo.name,
-        color: repoIdentityColors[repo.name] || 'var(--primary)',
+        color: repo.color || DEFAULT_REPO_COLOR,
         active: repoAgents.filter(a => a.status === 'in_progress').length,
         completed: repoAgents.filter(a => a.status === 'completed').length,
         failed: repoAgents.filter(a => a.status === 'failed').length,

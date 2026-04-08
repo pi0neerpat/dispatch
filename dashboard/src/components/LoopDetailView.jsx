@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { ArrowLeft, TerminalSquare, ClipboardCheck, Clock, RefreshCcw } from 'lucide-react'
 import { cn, timeAgo } from '../lib/utils'
-import { repoIdentityColors, normalizeAgentId, getAgentBrandColor } from '../lib/constants'
+import { getRepoColor, normalizeAgentId, getAgentBrandColor } from '../lib/constants'
 import { LOOP_TYPE_META } from '../lib/loopConstants'
 import AgentIcon, { getAgentLabel } from './AgentIcon'
 import TerminalPanel from './TerminalPanel'
@@ -17,6 +17,7 @@ const STATUS_COLORS = {
 export default function LoopDetailView({
   loopId,
   loops,
+  overview,
   onBack,
   agentTerminals,
   onKillSession,
@@ -101,7 +102,7 @@ export default function LoopDetailView({
 
   const meta = LOOP_TYPE_META[loop.loopType] || { label: loop.loopType, icon: RefreshCcw }
   const TypeIcon = meta.icon
-  const repoColor = repoIdentityColors[loop.repo] || 'var(--primary)'
+  const repoColor = getRepoColor(overview, loop.repo)
   const statusColor = STATUS_COLORS[loop.status] || STATUS_COLORS.unknown
   const agentId = normalizeAgentId((loop.agent || 'claude').split(':')[0])
   const agentLabel = getAgentLabel(agentId)
@@ -198,7 +199,7 @@ export default function LoopDetailView({
 
         <div className="absolute inset-0 overflow-y-auto px-6 py-5" style={{ display: view === 'review' ? 'block' : 'none' }}>
           <div className="max-w-[50rem] mx-auto w-full">
-            <LoopReviewPanel loop={loop} />
+            <LoopReviewPanel loop={loop} overview={overview} />
           </div>
         </div>
       </div>

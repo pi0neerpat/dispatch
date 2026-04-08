@@ -20,7 +20,7 @@ let cliPath;
 
 function setup() {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-int-'));
-  // Copy cli.js and parsers.js to tmp dir so HUB_DIR resolves to tmp
+  // Copy cli.js and parsers.js to tmp dir so DISPATCH_ROOT resolves to tmp
   cliPath = path.join(tmpDir, 'cli.js');
   fs.copyFileSync(srcCliPath, cliPath);
   fs.copyFileSync(srcParsersPath, path.join(tmpDir, 'parsers.js'));
@@ -81,7 +81,7 @@ function createTestHub(opts = {}) {
         activityFile: 'activity-log.md',
       },
     ],
-    hubRoot: '.',
+    dispatchRoot: '.',
   };
   if (opts.extraRepos) config.repos.push(...opts.extraRepos);
   fs.writeFileSync(path.join(hubDir, 'config.json'), JSON.stringify(config, null, 2));

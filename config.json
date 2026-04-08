@@ -3,6 +3,7 @@
     {
       "name": "example-app",
       "path": "../example-app",
+      "color": "#6366f1",
       "taskFile": "todo.md",
       "bugsFile": "bugs.md",
       "activityFile": "activity-log.md",
@@ -13,6 +14,7 @@
     {
       "name": "dispatch",
       "path": ".",
+      "color": "#8bab8f",
       "taskFile": "todo.md",
       "bugsFile": "bugs.md",
       "activityFile": "activity-log.md",
@@ -21,5 +23,5 @@
       "cleanupScript": "cd dashboard && rm -rf dist node_modules/.vite"
     }
   ],
-  "hubRoot": "."
+  "dispatchRoot": "."
 }
