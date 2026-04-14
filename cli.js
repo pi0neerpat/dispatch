@@ -440,8 +440,9 @@ function cmdCheckpointList() {
 
 function findSwarmFile(id) {
   for (const repo of config.repos) {
-    const swarmDir = path.join(repo.resolvedPath, 'notes', 'swarm');
-    const candidate = path.join(swarmDir, `${id}.md`);
+    const swarmDir = path.resolve(repo.resolvedPath, 'notes', 'swarm');
+    const candidate = path.resolve(swarmDir, `${id}.md`);
+    if (!candidate.startsWith(swarmDir + path.sep)) fail('Invalid swarm id: path traversal rejected');
     if (fs.existsSync(candidate)) return candidate;
   }
   fail(`swarm agent "${id}" not found in any repo`);
@@ -541,6 +542,14 @@ function cmdScheduleEdit() {
   if (flags.repo) {
     const repoConfig = config.repos.find(r => r.name === flags.repo);
     if (!repoConfig) fail(`repo "${flags.repo}" not found in config`);
+  }
+  if (flags.type) {
+    const validTypes = ['prompt', 'job', 'loop', 'shell'];
+    if (!validTypes.includes(flags.type)) fail(`--type must be one of: ${validTypes.join(', ')}`);
+  }
+  if (flags.concurrency) {
+    const validConcurrency = ['skip', 'queue', 'parallel'];
+    if (!validConcurrency.includes(flags.concurrency)) fail(`--concurrency must be one of: ${validConcurrency.join(', ')}`);
   }
 
   const updated = updateSchedule(DISPATCH_ROOT, id, {
@@ -673,19 +682,22 @@ function cmdScheduleRun() {
       return;
     }
   } else {
-    acquireScheduleLock(DISPATCH_ROOT, id, null);
+    const lock = acquireScheduleLock(DISPATCH_ROOT, id, null);
+    if (!lock) {
+      const event = appendScheduleEvent(DISPATCH_ROOT, {
+        scheduleId: id, scheduleName: schedule.name, repo: schedule.repo,
+        type: 'skipped', at: new Date().toISOString(),
+        reason: 'failed to acquire lock',
+      });
+      out({ skipped: true, reason: event.reason });
+      return;
+    }
   }
 
   // Log run start
   const startedAt = new Date().toISOString();
   const logPath = scheduleLogPath(DISPATCH_ROOT, id);
   const runHeader = `\n${'═'.repeat(60)}\nRUN ${startedAt}\nSchedule: ${schedule.name} (${id})\nType: ${schedule.type} | Repo: ${schedule.repo}\n${'─'.repeat(60)}\n`;
-  fs.appendFileSync(logPath, runHeader, 'utf8');
-
-  appendScheduleEvent(DISPATCH_ROOT, {
-    scheduleId: id, scheduleName: schedule.name, repo: schedule.repo,
-    type: 'started', startedAt,
-  });
 
   let exitCode = 0;
   let errorMsg = null;
@@ -694,6 +706,12 @@ function cmdScheduleRun() {
   const repoCwd = repoConfig.resolvedPath;
 
   try {
+    fs.appendFileSync(logPath, runHeader, 'utf8');
+
+    appendScheduleEvent(DISPATCH_ROOT, {
+      scheduleId: id, scheduleName: schedule.name, repo: schedule.repo,
+      type: 'started', startedAt,
+    });
     if (schedule.type === 'job') {
       // Dispatch job — create tracked job file, run claude --print with dispatch prompt
       const slug = schedule.name
@@ -759,7 +777,9 @@ function cmdScheduleRun() {
     } else if (schedule.type === 'loop') {
       // Launch loop script
       const loopType = schedule.loopType || 'linear-implementation';
-      const scriptPath = path.join(DISPATCH_ROOT, 'loops', `${loopType}.sh`);
+      const loopsDir = path.resolve(DISPATCH_ROOT, 'loops');
+      const scriptPath = path.resolve(loopsDir, `${loopType}.sh`);
+      if (!scriptPath.startsWith(loopsDir + path.sep)) fail('Invalid loop type: path traversal rejected');
       if (!fs.existsSync(scriptPath)) fail(`loop script not found: ${scriptPath}`);
       const loopArgs = ['--repo', repoCwd];
       if (schedule.agentSpec) { loopArgs.push('--agent', schedule.agentSpec); }
@@ -816,14 +836,16 @@ function cmdScheduleRun() {
     ...(errorMsg ? { error: errorMsg.slice(0, 500) } : {}),
   });
 
-  // Release lock
-  releaseScheduleLock(DISPATCH_ROOT, id);
-
-  // Auto-disable one-shot (non-recurring) schedules after execution
-  const updatedSched = findSchedule(DISPATCH_ROOT, id);
-  if (updatedSched && !updatedSched.recurring) {
-    toggleSchedule(DISPATCH_ROOT, id); // disables it
-    try { syncCrontab(DISPATCH_ROOT); } catch { /* best effort */ }
+  // Release lock (always, even if post-run bookkeeping fails)
+  try {
+    // Auto-disable one-shot (non-recurring) schedules after execution
+    const updatedSched = findSchedule(DISPATCH_ROOT, id);
+    if (updatedSched && !updatedSched.recurring) {
+      toggleSchedule(DISPATCH_ROOT, id); // disables it
+      try { syncCrontab(DISPATCH_ROOT); } catch { /* best effort */ }
+    }
+  } finally {
+    releaseScheduleLock(DISPATCH_ROOT, id);
   }
 
   out({ id, status, exitCode, durationMs, startedAt, finishedAt, logPath, ...(jobId ? { jobId, jobFilePath } : {}) });

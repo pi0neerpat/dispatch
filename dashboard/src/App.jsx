@@ -33,8 +33,6 @@ function ScrollableView({ children }) {
 
 export default function App() {
   const location = useLocation()
-  if (location.pathname === '/loading') return <LoadingView />
-
   const overview = usePolling('/api/overview', POLL_INTERVALS.overview)
   const jobs = usePolling('/api/jobs', POLL_INTERVALS.jobs)
   const loops = usePolling('/api/loops', POLL_INTERVALS.jobs)
@@ -189,6 +187,8 @@ export default function App() {
   })
 
   const loopCount = (loops.data?.jobs || []).filter(j => j.status === 'in_progress').length
+
+  if (location.pathname === '/loading') return <LoadingView />
 
   const loopDetailElement = (
     <div className="absolute inset-0 z-10">

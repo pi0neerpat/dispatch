@@ -64,9 +64,11 @@ export function loadFilters(storageKey) {
 }
 
 export function saveFilters(storageKey, data) {
-  const serialized = {}
-  for (const [key, val] of Object.entries(data)) {
-    serialized[key] = val instanceof Set ? [...val] : val
-  }
-  localStorage.setItem(storageKey, JSON.stringify(serialized))
+  try {
+    const serialized = {}
+    for (const [key, val] of Object.entries(data)) {
+      serialized[key] = val instanceof Set ? [...val] : val
+    }
+    localStorage.setItem(storageKey, JSON.stringify(serialized))
+  } catch { /* QuotaExceededError in private mode — non-fatal */ }
 }

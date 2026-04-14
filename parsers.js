@@ -1581,6 +1581,7 @@ function parseCronField(field, min, max) {
     if (stepMatch) {
       range = stepMatch[1];
       step = parseInt(stepMatch[2], 10);
+      if (step <= 0) step = 1;
     } else {
       range = part;
     }

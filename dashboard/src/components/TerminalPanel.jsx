@@ -19,11 +19,6 @@ function parseProgressText(entry) {
   return entry.replace(/^\[[^\]]+\]\s*/, '').trim()
 }
 
-function shellQuote(value) {
-  const text = String(value ?? '')
-  return `'${text.replace(/'/g, `'\"'\"'`)}'`
-}
-
 function buildResumeCommand(resumeId, skipPermissions = false) {
   const id = String(resumeId ?? '').trim()
   if (!id) return ''

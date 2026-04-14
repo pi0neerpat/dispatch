@@ -179,7 +179,7 @@ export function useSessionStore() {
         created: Date.now(),
         ptySessionId: sessionId,
         alive: true,
-        promptSent: data.serverStarted === true ? true : true,
+        promptSent: data.serverStarted === true,
         serverStarted: data.serverStarted === true,
         launchToken,
         skipPermissions: data.skipPermissions === true,

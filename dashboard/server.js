@@ -1071,7 +1071,9 @@ app.get('/api/loops/:repo/prompt', (req, res) => {
   }
   const repoConfig = findRepoConfig(req.params.repo)
   if (!repoConfig) return res.status(404).json({ error: `repo "${req.params.repo}" not found` })
-  const promptPath = path.join(repoConfig.resolvedPath, '.dispatch', 'loops', type, 'prompt.md')
+  const loopsDir = path.resolve(repoConfig.resolvedPath, '.dispatch', 'loops')
+  const promptPath = path.resolve(loopsDir, type, 'prompt.md')
+  if (!promptPath.startsWith(loopsDir + path.sep)) return res.status(400).json({ error: 'Invalid loop type' })
   const exists = fs.existsSync(promptPath)
   res.json({ content: exists ? fs.readFileSync(promptPath, 'utf8') : '', exists })
 })
@@ -1083,7 +1085,9 @@ app.put('/api/loops/:repo/prompt', (req, res) => {
   }
   const repoConfig = findRepoConfig(req.params.repo)
   if (!repoConfig) return res.status(404).json({ error: `repo "${req.params.repo}" not found` })
-  const promptPath = path.join(repoConfig.resolvedPath, '.dispatch', 'loops', type, 'prompt.md')
+  const loopsDir = path.resolve(repoConfig.resolvedPath, '.dispatch', 'loops')
+  const promptPath = path.resolve(loopsDir, type, 'prompt.md')
+  if (!promptPath.startsWith(loopsDir + path.sep)) return res.status(400).json({ error: 'Invalid loop type' })
   fs.mkdirSync(path.dirname(promptPath), { recursive: true })
   fs.writeFileSync(promptPath, content || '', 'utf8')
   res.json({ ok: true })
@@ -1622,9 +1626,13 @@ async function getModelsForAgent(agent) {
 }
 
 app.get('/api/agents/models', async (req, res) => {
-  const { agent = 'claude' } = req.query
-  const result = await getModelsForAgent(agent)
-  res.json({ models: result.models, source: result.source })
+  try {
+    const { agent = 'claude' } = req.query
+    const result = await getModelsForAgent(agent)
+    res.json({ models: result.models, source: result.source })
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to fetch models' })
+  }
 })
 
 app.get('/api/catalog', async (req, res) => {
@@ -2701,7 +2709,12 @@ app.put('/api/schedules/:id', (req, res) => {
     const cronError = validateCron(req.body.cron)
     if (cronError) return res.status(400).json({ error: cronError })
   }
-  const updated = updateScheduleParsers(DISPATCH_ROOT, req.params.id, req.body)
+  const allowedFields = ['name', 'type', 'repo', 'cron', 'prompt', 'model', 'loopType', 'agentSpec', 'command', 'concurrency', 'recurring', 'enabled']
+  const sanitized = {}
+  for (const key of allowedFields) {
+    if (req.body[key] !== undefined) sanitized[key] = req.body[key]
+  }
+  const updated = updateScheduleParsers(DISPATCH_ROOT, req.params.id, sanitized)
   if (!updated) return res.status(404).json({ error: 'schedule not found' })
   try { syncCrontab(DISPATCH_ROOT) } catch {}
   res.json({ ...updated, description: describeCron(updated.cron) })
@@ -2757,7 +2770,9 @@ app.delete('/api/schedule-events', (req, res) => {
 })
 
 app.get('/api/schedule-logs/:id', (req, res) => {
-  const logPath = path.join(DISPATCH_ROOT, '.dispatch', 'runtime', 'schedule-logs', `${req.params.id}.log`)
+  const logsDir = path.resolve(DISPATCH_ROOT, '.dispatch', 'runtime', 'schedule-logs')
+  const logPath = path.resolve(logsDir, `${req.params.id}.log`)
+  if (!logPath.startsWith(logsDir + path.sep)) return res.status(400).json({ error: 'Invalid id' })
   if (!fs.existsSync(logPath)) return res.json({ log: '', exists: false })
   const tail = parseInt(req.query.tail, 10) || 200
   try {
@@ -3291,34 +3306,38 @@ app.get('/api/sessions/:id/summary', (req, res) => {
 })
 
 app.post('/api/sessions/:id/chat', async (req, res) => {
-  const session = ptySessions.get(req.params.id)
-  if (!session || !session.eventStore) return res.status(404).json({ error: 'session not found' })
+  try {
+    const session = ptySessions.get(req.params.id)
+    if (!session || !session.eventStore) return res.status(404).json({ error: 'session not found' })
 
-  const {
-    message,
-    scope = 'session',
-    provider = 'auto',
-    model = null,
-    includeRaw = false,
-  } = req.body || {}
+    const {
+      message,
+      scope = 'session',
+      provider = 'auto',
+      model = null,
+      includeRaw = false,
+    } = req.body || {}
 
-  const stores = collectEventStores({
-    scope: scope === 'session' ? 'session' : scope,
-    sessionId: req.params.id,
-    repo: session.repo,
-  })
+    const stores = collectEventStores({
+      scope: scope === 'session' ? 'session' : scope,
+      sessionId: req.params.id,
+      repo: session.repo,
+    })
 
-  const events = stores.flatMap(s => s.events)
-  const contextEvents = includeRaw ? events : events.map(evt => ({ ...evt, raw: undefined }))
+    const events = stores.flatMap(s => s.events)
+    const contextEvents = includeRaw ? events : events.map(evt => ({ ...evt, raw: undefined }))
 
-  const response = await answerFromEvents({
-    message: String(message || ''),
-    events: contextEvents,
-    provider,
-    model,
-  })
+    const response = await answerFromEvents({
+      message: String(message || ''),
+      events: contextEvents,
+      provider,
+      model,
+    })
 
-  res.json(response)
+    res.json(response)
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Chat request failed' })
+  }
 })
 
 app.get('/api/events/search', (req, res) => {
