@@ -669,29 +669,16 @@ function cmdScheduleRun() {
     return;
   }
 
-  // Check per-schedule concurrency (skip)
-  if (schedule.concurrency === 'skip') {
-    const lock = acquireScheduleLock(DISPATCH_ROOT, id, null);
-    if (!lock) {
-      const event = appendScheduleEvent(DISPATCH_ROOT, {
-        scheduleId: id, scheduleName: schedule.name, repo: schedule.repo,
-        type: 'skipped', at: new Date().toISOString(),
-        reason: 'previous run still active',
-      });
-      out({ skipped: true, reason: event.reason });
-      return;
-    }
-  } else {
-    const lock = acquireScheduleLock(DISPATCH_ROOT, id, null);
-    if (!lock) {
-      const event = appendScheduleEvent(DISPATCH_ROOT, {
-        scheduleId: id, scheduleName: schedule.name, repo: schedule.repo,
-        type: 'skipped', at: new Date().toISOString(),
-        reason: 'failed to acquire lock',
-      });
-      out({ skipped: true, reason: event.reason });
-      return;
-    }
+  // Acquire per-schedule lock (all concurrency modes require a lock today)
+  const lock = acquireScheduleLock(DISPATCH_ROOT, id, null);
+  if (!lock) {
+    const reason = schedule.concurrency === 'skip' ? 'previous run still active' : 'failed to acquire lock';
+    appendScheduleEvent(DISPATCH_ROOT, {
+      scheduleId: id, scheduleName: schedule.name, repo: schedule.repo,
+      type: 'skipped', at: new Date().toISOString(), reason,
+    });
+    out({ skipped: true, reason });
+    return;
   }
 
   // Log run start

@@ -1806,7 +1806,7 @@ function dateToCron(date) {
 }
 
 function createSchedule(dispatchRoot, fields) {
-  const id = 'sched-' + Date.now();
+  const id = 'sched-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
   const schedule = {
     id,
     name: fields.name,
@@ -1909,7 +1909,7 @@ function appendScheduleEvent(dispatchRoot, event) {
   try {
     if (fs.existsSync(fp)) events = JSON.parse(fs.readFileSync(fp, 'utf8'));
   } catch { /* corrupt */ }
-  event.id = event.id || ('evt-' + Date.now());
+  event.id = event.id || ('evt-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6));
   events.push(event);
   // Trim to rolling window
   if (events.length > MAX_EVENTS) events = events.slice(events.length - MAX_EVENTS);
