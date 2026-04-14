@@ -282,6 +282,12 @@ function isValidResumeId(id) {
 }
 const VALID_LOOP_TIMESTAMP_RE = /^[A-Za-z0-9._:-]{1,120}$/
 
+// Agent spec values: alphanumeric, hyphens, underscores, dots, colons, slashes (e.g. "codex:gpt-5.4", "claude")
+const VALID_AGENT_SPEC_RE = /^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,100}$/
+function isValidAgentSpec(value) {
+  return typeof value === 'string' && VALID_AGENT_SPEC_RE.test(value)
+}
+
 // Branch names: alphanumeric, dots, hyphens, forward slashes
 const VALID_BRANCH_RE = /^[a-zA-Z0-9._\-/]+$/
 function isValidBranchName(name) {
@@ -1109,11 +1115,25 @@ app.post('/api/loops/init', (req, res) => {
   let shellCommand = `cd "${DISPATCH_ROOT}" && bash "${scriptPath}" --repo "${repoConfig.resolvedPath}" --session "${sessionId}"`
   if (loopType === 'parallel-review') {
     const agents = Array.isArray(reviewerAgents) && reviewerAgents.length > 0 ? reviewerAgents : ['claude']
-    for (const a of agents) shellCommand += ` --agent "${String(a).replace(/"/g, '')}"`
-    if (synthesizerAgent) shellCommand += ` --synthesizer "${String(synthesizerAgent).replace(/"/g, '')}"`
-    if (implementorAgent) shellCommand += ` --implementor "${String(implementorAgent).replace(/"/g, '')}"`
+    for (const a of agents) {
+      const agentStr = String(a)
+      if (!isValidAgentSpec(agentStr)) return res.status(400).json({ error: `Invalid agent spec: ${agentStr.slice(0, 80)}` })
+      shellCommand += ` --agent ${shellQuote(agentStr)}`
+    }
+    if (synthesizerAgent) {
+      const s = String(synthesizerAgent)
+      if (!isValidAgentSpec(s)) return res.status(400).json({ error: `Invalid synthesizer agent spec: ${s.slice(0, 80)}` })
+      shellCommand += ` --synthesizer ${shellQuote(s)}`
+    }
+    if (implementorAgent) {
+      const impl = String(implementorAgent)
+      if (!isValidAgentSpec(impl)) return res.status(400).json({ error: `Invalid implementor agent spec: ${impl.slice(0, 80)}` })
+      shellCommand += ` --implementor ${shellQuote(impl)}`
+    }
   } else if (agentSpec) {
-    shellCommand += ` --agent "${String(agentSpec).replace(/"/g, '')}"`
+    const spec = String(agentSpec)
+    if (!isValidAgentSpec(spec)) return res.status(400).json({ error: `Invalid agent spec: ${spec.slice(0, 80)}` })
+    shellCommand += ` --agent ${shellQuote(spec)}`
   }
 
   ensureRunForJob({ jobId: sessionId, repo, jobFilePath: null, sessionId, state: RUN_STATE.STARTING })
