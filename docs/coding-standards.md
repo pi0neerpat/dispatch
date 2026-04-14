@@ -1,6 +1,6 @@
-# Scribular Hub — Coding Standards
+# Dispatch — Coding Standards
 
-Authoritative style guide for the Scribular coordination hub and its dashboard.
+Authoritative style guide for the Dispatch coordination hub and its dashboard.
 Last updated: 2026-03-21.
 
 ---
@@ -11,7 +11,7 @@ Last updated: 2026-03-21.
 readable top-to-bottom. If a 20-line function solves the problem, do not introduce
 a class hierarchy or a framework.
 
-**Minimal dependencies.** The hub core (`parsers.js`, `cli.js`, `terminal.js`) has
+**Minimal dependencies.** The dispatch core (`parsers.js`, `cli.js`, `terminal.js`) has
 zero npm dependencies — only Node.js built-ins (`fs`, `path`, `child_process`).
 The dashboard has a small, curated dependency set. Before adding any new package,
 ask whether the same result can be achieved with what is already available.
@@ -142,10 +142,10 @@ config.repos.map(repo => ({ ...repo, resolvedPath: path.resolve(hubDir, repo.pat
 
 ## 3. File Organization
 
-### Hub core structure
+### Dispatch core structure
 
 ```
-hub/
+dispatch/
   config.json          # Repo registry — single source of truth for paths
   parsers.js           # Shared parsing functions (consumed by everything)
   cli.js               # Agent-facing CLI (JSON to stdout)
@@ -177,7 +177,7 @@ hub/
 2. **CLI, terminal, and dashboard are consumers** of parsers. They format and
    present data but do not define how data is read or structured.
 
-3. **The hub core has no `package.json`** and no `node_modules/`. It runs on
+3. **The dispatch core has no `package.json`** and no `node_modules/`. It runs on
    Node.js built-ins only. The `dashboard/` subdirectory is the only part with
    npm dependencies.
 
@@ -460,15 +460,15 @@ Bad: "Updated SwarmPanel.jsx" (describes the file, not the intent).
 
 ### What not to commit
 
-- **`.claude/`** — Project-specific skills and hooks. Listed in `.gitignore` as
-  the `.claude/` directory is workspace-specific.
+- **`.claude/`** — Project-specific skills and hooks. Selectively gitignored;
+  committed skills (`dispatch`, `done`, `add-repo`) and hooks are tracked.
 - **`node_modules/`** — Standard npm exclusion.
 - **`.env` files** — Environment-specific secrets.
 - **`.DS_Store`** — macOS finder metadata.
 
 ### Git status in parsers
 
-The hub tracks git status for all coordinated repos via `git -C` commands
+Dispatch tracks git status for all coordinated repos via `git -C` commands
 (branch, dirty file count). This data is surfaced in CLI, terminal, and
 dashboard.
 
@@ -480,7 +480,7 @@ dashboard.
 
 | Type | Convention | Examples |
 |---|---|---|
-| Hub core modules | camelCase `.js` | `parsers.js`, `cli.js`, `terminal.js` |
+| Dispatch core modules | camelCase `.js` | `parsers.js`, `cli.js`, `terminal.js` |
 | React components | PascalCase `.jsx` | `SwarmPanel.jsx`, `HeaderBar.jsx`, `TaskBoard.jsx` |
 | Hooks and utilities | camelCase `.js` | `usePolling.js`, `utils.js` |
 | Markdown docs | kebab-case `.md` | `web-dashboard-plan.md`, `coding-standards.md` |

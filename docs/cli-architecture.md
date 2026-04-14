@@ -1,6 +1,6 @@
 # CLI Architecture
 
-Code map for the hub's command-line interfaces: `cli.js` and `terminal.js`.
+Code map for Dispatch's command-line interfaces: `cli.js` and `terminal.js`.
 
 ---
 

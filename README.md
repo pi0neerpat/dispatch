@@ -244,7 +244,7 @@ Updated automatically when you validate a job. Also writable via `/done`.
 node cli.js status              # Overview of all repos
 node cli.js tasks               # All open tasks across repos
 node cli.js tasks --repo=app    # Tasks for one repo
-node cli.js swarm               # Active and recent agent jobs
+node cli.js swarm               # Active and recent agent jobs (alias for jobs)
 node cli.js repos               # List configured repos
 node cli.js config              # Dump full resolved config
 ```

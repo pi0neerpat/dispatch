@@ -1,15 +1,129 @@
-# Dispatch Agent Notes
+AGENT_CRIBS_SLUG: scribular
 
-See `CLAUDE.md` for the full project guide.
+# Dispatch
 
-## Important config rule
+A multi-repo coordination hub for Claude Code agent workflows. Aggregates tasks, activity, and agent job progress across multiple repos. Includes a CLI, terminal dashboard, and web dashboard.
 
-Dispatch loads configuration from:
-1. `config.local.json` when present
-2. otherwise `config.json`
+## Repos
 
-In this checkout, **`config.local.json` is the effective source of truth** for repo paths and file locations.
+Defined in `config.local.json` when present, otherwise `config.json`. In this checkout, `config.local.json` is the effective source of truth for repo paths. Edit that first.
 
-Do not assume `config.json` reflects the active local repo set.
+| Field | Description |
+|-------|-------------|
+| `name` | Short name used in CLI output and dashboard |
+| `path` | Relative path from dispatch root to the repo |
+| `taskFile` | Markdown file for tasks (default: `todo.md`) |
+| `bugsFile` | Markdown file for bugs (default: `bugs.md`) |
+| `activityFile` | Markdown file for activity (default: `activity-log.md`) |
+| `startScript` | Command to start the repo's dev server |
+| `testScript` | Command to run tests |
+| `cleanupScript` | Command to clean build artifacts |
+| `color` | Optional hex string (e.g. `#8bab8f`) for dashboard repo accents in `/api/overview`, activity feed, and filters |
 
-The dashboard server resolves the **dispatch root** with `DISPATCH_ROOT` (or legacy `HUB_DIR`), defaulting to the parent of `dashboard/`. Config may include **`dispatchRoot`** (camelCase JSON); legacy **`hubRoot`** is normalized to `dispatchRoot` on load.
+Every repo tracks tasks in `todo.md` and activity in `activity-log.md`.
+
+## Architecture
+
+```
+config.json ─── loadConfig() ───┐
+                                │
+                          parsers.js (shared)
+                           │    │    │
+                    ┌──────┘    │    └──────┐
+                    v           v           v
+                 cli.js    terminal.js   dashboard/server.js
+              (JSON out)   (ANSI out)    (Express REST API)
+                                              │
+                                         dashboard/src/
+                                        (React + Tailwind SPA)
+```
+
+`parsers.js` is the shared data layer. Changes to it affect the CLI, terminal dashboard, AND web dashboard.
+
+## Key Files
+
+- **config.local.json** -- Effective local repo definitions for this checkout. Dispatch loads this first when present.
+- **config.json** -- Fallback/shared repo definitions when `config.local.json` is absent. `dispatchRoot` (display path) and `monthlyBudget` (optional) are user-specific; set `dispatchRoot` to your local dispatch root (e.g. `.` for current dir). Dashboard server falls back to `DISPATCH_ROOT` env var when unset (legacy `HUB_DIR` is still read for compatibility). Legacy `hubRoot` in JSON is normalized to `dispatchRoot` on load.
+- **parsers.js** -- CommonJS module. Primary job APIs: `parseJobFile`, `parseJobDir`, `writeJobValidation`, `writeJobKill`, `writeJobStatus`. Also owns task/activity parsing, task writes, and checkpoint helpers. Zero external dependencies.
+- **cli.js** -- Agent-friendly CLI. All output is JSON to stdout, errors as JSON to stderr. Commands: `status`, `tasks [--repo=name]`, `swarm [id]`, `repos`, `activity [--limit=N]`, `config`.
+- **terminal.js** -- Human-friendly ANSI terminal dashboard. Read-only display, no interactivity. Uses box-drawing characters.
+- **todo.md** -- Dispatch root's own task tracker (markdown checkboxes).
+- **activity-log.md** -- Dispatch root's own activity log. Contains `**Current stage:**` metadata.
+- **notes/jobs/** -- Job progress files (gitignored — runtime artifacts). Named `YYYY-MM-DD-slug.md`.
+- **.dispatch/runtime/** -- Server runtime state (gitignored): `.dispatch/runtime/job-runs.json` for job run state, `.dispatch/runtime/prompts/` for staged Claude prompts, `.dispatch/runtime/events/` for terminal event snapshots/NDJSON.
+
+### Dashboard (`dashboard/`)
+
+Separate Node.js project with its own `package.json` (ESM, `"type": "module"`).
+
+- **server.js** -- Express backend on port 3747. Imports `../parsers.js` via `createRequire`. REST API for overview, tasks, bugs, jobs (`/api/jobs`), sessions, schedules, checkpoints, and events. WebSocket terminal server (`/ws/terminal`) keeps PTY sessions alive across reconnects, stages server-managed Claude launches/resumes, persists run state in `.dispatch/runtime/job-runs.json`.
+- **eventPipeline.js** -- Captures terminal output into structured NDJSON events. Line classification, agent detection, event search, session summaries.
+- **src/** -- React SPA with Tailwind CSS v4. Navigation: `ActivityBar` (icon tabs) → views (`StatusView`, `JobsView`, `AllTasksView`, `DispatchView`, `SchedulesView`) with `JobDetailView` drill-down. Hooks: `usePolling`, `useSessionStore`, `useTerminal`, `useSearch`.
+- **vite.config.js** -- Proxies `/api` and `/ws` to `localhost:3747` during dev.
+
+### Claude Skills (`.claude/`)
+
+Project-specific skills and hooks committed to this repo:
+
+- **`.claude/skills/dispatch/`** -- Cross-repo task view and work prioritization.
+- **`.claude/skills/done/`** -- Mark a task done and log activity.
+- **`.claude/skills/add-repo/`** -- Connect a new repo to Dispatch.
+- **`.claude/hooks/protect-env.js`** -- Blocks Claude from reading/editing `.env` files.
+- **`.claude/hooks/hub-stop.js`** -- Signals the dashboard when a dispatched Claude session ends.
+
+## Running Things
+
+```bash
+# CLI (no install needed, zero dependencies)
+node cli.js status
+node cli.js tasks --repo=app
+node cli.js swarm
+node cli.js swarm 2026-03-11-some-task
+
+# Terminal dashboard (no install needed)
+node terminal.js
+
+# Web dashboard (requires yarn install in dashboard/)
+cd dashboard && yarn install
+yarn dev             # Vite dev server + Express API (concurrently)
+yarn dev:server      # Express API only (port 3747)
+yarn dev:client      # Vite only (proxies /api to 3747)
+yarn build           # Production build to dashboard/dist/
+yarn start           # Serve built SPA + API from port 3747
+```
+
+## Conventions
+
+- **Root-level JS**: CommonJS (`require`/`module.exports`), plain Node.js, zero external dependencies.
+- **Dashboard JS**: ESM (`import`/`export`), React JSX, Tailwind CSS. External deps managed via `dashboard/package.json`.
+- **CLI output**: Always JSON. Designed for agent consumption. Human output goes through `terminal.js`.
+- **Task format**: Markdown checkboxes (`- [ ]` / `- [x]`) under `##` section headers in `todo.md`.
+- **Activity format**: Date headers (`## YYYY-MM-DD`) with bullet entries in `activity-log.md`.
+- **Job file format**: Markdown in `notes/jobs/YYYY-MM-DD-slug.md` with line-based metadata: `# Job Task:`, `Started:`, `Status:`, `Validation:`, `Session:`, optional `SkipPermissions:`, `ResumeId:`, `ResumeCommand:`, followed by `## Progress`, `## Results`, and `## Validation` sections.
+
+## Documentation
+
+| Doc | What It Covers |
+|-----|----------------|
+| `docs/coding-standards.md` | Style guide, naming, data contracts, theming |
+| `docs/cli-architecture.md` | parsers.js function map, CLI commands, terminal.js structure, data flow |
+| `docs/dashboard-architecture.md` | Server endpoints, React component tree, hooks, dependencies, session lifecycle |
+| `docs/agent-api.md` | Server REST API reference for agents and orchestrators |
+| `docs/dispatch-api-quickref.md` | Minimal API handoff for external integrators |
+
+## Common Pitfalls
+
+1. **Timestamps: never append `Z`.** All timestamps in this codebase are local time with no timezone suffix. `new Date(started.replace(' ', 'T'))` is correct. Appending `Z` forces UTC and produces wrong relative times.
+2. **Config: use `config.local.json` when present.** `config.json` is the fallback/shared version. In this checkout, `config.local.json` is the effective source of truth.
+3. **Legacy naming: `swarm` → `jobs`.** The CLI still uses `swarm` for backward compatibility, but new code and API endpoints use `jobs`. Files go in `notes/jobs/`, endpoints are `/api/jobs`. Parser aliases (`parseSwarmFile` etc.) exist but prefer the `parseJob*` names.
+4. **Module systems: don't mix.** Root-level files are CommonJS (`require`/`module.exports`). Dashboard files are ESM (`import`/`export`). The dashboard bridges to parsers via `createRequire`.
+5. **Dashboard server imports parsers.js via `createRequire`.** Do not convert `parsers.js` to ESM — it would break the CLI and terminal which are pure CommonJS with zero dependencies.
+
+## Rules
+
+1. **`config.local.json` is the source of truth when present; otherwise use `config.json`** for repo paths and file locations. In this repo, prefer `config.local.json`. Do not hardcode repo paths elsewhere. Use **`DISPATCH_ROOT`** (absolute path to the dispatch root) when overriding the server's working directory; **`HUB_DIR`** is deprecated but still honored by the dashboard server.
+2. **`parsers.js` is shared infrastructure.** Test changes against all three consumers (cli.js, terminal.js, dashboard/server.js) before committing.
+3. **Job progress files** go in `notes/jobs/YYYY-MM-DD-slug.md` with the standard format (see Conventions above).
+4. **All repos use the same task/activity pattern**: `todo.md` for tasks, `activity-log.md` for activity.
+5. **No TypeScript** in root-level files. The dashboard uses JSX but not TypeScript.
+6. **No external dependencies** for root-level files (parsers.js, cli.js, terminal.js). The dashboard has its own dependency tree.

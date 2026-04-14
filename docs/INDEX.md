@@ -6,7 +6,7 @@
 
 | Topic | File | Summary |
 |-------|------|---------|
-| Project overview | `CLAUDE.md` | Coordination hub architecture, repos, key files, conventions, and running instructions |
+| Project overview | `AGENTS.md` | Coordination hub architecture, repos, key files, conventions, and running instructions |
 | Repo definitions | `config.json` | Defines 4 repos (marketing, website, electron, hub) with paths and task/activity file names |
 
 ## Architecture

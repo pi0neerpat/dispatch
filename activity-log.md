@@ -2,6 +2,18 @@
 
 **Current stage:** Getting started
 
+## 2026-04-13
+
+- **debug why jobs page shows stale data, and doesnt automatically update**
+
+---
+
+## 2026-04-08
+
+- **remove the feature that activates all filters when no filters are selected (for jobs/loops/tasks)**
+
+---
+
 ## 2026-04-07
 
 - **Use the correct logo for Pi https://camo.githubusercontent.com/8b5a446dcbd5bea234898b8584e5484099dc0a939d8e59e542b7f5f23b259217/68747470733a2f2f736869747479636f64696e676167656e742e61692f6c6f676f2e737667**

@@ -86,7 +86,7 @@ Wait for confirmation.
 
 ## Step 5: Update config.json
 
-Read `config.json`, add the new repo entry to the `repos` array — insert it before the `hub` entry (which must stay last). Use the schema from [references/formats.md](references/formats.md). Set any unspecified scripts to `null`.
+Read `config.json`, add the new repo entry to the `repos` array — insert it before the `dispatch` entry (which must stay last). Use the schema from [references/formats.md](references/formats.md). Set any unspecified scripts to `null`.
 
 ---
 
@@ -205,9 +205,9 @@ Run `node cli.js status` to see it in the overview.
 
 - **Always read formats.md before writing files** — exact format matters; parsers silently fail on malformed files.
 - **Never overwrite existing tracking files** — only create todo.md, bugs.md, activity-log.md if missing.
-- **Never modify or remove the `hub` entry** — it must always remain in config.json pointing to `.`.
+- **Never modify or remove the `dispatch` entry** — it must always remain in config.json pointing to `.`.
 - **Always confirm before writing** — show the Step 4 preview and wait. Don't apply changes speculatively.
 - **Null beats omitting** — always include `startScript`, `testScript`, `cleanupScript` in the config entry even as `null`. Omitting them causes CLI errors.
-- **Hub entry goes last** — insert new entries before the `hub` entry.
+- **Dispatch entry goes last** — insert new entries before the `dispatch` entry.
 - **Merge, don't overwrite settings.json** — if the target repo already has a `.claude/settings.json`, merge the Stop hook in rather than replacing it.
 - **Self-improvement**: If the user corrects a format detail or says "never do X again", update the Rules section and/or `references/formats.md` immediately. If a new validation case comes up, add it as a rule.
