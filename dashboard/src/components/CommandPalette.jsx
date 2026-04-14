@@ -78,7 +78,7 @@ export default function CommandPalette({
       base.push({
         key: `switch:${repo.name}`,
         label: `Switch to ${repo.name}`,
-        subtitle: `${repo.tasks.openCount} open tasks`,
+        subtitle: `${repo.tasks?.openCount ?? 0} open tasks`,
         icon: FolderOpen,
         run: () => {
           onSelectResult?.({ kind: 'repo', targetId: repo.name, repo: repo.name })

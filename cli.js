@@ -552,6 +552,12 @@ function cmdScheduleEdit() {
     if (!validConcurrency.includes(flags.concurrency)) fail(`--concurrency must be one of: ${validConcurrency.join(', ')}`);
   }
 
+  // Validate that shell-type schedules have a command
+  if (flags.type === 'shell' && !flags.command) {
+    const existing = findSchedule(DISPATCH_ROOT, id);
+    if (!existing || !existing.command) fail('--command is required when type is shell');
+  }
+
   const updated = updateSchedule(DISPATCH_ROOT, id, {
     name: flags.name,
     type: flags.type,
@@ -717,6 +723,7 @@ function cmdScheduleRun() {
         if (!fs.existsSync(jobFilePath)) break;
         seq++;
       }
+      if (seq >= 1000) fail('Failed to allocate unique job file name after 1000 attempts');
       jobId = fileName.replace(/\.md$/, '');
 
       const now = new Date();
@@ -784,7 +791,7 @@ function cmdScheduleRun() {
       fs.appendFileSync(logPath, output, 'utf8');
     } else {
       // Prompt type — claude --print (no job tracking)
-      const claudeArgs = ['--print', '-p', schedule.prompt];
+      const claudeArgs = ['--print', '--dangerously-skip-permissions', '-p', schedule.prompt];
       if (schedule.model) { claudeArgs.push('--model', schedule.model); }
       const output = execFileSync('claude', claudeArgs, {
         cwd: repoCwd, encoding: 'utf8', timeout: 2 * 60 * 60 * 1000,

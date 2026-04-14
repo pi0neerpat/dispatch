@@ -302,11 +302,12 @@ function PlanDetail({ plan: initialPlan, onBack, onNavigateToDispatch, settings,
   async function handleSave() {
     setSaving(true)
     try {
-      await fetch(`/api/plans/${plan.repo}/${plan.slug}`, {
+      const res = await fetch(`/api/plans/${plan.repo}/${plan.slug}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: editContent }),
       })
+      if (!res.ok) return
       setPlan(p => ({ ...p, content: editContent }))
       setIsEditing(false)
     } finally {
@@ -317,11 +318,12 @@ function PlanDetail({ plan: initialPlan, onBack, onNavigateToDispatch, settings,
   async function updatePlanStatus(newStatus) {
     setUpdatingStatus(true)
     try {
-      await fetch(`/api/plans/${plan.repo}/${plan.slug}/status`, {
+      const res = await fetch(`/api/plans/${plan.repo}/${plan.slug}/status`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: newStatus }),
       })
+      if (!res.ok) return
       setPlan(p => ({ ...p, planStatus: newStatus }))
     } finally {
       setUpdatingStatus(false)
