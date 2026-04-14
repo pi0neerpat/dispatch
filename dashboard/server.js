@@ -26,7 +26,7 @@
 // ─────────────────────────────────────────────────────────
 
 import { createRequire } from 'module'
-import { execFileSync, execSync, spawnSync } from 'child_process'
+import { execFileSync, execSync, spawn, spawnSync } from 'child_process'
 import express from 'express'
 import cors from 'cors'
 import path from 'path'
@@ -656,6 +656,13 @@ app.param('name', (req, res, next, value) => {
   // Repo names: simple alphanumeric + hyphens/underscores
   if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,100}$/.test(value) || value.includes('..')) {
     return res.status(400).json({ error: `Invalid name parameter: ${value.slice(0, 80)}` })
+  }
+  next()
+})
+app.param('slug', (req, res, next, value) => {
+  // Plan slugs: alphanumeric + hyphens/underscores, no path traversal
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,200}$/.test(value)) {
+    return res.status(400).json({ error: `Invalid slug parameter: ${value.slice(0, 80)}` })
   }
   next()
 })
@@ -2683,7 +2690,6 @@ app.post('/api/schedules/:id/run', (req, res) => {
   const nodeCmd = process.execPath
   const cliPath = path.join(DISPATCH_ROOT, 'cli.js')
   try {
-    const { spawn } = require('child_process')
     const child = spawn(nodeCmd, [cliPath, 'schedule', 'run', req.params.id], {
       cwd: DISPATCH_ROOT,
       detached: true,
