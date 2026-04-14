@@ -59,7 +59,7 @@ POST /api/jobs/init
 ```json
 {
   "fileName": "2026-04-02-slug.md",
-  "relativePath": "notes/jobs/2026-04-02-slug.md",
+  "relativePath": ".dispatch/jobs/2026-04-02-slug.md",
   "absolutePath": "/…",
   "repo": "my-app",
   "sessionId": "session-<uuid>",

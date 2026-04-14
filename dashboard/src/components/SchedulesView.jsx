@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { CalendarClock, Plus, Pencil, Trash2, Loader, X, Play, Clock, CheckCircle2, XCircle, SkipForward, AlertTriangle } from 'lucide-react'
+import { CalendarClock, Plus, Pencil, Trash2, Loader, X, Play, Clock, CheckCircle2, XCircle, SkipForward, AlertTriangle, ChevronDown, FileText, ExternalLink } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { DEFAULT_REPO_COLOR, MODEL_OPTIONS, getRepoColor } from '../lib/constants'
 import Toggle from './Toggle'
 
 const SCHEDULE_TYPES = [
-  { value: 'job', label: 'Dispatch Job', description: 'Tracked in notes/jobs/' },
+  { value: 'job', label: 'Dispatch Job', description: 'Tracked in .dispatch/jobs/' },
   { value: 'prompt', label: 'Prompt', description: 'Claude --print, no job tracking' },
   { value: 'loop', label: 'Loop', description: 'Linear/parallel loop scripts' },
   { value: 'shell', label: 'Shell', description: 'Raw shell command' },
@@ -133,15 +133,10 @@ function ScheduleForm({ repos, initial, onSave, onCancel, saving }) {
         </div>
       </div>
 
-      <label className="flex items-center gap-2 cursor-pointer">
-        <input
-          type="checkbox"
-          checked={recurring}
-          onChange={e => setRecurring(e.target.checked)}
-          className="rounded border-border"
-        />
-        <span className="text-[11px] text-muted-foreground">Recurring (auto-disables after one run if unchecked)</span>
-      </label>
+      <div className="flex items-center gap-2">
+        <Toggle checked={recurring} onChange={setRecurring} size="sm" />
+        <span className="text-[11px] text-muted-foreground">Recurring (auto-disables after one run if off)</span>
+      </div>
 
       {(needsPrompt || needsLoop) && (
         <div className="grid grid-cols-2 gap-3">
@@ -246,17 +241,29 @@ function AdjacentSchedules({ schedules }) {
   )
 }
 
-export default function SchedulesView({ overview }) {
+function formatLocalDateTime(dateStr) {
+  if (!dateStr) return null
+  const d = new Date(dateStr)
+  if (isNaN(d.getTime())) return null
+  return d.toLocaleString(undefined, {
+    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+  })
+}
+
+export default function SchedulesView({ overview, onSelectJob, onSelectLoop }) {
   const repos = overview?.repos || []
   const [schedules, setSchedules] = useState([])
   const [events, setEvents] = useState([])
   const [loading, setLoading] = useState(true)
+  const [collapsedGroups, setCollapsedGroups] = useState(() => new Set(['completed']))
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState(null)
   const [saving, setSaving] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(null)
   const [runningId, setRunningId] = useState(null)
   const [mutationError, setMutationError] = useState(null)
+  const [expandedId, setExpandedId] = useState(null)
+  const [logData, setLogData] = useState({}) // { [scheduleId]: { log, loading, exists, totalLines } }
 
   const fetchSchedules = useCallback(async () => {
     try {
@@ -290,11 +297,20 @@ export default function SchedulesView({ overview }) {
     )
   }, [events])
 
-  // Map scheduleId → latest event
+  // Map scheduleId → latest event (prefer terminal events over 'started')
   const latestEventBySchedule = useMemo(() => {
     const map = {}
     for (const e of events) {
-      if (!map[e.scheduleId]) map[e.scheduleId] = e
+      const existing = map[e.scheduleId]
+      if (!existing) { map[e.scheduleId] = e; continue }
+      // A terminal event (completed/failed/skipped) always wins over a 'started' event
+      // from the same run. Compare by finishedAt/startedAt to pick the most recent.
+      const eTime = e.finishedAt || e.startedAt || e.at || ''
+      const exTime = existing.finishedAt || existing.startedAt || existing.at || ''
+      if (eTime > exTime) { map[e.scheduleId] = e; continue }
+      if (eTime === exTime && existing.type === 'started' && e.type !== 'started') {
+        map[e.scheduleId] = e
+      }
     }
     return map
   }, [events])
@@ -365,6 +381,37 @@ export default function SchedulesView({ overview }) {
       await fetchSchedules()
     } catch {}
   }
+
+  async function fetchLog(id) {
+    setLogData(prev => ({ ...prev, [id]: { ...prev[id], loading: true } }))
+    try {
+      const res = await fetch(`/api/schedule-logs/${id}?tail=300`)
+      if (res.ok) {
+        const data = await res.json()
+        setLogData(prev => ({ ...prev, [id]: { log: data.log, exists: data.exists, totalLines: data.totalLines, loading: false } }))
+      }
+    } catch {
+      setLogData(prev => ({ ...prev, [id]: { log: '', exists: false, loading: false } }))
+    }
+  }
+
+  function toggleExpand(id) {
+    if (expandedId === id) {
+      setExpandedId(null)
+    } else {
+      setExpandedId(id)
+      fetchLog(id)
+    }
+  }
+
+  // Events for the currently expanded schedule
+  const expandedEvents = useMemo(() => {
+    if (!expandedId) return []
+    return events
+      .filter(e => e.scheduleId === expandedId)
+      .sort((a, b) => new Date(b.startedAt || b.at || 0) - new Date(a.startedAt || a.at || 0))
+      .slice(0, 20)
+  }, [expandedId, events])
 
   async function handleRunNow(id) {
     setRunningId(id)
@@ -446,8 +493,43 @@ export default function SchedulesView({ overview }) {
           </button>
         </div>
       ) : (
-        <div className="space-y-3">
-          {schedules.map(schedule => {
+        <div className="space-y-6">
+          {[
+            { key: 'one-shot', label: 'One-shot', dotClass: 'bg-amber-400',
+              items: schedules.filter(s => !s.recurring && !(s.lastRunStatus === 'completed' && !s.enabled)) },
+            { key: 'recurring', label: 'Recurring', dotClass: 'bg-blue-400',
+              items: schedules.filter(s => s.recurring) },
+            { key: 'completed', label: 'Completed', dotClass: 'bg-emerald-400',
+              items: schedules.filter(s => !s.recurring && s.lastRunStatus === 'completed' && !s.enabled) },
+          ].map(group => {
+            if (group.items.length === 0) return null
+            const isCollapsed = collapsedGroups.has(group.key)
+            return (
+              <div key={group.key}>
+                <button
+                  type="button"
+                  onClick={() => setCollapsedGroups(prev => {
+                    const next = new Set(prev)
+                    next.has(group.key) ? next.delete(group.key) : next.add(group.key)
+                    return next
+                  })}
+                  className="flex items-center gap-2 mb-3 cursor-pointer group"
+                >
+                  <span className={cn('w-1.5 h-1.5 rounded-full', group.dotClass)} />
+                  <h3 className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                    {group.label}
+                  </h3>
+                  <span className="text-[10px] font-mono text-muted-foreground/40" style={{ fontFamily: 'var(--font-mono)' }}>
+                    {group.items.length}
+                  </span>
+                  <ChevronDown size={10} className={cn(
+                    'text-muted-foreground/30 transition-transform',
+                    isCollapsed && '-rotate-90'
+                  )} />
+                </button>
+
+                {!isCollapsed && <div className="space-y-2">
+          {group.items.map(schedule => {
             const repoColor = getRepoColor(overview, schedule.repo)
             const isEditing = editingId === schedule.id
             const latestEvent = latestEventBySchedule[schedule.id]
@@ -466,106 +548,233 @@ export default function SchedulesView({ overview }) {
               )
             }
 
+            const isExpanded = expandedId === schedule.id
+            const schedLog = logData[schedule.id]
+
+            // Build link to job or loop detail page
+            const canNavigate = (schedule.type === 'job' && schedule.lastRunJobId && onSelectJob)
+              || (schedule.type === 'loop' && schedule.lastRun && onSelectLoop)
+            function handleNavigate(e) {
+              e.stopPropagation()
+              if (schedule.type === 'job' && schedule.lastRunJobId && onSelectJob) {
+                onSelectJob(schedule.lastRunJobId)
+              } else if (schedule.type === 'loop' && schedule.lastRun && onSelectLoop) {
+                // Construct loop ID: repo/loopType/timestamp
+                const loopType = schedule.loopType || 'linear-implementation'
+                // lastRun is an ISO string; loop dirs use the same format
+                const ts = schedule.lastRun.replace(/\.\d+Z$/, '').replace('Z', '')
+                onSelectLoop(`${schedule.repo}/${loopType}/${ts}`)
+              }
+            }
+
             return (
               <div
                 key={schedule.id}
                 className={cn(
-                  'rounded-lg border border-card-border bg-card px-4 py-3 animate-fade-up',
+                  'rounded-lg border border-card-border bg-card animate-fade-up',
                   !schedule.enabled && 'opacity-50'
                 )}
               >
-                <div className="flex items-center gap-3">
-                  {/* Toggle */}
-                  <Toggle
-                    checked={schedule.enabled}
-                    onChange={() => handleToggle(schedule.id)}
-                    size="md"
-                  />
+                <div className="px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    {/* Toggle */}
+                    <Toggle
+                      checked={schedule.enabled}
+                      onChange={() => handleToggle(schedule.id)}
+                      size="md"
+                    />
 
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="text-[13px] font-medium text-foreground">{schedule.name}</p>
-                      <span
-                        className="text-[10px] font-medium px-1.5 py-0.5 rounded capitalize"
-                        style={{ background: `${repoColor}15`, color: repoColor, border: `1px solid ${repoColor}30` }}
+                    {/* Clickable content area */}
+                    <button
+                      type="button"
+                      onClick={() => toggleExpand(schedule.id)}
+                      className="flex-1 min-w-0 text-left cursor-pointer"
+                    >
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-[13px] font-medium text-foreground">{schedule.name}</p>
+                        <span
+                          className="text-[10px] font-medium px-1.5 py-0.5 rounded capitalize"
+                          style={{ background: `${repoColor}15`, color: repoColor, border: `1px solid ${repoColor}30` }}
+                        >
+                          {schedule.repo}
+                        </span>
+                        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-card-hover text-muted-foreground">
+                          {typeConfig.label}
+                        </span>
+                        {(schedule.running || latestEvent) && (
+                          <EventBadge type={schedule.running ? 'started' : latestEvent.type} />
+                        )}
+                        <ChevronDown size={12} className={cn(
+                          'text-muted-foreground/30 transition-transform ml-auto',
+                          isExpanded && 'rotate-180'
+                        )} />
+                      </div>
+                      <div className="flex items-center gap-3 mt-0.5 text-[11px] text-muted-foreground/60">
+                        {schedule.nextRun && schedule.enabled ? (
+                          <span className="inline-flex items-center gap-1">
+                            <Clock size={10} />
+                            Next: {formatLocalDateTime(schedule.nextRun)} ({relativeTime(schedule.nextRun)})
+                          </span>
+                        ) : !schedule.enabled && schedule.lastRun ? (
+                          <span>Ran {formatLocalDateTime(schedule.lastRun)}</span>
+                        ) : null}
+                        {schedule.recurring && (
+                          <span className="font-mono" style={{ fontFamily: 'var(--font-mono)' }}>
+                            {schedule.cron}
+                          </span>
+                        )}
+                        {schedule.lastRun && schedule.enabled && (
+                          <span>Last: {relativeTime(schedule.lastRun)}</span>
+                        )}
+                      </div>
+                    </button>
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      {/* View job/loop detail */}
+                      {canNavigate && (
+                        <button
+                          onClick={handleNavigate}
+                          className="p-1.5 rounded text-muted-foreground/40 hover:text-primary hover:bg-primary/10 transition-colors"
+                          title={`View ${schedule.type === 'loop' ? 'loop' : 'job'}`}
+                        >
+                          <ExternalLink size={12} />
+                        </button>
+                      )}
+                      {/* Run Now button */}
+                      <button
+                        onClick={() => handleRunNow(schedule.id)}
+                        disabled={runningId === schedule.id || !schedule.enabled}
+                        className="p-1.5 rounded text-muted-foreground/40 hover:text-emerald-400 hover:bg-emerald-400/10 transition-colors disabled:opacity-30"
+                        title="Run now"
                       >
-                        {schedule.repo}
-                      </span>
-                      <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-card-hover text-muted-foreground">
-                        {typeConfig.label}
-                      </span>
-                      <span className={cn(
-                        'text-[10px] px-1.5 py-0.5 rounded',
-                        schedule.recurring
-                          ? 'bg-blue-500/10 text-blue-400'
-                          : 'bg-amber-500/10 text-amber-400'
-                      )}>
-                        {schedule.recurring ? 'Recurring' : 'One-shot'}
-                      </span>
-                      {latestEvent && <EventBadge type={latestEvent.type} />}
-                      {schedule.running && (
-                        <span className="inline-flex items-center gap-1 text-[10px] text-blue-400">
-                          <Loader size={10} className="animate-spin" /> Running
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-3 mt-0.5 text-[11px] text-muted-foreground/60">
-                      <span className="font-mono" style={{ fontFamily: 'var(--font-mono)' }}>
-                        {schedule.description || schedule.cron}
-                      </span>
-                      {schedule.nextRun && schedule.enabled && (
-                        <span className="inline-flex items-center gap-1">
-                          <Clock size={10} />
-                          Next: {relativeTime(schedule.nextRun)}
-                        </span>
-                      )}
-                      {schedule.lastRun && (
-                        <span>Last: {relativeTime(schedule.lastRun)}</span>
-                      )}
+                        {runningId === schedule.id
+                          ? <Loader size={12} className="animate-spin" />
+                          : <Play size={12} />}
+                      </button>
+                      <button
+                        onClick={() => setEditingId(schedule.id)}
+                        className="p-1.5 rounded text-muted-foreground/40 hover:text-foreground hover:bg-card-hover transition-colors"
+                        title="Edit"
+                      >
+                        <Pencil size={12} />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(schedule.id)}
+                        className={cn(
+                          'p-1.5 rounded transition-colors',
+                          confirmDelete === schedule.id
+                            ? 'text-status-failed bg-status-failed-bg'
+                            : 'text-muted-foreground/40 hover:text-status-failed hover:bg-status-failed-bg'
+                        )}
+                        title={confirmDelete === schedule.id ? 'Click again to confirm' : 'Delete'}
+                      >
+                        {confirmDelete === schedule.id ? <X size={12} /> : <Trash2 size={12} />}
+                      </button>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-1 shrink-0">
-                    {/* Run Now button */}
-                    <button
-                      onClick={() => handleRunNow(schedule.id)}
-                      disabled={runningId === schedule.id || !schedule.enabled}
-                      className="p-1.5 rounded text-muted-foreground/40 hover:text-emerald-400 hover:bg-emerald-400/10 transition-colors disabled:opacity-30"
-                      title="Run now"
-                    >
-                      {runningId === schedule.id
-                        ? <Loader size={12} className="animate-spin" />
-                        : <Play size={12} />}
-                    </button>
-                    <button
-                      onClick={() => setEditingId(schedule.id)}
-                      className="p-1.5 rounded text-muted-foreground/40 hover:text-foreground hover:bg-card-hover transition-colors"
-                      title="Edit"
-                    >
-                      <Pencil size={12} />
-                    </button>
-                    <button
-                      onClick={() => handleDelete(schedule.id)}
-                      className={cn(
-                        'p-1.5 rounded transition-colors',
-                        confirmDelete === schedule.id
-                          ? 'text-status-failed bg-status-failed-bg'
-                          : 'text-muted-foreground/40 hover:text-status-failed hover:bg-status-failed-bg'
-                      )}
-                      title={confirmDelete === schedule.id ? 'Click again to confirm' : 'Delete'}
-                    >
-                      {confirmDelete === schedule.id ? <X size={12} /> : <Trash2 size={12} />}
-                    </button>
-                  </div>
+                  <p className="mt-2 text-[11px] text-foreground/60 line-clamp-2">
+                    {schedule.type === 'loop'
+                      ? `Loop: ${schedule.loopType || 'linear-implementation'}${schedule.agentSpec ? ` (${schedule.agentSpec})` : ''}`
+                      : schedule.type === 'shell'
+                        ? `$ ${schedule.command}`
+                        : schedule.prompt}
+                  </p>
                 </div>
 
-                <p className="mt-2 text-[11px] text-foreground/60 line-clamp-2">
-                  {schedule.type === 'loop'
-                    ? `Loop: ${schedule.loopType || 'linear-implementation'}${schedule.agentSpec ? ` (${schedule.agentSpec})` : ''}`
-                    : schedule.type === 'shell'
-                      ? `$ ${schedule.command}`
-                      : schedule.prompt}
-                </p>
+                {/* Expanded detail panel */}
+                {isExpanded && (
+                  <div className="border-t border-card-border px-4 py-3 space-y-3 animate-fade-up">
+                    {/* Run history */}
+                    <div>
+                      <h4 className="text-[11px] font-medium text-muted-foreground mb-2">Run History</h4>
+                      {expandedEvents.length === 0 ? (
+                        <p className="text-[11px] text-muted-foreground/40">No runs recorded yet.</p>
+                      ) : (
+                        <div className="space-y-1">
+                          {expandedEvents.map(evt => {
+                            const isFailure = evt.type === 'failed'
+                            const isSkip = evt.type === 'skipped'
+                            const duration = evt.durationMs
+                              ? `${Math.floor(evt.durationMs / 60000)}m ${Math.floor((evt.durationMs % 60000) / 1000)}s`
+                              : null
+                            return (
+                              <div
+                                key={evt.id}
+                                className={cn(
+                                  'flex items-center gap-2 px-2 py-1.5 rounded text-[11px]',
+                                  isFailure ? 'bg-red-500/5' : isSkip ? 'bg-amber-500/5' : 'bg-background/50'
+                                )}
+                              >
+                                <EventBadge type={evt.type} />
+                                <span className="text-muted-foreground/60">
+                                  {new Date(evt.startedAt || evt.at).toLocaleString()}
+                                </span>
+                                {duration && (
+                                  <span className="text-muted-foreground/40">{duration}</span>
+                                )}
+                                {evt.exitCode != null && evt.exitCode !== 0 && (
+                                  <span className="text-red-400 font-mono" style={{ fontFamily: 'var(--font-mono)' }}>
+                                    exit {evt.exitCode}
+                                  </span>
+                                )}
+                                {evt.error && (
+                                  <span className="text-red-400/80 truncate flex-1" title={evt.error}>
+                                    {evt.error}
+                                  </span>
+                                )}
+                                {evt.reason && (
+                                  <span className="text-amber-400/80 truncate flex-1">{evt.reason}</span>
+                                )}
+                                {evt.jobId && (
+                                  <span className="text-muted-foreground/40 font-mono" style={{ fontFamily: 'var(--font-mono)' }}>
+                                    {evt.jobId}
+                                  </span>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Log output */}
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="text-[11px] font-medium text-muted-foreground flex items-center gap-1.5">
+                          <FileText size={11} />
+                          Log Output
+                          {schedLog?.totalLines != null && (
+                            <span className="text-muted-foreground/40 font-normal">({schedLog.totalLines} lines)</span>
+                          )}
+                        </h4>
+                        <button
+                          onClick={() => fetchLog(schedule.id)}
+                          className="text-[10px] text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+                        >
+                          Refresh
+                        </button>
+                      </div>
+                      {schedLog?.loading ? (
+                        <div className="py-4 text-center">
+                          <Loader size={14} className="mx-auto text-muted-foreground/30 animate-spin" />
+                        </div>
+                      ) : schedLog?.exists === false ? (
+                        <p className="text-[11px] text-muted-foreground/40">No log file yet — schedule has not run.</p>
+                      ) : schedLog?.log ? (
+                        <pre className="text-[10px] leading-relaxed text-foreground/70 bg-background/80 border border-border rounded-md p-3 max-h-[400px] overflow-auto whitespace-pre-wrap break-all font-mono" style={{ fontFamily: 'var(--font-mono)' }}>
+                          {schedLog.log}
+                        </pre>
+                      ) : (
+                        <p className="text-[11px] text-muted-foreground/40">Log is empty.</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+                </div>}
               </div>
             )
           })}

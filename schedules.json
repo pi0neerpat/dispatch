@@ -1,1 +1,40 @@
-[]
+[
+  {
+    "id": "sched-1776179122790-4hl5",
+    "name": "linear-review loop",
+    "type": "loop",
+    "repo": "prompt-guard",
+    "cron": "7 10 14 4 *",
+    "prompt": null,
+    "model": "claude-opus-4-6",
+    "loopType": "linear-review",
+    "agentSpec": "codex:gpt-5.4",
+    "command": null,
+    "recurring": false,
+    "enabled": false,
+    "concurrency": "skip",
+    "created": "2026-04-14T15:05:22.790Z",
+    "lastRun": "2026-04-14T15:16:40.409Z",
+    "lastRunStatus": "completed",
+    "lastRunJobId": null
+  },
+  {
+    "id": "sched-1776184803634-yvfn",
+    "name": "linear-review loop",
+    "type": "loop",
+    "repo": "prompt-guard",
+    "cron": "43 11 14 4 *",
+    "prompt": "",
+    "model": "claude-opus-4-6",
+    "loopType": "linear-review",
+    "agentSpec": "codex:gpt-5.3-codex",
+    "command": null,
+    "recurring": false,
+    "enabled": false,
+    "concurrency": "skip",
+    "created": "2026-04-14T16:40:03.634Z",
+    "lastRun": "2026-04-14T16:47:30.524Z",
+    "lastRunStatus": "completed",
+    "lastRunJobId": null
+  }
+]

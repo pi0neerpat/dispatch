@@ -67,8 +67,7 @@ function createTestHub(opts = {}) {
 
   // Create repo directory structure
   fs.mkdirSync(repoDir, { recursive: true });
-  fs.mkdirSync(path.join(repoDir, 'notes', 'jobs'), { recursive: true });
-  fs.mkdirSync(path.join(repoDir, 'notes', 'swarm'), { recursive: true });
+  fs.mkdirSync(path.join(repoDir, '.dispatch', 'jobs'), { recursive: true });
 
   // config.json
   const config = {
@@ -113,8 +112,8 @@ function createTestHub(opts = {}) {
   ];
   fs.writeFileSync(path.join(repoDir, 'activity-log.md'), activity.join('\n'));
 
-  // Create notes/jobs dir at hub level too
-  fs.mkdirSync(path.join(hubDir, 'notes', 'jobs'), { recursive: true });
+  // Create .dispatch/jobs dir at hub level too
+  fs.mkdirSync(path.join(hubDir, '.dispatch', 'jobs'), { recursive: true });
 
   // Init git repo in the repo dir (for getGitInfo)
   execSync(`git init -b main "${repoDir}"`, { encoding: 'utf8' });
@@ -149,7 +148,7 @@ describe('CLI read commands', () => {
   it('tasks returns all repos tasks', () => {
     const secondRepoDir = path.join(tmpDir, 'repo2');
     fs.mkdirSync(secondRepoDir, { recursive: true });
-    fs.mkdirSync(path.join(secondRepoDir, 'notes', 'jobs'), { recursive: true });
+    fs.mkdirSync(path.join(secondRepoDir, '.dispatch', 'jobs'), { recursive: true });
     fs.writeFileSync(path.join(secondRepoDir, 'todo.md'), '## Tasks\n- [ ] Repo2 task\n');
     fs.writeFileSync(path.join(secondRepoDir, 'activity-log.md'), '');
     execSync(`git init -b main "${secondRepoDir}"`, { encoding: 'utf8' });
@@ -246,7 +245,7 @@ describe('CLI write commands', () => {
       '## Results',
       'Test results here',
     ].join('\n');
-    const jobPath = path.join(repoDir, 'notes', 'swarm', '2026-03-26-test-job.md');
+    const jobPath = path.join(repoDir, '.dispatch', 'jobs', '2026-03-26-test-job.md');
     fs.writeFileSync(jobPath, jobContent);
 
     const { stdout, exitCode } = runCli('swarm validate 2026-03-26-test-job');
@@ -270,7 +269,7 @@ describe('CLI write commands', () => {
       '## Results',
       'Test results here',
     ].join('\n');
-    const jobPath = path.join(repoDir, 'notes', 'swarm', '2026-03-26-reject-test.md');
+    const jobPath = path.join(repoDir, '.dispatch', 'jobs', '2026-03-26-reject-test.md');
     fs.writeFileSync(jobPath, jobContent);
 
     const { stdout, exitCode } = runCli('swarm reject 2026-03-26-reject-test --notes="Needs more work"');

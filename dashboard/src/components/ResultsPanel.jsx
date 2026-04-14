@@ -665,7 +665,7 @@ function FollowUpChat({ repoName, detail, onDispatch, dispatching, settings: app
     if (!chatPrompt.trim()) return
     const basePrompt = chatPrompt.trim()
     const contextLines = []
-    if (detail?.id) contextLines.push(`Previous job context: notes/jobs/${detail.id}.md`)
+    if (detail?.id) contextLines.push(`Previous job context: .dispatch/jobs/${detail.id}.md`)
     if (includeWorktreeContext && activeWorktreePath) contextLines.push(`Worktree path: ${activeWorktreePath}`)
     const missingContextLines = contextLines.filter(line => !basePrompt.includes(line))
     const promptWithContext = missingContextLines.length > 0

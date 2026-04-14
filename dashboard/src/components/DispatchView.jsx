@@ -5,6 +5,7 @@ import { DEFAULT_REPO_COLOR } from '../lib/constants'
 import { useAgentModels } from '../lib/useAgentModels'
 import { useSkills } from '../lib/useSkills'
 import DispatchSettingsRow from './DispatchSettingsRow'
+import Toggle from './Toggle'
 import SkillsSelector from './SkillsSelector'
 import { AgentModelPicker, LOOP_TYPES, defaultAgentModel, fmtAgent } from './AgentModelPicker'
 
@@ -21,7 +22,8 @@ const CRON_PRESETS = [
 function buildRunAtPresets() {
   const now = new Date()
   const presets = []
-  const fmt = (d) => d.toISOString().slice(0, 16) // datetime-local compatible
+  const pad = (n) => String(n).padStart(2, '0')
+  const fmt = (d) => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
   const fmtTime = (d) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
 
   // "In X" presets — only include if they land before midnight-ish
@@ -512,15 +514,10 @@ export default function DispatchView({ overview, onDispatch, onLoopDispatch, ini
 
             {/* Recurring toggle + cron input */}
             <div>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={scheduleRecurring}
-                  onChange={e => setScheduleRecurring(e.target.checked)}
-                  className="rounded border-border"
-                />
+              <div className="flex items-center gap-2">
+                <Toggle checked={scheduleRecurring} onChange={setScheduleRecurring} size="sm" />
                 <span className="text-[11px] text-muted-foreground">Recurring</span>
-              </label>
+              </div>
 
               {scheduleRecurring && (
                 <div className="mt-1.5">

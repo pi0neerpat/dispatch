@@ -29,7 +29,7 @@
 
 const path = require('path');
 const fs = require('fs');
-const { execFileSync } = require('child_process');
+const { execFileSync, spawnSync } = require('child_process');
 const {
   parseTaskFile, parseActivityLog, getGitInfo,
   parseSwarmFile, parseSwarmDir, loadConfig,
@@ -100,16 +100,15 @@ function gatherBugs() {
     });
 }
 
-// Gather swarm data across all repos
+// Gather job data across all repos
 function gatherSwarm() {
   const allAgents = [];
   for (const repo of config.repos) {
-    const swarmDir = path.join(repo.resolvedPath, 'notes', 'swarm');
-    const agents = parseSwarmDir(swarmDir);
+    const agents = parseSwarmDir(path.join(repo.resolvedPath, '.dispatch', 'jobs'));
     for (const agent of agents) {
       agent.repo = repo.name;
+      allAgents.push(agent);
     }
-    allAgents.push(...agents);
   }
   return allAgents;
 }
@@ -440,9 +439,9 @@ function cmdCheckpointList() {
 
 function findSwarmFile(id) {
   for (const repo of config.repos) {
-    const swarmDir = path.resolve(repo.resolvedPath, 'notes', 'swarm');
-    const candidate = path.resolve(swarmDir, `${id}.md`);
-    if (!candidate.startsWith(swarmDir + path.sep)) fail('Invalid swarm id: path traversal rejected');
+    const dir = path.resolve(repo.resolvedPath, '.dispatch', 'jobs');
+    const candidate = path.resolve(dir, `${id}.md`);
+    if (!candidate.startsWith(dir + path.sep)) continue;
     if (fs.existsSync(candidate)) return candidate;
   }
   fail(`swarm agent "${id}" not found in any repo`);
@@ -710,7 +709,7 @@ function cmdScheduleRun() {
       const slug = schedule.name
         .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 50) || 'scheduled-job';
       const date = new Date().toISOString().slice(0, 10);
-      const jobsDir = path.join(repoCwd, 'notes', 'jobs');
+      const jobsDir = path.join(repoCwd, '.dispatch', 'jobs');
       fs.mkdirSync(jobsDir, { recursive: true });
 
       // Allocate unique job file name
@@ -750,7 +749,7 @@ function cmdScheduleRun() {
       fs.appendFileSync(logPath, `Job file: ${jobFilePath}\nJob ID: ${jobId}\n`, 'utf8');
 
       // Build dispatch prompt
-      const jobRelPath = `notes/jobs/${fileName}`;
+      const jobRelPath = `.dispatch/jobs/${fileName}`;
       if (!schedule.prompt) fail('Schedule has no prompt configured — cannot dispatch a job without a prompt.');
       const dispatchPrompt = schedule.prompt
         + '\n\nUse a strictly linear approach. Do not run tasks in parallel and do not delegate to sub-agents.'
@@ -761,6 +760,7 @@ function cmdScheduleRun() {
       if (schedule.model) { claudeArgs.push('--model', schedule.model); }
       const output = execFileSync('claude', claudeArgs, {
         cwd: repoCwd, encoding: 'utf8', timeout: 2 * 60 * 60 * 1000,
+        maxBuffer: 100 * 1024 * 1024,
         stdio: ['pipe', 'pipe', 'pipe'],
         env: { ...process.env, CLAUDE_PROJECT_DIR: repoCwd },
       });
@@ -778,16 +778,36 @@ function cmdScheduleRun() {
       if (!fs.existsSync(scriptPath)) fail(`loop script not found: ${scriptPath}`);
       const loopArgs = ['--repo', repoCwd];
       if (schedule.agentSpec) { loopArgs.push('--agent', schedule.agentSpec); }
-      const output = execFileSync('bash', [scriptPath, ...loopArgs], {
-        cwd: DISPATCH_ROOT, encoding: 'utf8', timeout: 4 * 60 * 60 * 1000,
-        stdio: ['pipe', 'pipe', 'pipe'],
+      // Loop scripts write their own log via tee — no need to buffer output.
+      // Use spawnSync with inherited stdio so output flows directly to the
+      // loop's log file. We only need the exit code for bookkeeping.
+      const result = spawnSync('bash', [scriptPath, ...loopArgs], {
+        cwd: DISPATCH_ROOT, timeout: 4 * 60 * 60 * 1000,
+        stdio: 'inherit',
       });
-      fs.appendFileSync(logPath, output, 'utf8');
+      // Find the loop's own log and write a pointer instead of duplicating output
+      const loopTypeDir = path.join(repoCwd, '.dispatch', 'loops', loopType);
+      try {
+        const runs = fs.readdirSync(loopTypeDir)
+          .filter(d => /^\d{4}-\d{2}-\d{2}T/.test(d))
+          .sort()
+          .reverse();
+        if (runs.length > 0) {
+          const loopLogPath = path.join(loopTypeDir, runs[0], 'loop.log');
+          fs.appendFileSync(logPath, `Loop log: ${loopLogPath}\n`, 'utf8');
+        }
+      } catch { /* best effort — loop dir may not exist if script failed early */ }
+      if (result.status !== 0) {
+        const err = new Error(result.error ? result.error.message : `Loop exited with code ${result.status}`);
+        err.status = result.status || 1;
+        throw err;
+      }
     } else if (schedule.type === 'shell') {
       // Run arbitrary shell command
       if (!schedule.command) fail('Schedule has no command configured — cannot run a shell schedule without a command.');
       const output = execFileSync('bash', ['-c', schedule.command], {
         cwd: repoCwd, encoding: 'utf8', timeout: 60 * 60 * 1000,
+        maxBuffer: 100 * 1024 * 1024,
         stdio: ['pipe', 'pipe', 'pipe'],
       });
       fs.appendFileSync(logPath, output, 'utf8');
@@ -798,6 +818,7 @@ function cmdScheduleRun() {
       if (schedule.model) { claudeArgs.push('--model', schedule.model); }
       const output = execFileSync('claude', claudeArgs, {
         cwd: repoCwd, encoding: 'utf8', timeout: 2 * 60 * 60 * 1000,
+        maxBuffer: 100 * 1024 * 1024,
         stdio: ['pipe', 'pipe', 'pipe'],
         env: { ...process.env, CLAUDE_PROJECT_DIR: repoCwd },
       });
@@ -812,6 +833,23 @@ function cmdScheduleRun() {
     // Mark job file as failed if it was created
     if (jobFilePath && fs.existsSync(jobFilePath)) {
       try { writeJobStatus(jobFilePath, 'failed'); } catch { /* best effort */ }
+    }
+    // Mark loop run directory as failed (loop script traps don't fire on SIGKILL/timeout)
+    if (schedule.type === 'loop') {
+      try {
+        const loopType = schedule.loopType || 'linear-implementation';
+        const loopTypeDir = path.join(repoCwd, '.dispatch', 'loops', loopType);
+        if (fs.existsSync(loopTypeDir)) {
+          const runs = fs.readdirSync(loopTypeDir)
+            .filter(d => /^\d{4}-\d{2}-\d{2}T/.test(d))
+            .sort()
+            .reverse();
+          if (runs.length > 0) {
+            const latestRunDir = path.join(loopTypeDir, runs[0]);
+            fs.writeFileSync(path.join(latestRunDir, 'status.txt'), 'failed\n', 'utf8');
+          }
+        }
+      } catch { /* best effort */ }
     }
   }
 
@@ -881,7 +919,7 @@ Schedule commands:
   schedule add --name=... --repo=... --cron=... --prompt=...
                                   Create a prompt schedule (no job tracking)
   schedule add --name=... --repo=... --cron=... --type=job --prompt=...
-                                  Create a dispatch job schedule (tracked in notes/jobs/)
+                                  Create a dispatch job schedule (tracked in .dispatch/jobs/)
   schedule add --name=... --repo=... --cron=... --type=loop --loop-type=...
                                   Create a loop schedule
   schedule add --name=... --repo=... --cron=... --type=shell --command=...

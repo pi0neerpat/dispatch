@@ -104,7 +104,7 @@ fi
 # ---------------------------------------------------------------------------
 # Set up run directory and logging
 # ---------------------------------------------------------------------------
-RUN_DIR="$REPO/.dispatch/loops/parallel-review/$(date '+%Y-%m-%dT%H:%M:%S')"
+RUN_DIR="$REPO/.dispatch/loops/parallel-review/$(date '+%Y-%m-%dT%H-%M-%S')"
 mkdir -p "$RUN_DIR"
 
 # Auto-add .dispatch/ to .gitignore if not already present
@@ -204,7 +204,7 @@ run_agent() {
         done
         cmd+=("${codex_extra[@]}")
         cmd+=(-)
-        if cat "$tmp_prompt" | (cd "$REPO" && CLAUDE_PROJECT_DIR="$REPO" "${cmd[@]}"); then
+        if cat "$tmp_prompt" | (cd "$REPO" && CLAUDE_PROJECT_DIR="$REPO" "${cmd[@]}" 2>&1); then
           rm -f "$tmp_prompt"
           return 0
         fi

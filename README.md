@@ -55,7 +55,7 @@ The server binds to `localhost` only. It is not safe to expose to a network.
 - **Task dashboard** — open tasks and activity across all your repos in one place
 - **Agent dispatch** — start Claude Code sessions from the dashboard, watch terminal output live
 - **Auto-completion** — validate a job and it marks the task done in `todo.md`, logs it to `activity-log.md`
-- **Job history** — every agent run logged to a markdown file in `notes/jobs/`
+- **Job history** — every agent run logged to a markdown file in `.dispatch/jobs/`
 - **CLI** — JSON output for scripting and agent-to-agent queries
 
 ## Task lifecycle
@@ -96,7 +96,7 @@ Click Validate. Dispatch:
 - Marks the task done in `todo.md`
 - Logs an entry to `activity-log.md`
 
-The job file in `notes/jobs/` stays as a permanent record.
+The job file in `.dispatch/jobs/` stays as a permanent record.
 
 <img src="docs/review.png" alt="review" width="500">
 
@@ -186,7 +186,7 @@ cd dashboard && yarn test
 
 1. Open tasks in your repos' `todo.md` files appear in the dashboard
 2. Click a task to dispatch a Claude Code agent- it opens a terminal session in that repo
-3. The agent writes progress to `notes/jobs/YYYY-MM-DD-slug.md` as it works
+3. The agent writes progress to `.dispatch/jobs/YYYY-MM-DD-slug.md` as it works
 4. Validate the job and Dispatch marks it done in `todo.md`, logs it to `activity-log.md`
 
 The dashboard reads your files. It doesn't own them.

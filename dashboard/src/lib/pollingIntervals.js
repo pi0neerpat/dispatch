@@ -4,4 +4,5 @@ export const POLL_INTERVALS = Object.freeze({
   sessions: 3000,
   jobDetail: 3000,
   activity: 10000,
+  schedules: 15000,
 })

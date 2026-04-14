@@ -52,7 +52,7 @@ fi
 # ---------------------------------------------------------------------------
 # Set up run directory and logging
 # ---------------------------------------------------------------------------
-RUN_DIR="$REPO/.dispatch/loops/linear-implementation/$(date '+%Y-%m-%dT%H:%M:%S')"
+RUN_DIR="$REPO/.dispatch/loops/linear-implementation/$(date '+%Y-%m-%dT%H-%M-%S')"
 mkdir -p "$RUN_DIR"
 
 # Auto-add .dispatch/ to .gitignore if not already present
@@ -144,7 +144,7 @@ run_agent() {
         done
         cmd+=("${codex_extra[@]}")
         cmd+=(-)
-        cat "$tmp_prompt" | (cd "$REPO" && CLAUDE_PROJECT_DIR="$REPO" "${cmd[@]}") && { rm -f "$tmp_prompt"; return 0; }
+        cat "$tmp_prompt" | (cd "$REPO" && CLAUDE_PROJECT_DIR="$REPO" "${cmd[@]}" 2>&1) && { rm -f "$tmp_prompt"; return 0; }
         exit_code=$?
         ;;
       cursor)

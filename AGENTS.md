@@ -49,7 +49,7 @@ config.json ─── loadConfig() ───┐
 - **terminal.js** -- Human-friendly ANSI terminal dashboard. Read-only display, no interactivity. Uses box-drawing characters.
 - **todo.md** -- Dispatch root's own task tracker (markdown checkboxes).
 - **activity-log.md** -- Dispatch root's own activity log. Contains `**Current stage:**` metadata.
-- **notes/jobs/** -- Job progress files (gitignored — runtime artifacts). Named `YYYY-MM-DD-slug.md`.
+- **.dispatch/jobs/** -- Job progress files (gitignored — runtime artifacts). Named `YYYY-MM-DD-slug.md`.
 - **.dispatch/runtime/** -- Server runtime state (gitignored): `.dispatch/runtime/job-runs.json` for job run state, `.dispatch/runtime/prompts/` for staged Claude prompts, `.dispatch/runtime/events/` for terminal event snapshots/NDJSON.
 
 ### Dashboard (`dashboard/`)
@@ -99,7 +99,7 @@ yarn start           # Serve built SPA + API from port 3747
 - **CLI output**: Always JSON. Designed for agent consumption. Human output goes through `terminal.js`.
 - **Task format**: Markdown checkboxes (`- [ ]` / `- [x]`) under `##` section headers in `todo.md`.
 - **Activity format**: Date headers (`## YYYY-MM-DD`) with bullet entries in `activity-log.md`.
-- **Job file format**: Markdown in `notes/jobs/YYYY-MM-DD-slug.md` with line-based metadata: `# Job Task:`, `Started:`, `Status:`, `Validation:`, `Session:`, optional `SkipPermissions:`, `ResumeId:`, `ResumeCommand:`, followed by `## Progress`, `## Results`, and `## Validation` sections.
+- **Job file format**: Markdown in `.dispatch/jobs/YYYY-MM-DD-slug.md` with line-based metadata: `# Job Task:`, `Started:`, `Status:`, `Validation:`, `Session:`, optional `SkipPermissions:`, `ResumeId:`, `ResumeCommand:`, followed by `## Progress`, `## Results`, and `## Validation` sections.
 
 ## Documentation
 
@@ -114,8 +114,8 @@ yarn start           # Serve built SPA + API from port 3747
 ## Common Pitfalls
 
 1. **Timestamps: never append `Z`.** All timestamps in this codebase are local time with no timezone suffix. `new Date(started.replace(' ', 'T'))` is correct. Appending `Z` forces UTC and produces wrong relative times.
-2. **Config: use `config.local.json` when present.** `config.json` is the fallback/shared version. In this checkout, `config.local.json` is the effective source of truth.
-3. **Legacy naming: `swarm` → `jobs`.** The CLI still uses `swarm` for backward compatibility, but new code and API endpoints use `jobs`. Files go in `notes/jobs/`, endpoints are `/api/jobs`. Parser aliases (`parseSwarmFile` etc.) exist but prefer the `parseJob*` names.
+2. **Config: always read `config.local.json` first.** `config.json` is a template/shared version checked into git. `config.local.json` (gitignored) is the effective source of truth and contains the real repo list. The runtime loads `config.local.json` when present and falls back to `config.json` only if it is missing.
+3. **Legacy naming: `swarm` → `jobs`.** The CLI still uses `swarm` for backward compatibility, but new code and API endpoints use `jobs`. Files go in `.dispatch/jobs/`, endpoints are `/api/jobs`. Parser aliases (`parseSwarmFile` etc.) exist but prefer the `parseJob*` names.
 4. **Module systems: don't mix.** Root-level files are CommonJS (`require`/`module.exports`). Dashboard files are ESM (`import`/`export`). The dashboard bridges to parsers via `createRequire`.
 5. **Dashboard server imports parsers.js via `createRequire`.** Do not convert `parsers.js` to ESM — it would break the CLI and terminal which are pure CommonJS with zero dependencies.
 
@@ -123,7 +123,7 @@ yarn start           # Serve built SPA + API from port 3747
 
 1. **`config.local.json` is the source of truth when present; otherwise use `config.json`** for repo paths and file locations. In this repo, prefer `config.local.json`. Do not hardcode repo paths elsewhere. Use **`DISPATCH_ROOT`** (absolute path to the dispatch root) when overriding the server's working directory; **`HUB_DIR`** is deprecated but still honored by the dashboard server.
 2. **`parsers.js` is shared infrastructure.** Test changes against all three consumers (cli.js, terminal.js, dashboard/server.js) before committing.
-3. **Job progress files** go in `notes/jobs/YYYY-MM-DD-slug.md` with the standard format (see Conventions above).
+3. **Job progress files** go in `.dispatch/jobs/YYYY-MM-DD-slug.md` with the standard format (see Conventions above).
 4. **All repos use the same task/activity pattern**: `todo.md` for tasks, `activity-log.md` for activity.
 5. **No TypeScript** in root-level files. The dashboard uses JSX but not TypeScript.
 6. **No external dependencies** for root-level files (parsers.js, cli.js, terminal.js). The dashboard has its own dependency tree.

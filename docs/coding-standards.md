@@ -377,7 +377,7 @@ Parser behavior:
 - Captures the first bullet under each date as the entry summary.
 - Returns `{ stage, entries: [{ date, bullet }] }`.
 
-### Job file format (`notes/jobs/YYYY-MM-DD-slug.md`)
+### Job file format (`.dispatch/jobs/YYYY-MM-DD-slug.md`)
 
 ```markdown
 # Job Task: Task Name Here
@@ -415,7 +415,7 @@ Section content:
 The file ID is derived from the filename (minus `.md` extension):
 e.g., `2026-03-11-create-claude-md.md` becomes ID `2026-03-11-create-claude-md`.
 
-The dashboard still reads legacy `notes/swarm/` directories and parser aliases, but new work should be written to `notes/jobs/`.
+Job files are stored in `.dispatch/jobs/`.
 
 ### Timestamp Rules
 

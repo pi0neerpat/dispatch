@@ -27,4 +27,4 @@
 
 | Topic | File | Summary |
 |-------|------|---------|
-| Coding standards | `docs/coding-standards.md` | Style guide covering JS conventions, `notes/jobs` file contracts, API naming/alias policy, runtime state files, and CSS theming |
+| Coding standards | `docs/coding-standards.md` | Style guide covering JS conventions, `.dispatch/jobs` file contracts, API naming/alias policy, runtime state files, and CSS theming |

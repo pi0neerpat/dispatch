@@ -22,7 +22,7 @@
 //     are validated against strict regexes before use.
 //   - Git operations use execFileSync with argument arrays, not shell strings.
 //   - The `extraFlags` field is restricted to an explicit allowlist.
-//   - Path containment checks prevent job file lookups from escaping notes/jobs.
+//   - Path containment checks prevent job file lookups from escaping .dispatch/jobs.
 // ─────────────────────────────────────────────────────────
 
 import { createRequire } from 'module'
@@ -871,17 +871,11 @@ app.get('/api/overview', (req, res) => {
 function collectJobAgents(config = getConfig()) {
   const allAgents = []
   for (const repo of config.repos) {
-    const jobsDir = path.join(repo.resolvedPath, 'notes', 'jobs')
-    const legacySwarmDir = path.join(repo.resolvedPath, 'notes', 'swarm')
-    const seen = new Set()
-    for (const dirPath of [jobsDir, legacySwarmDir]) {
-      const agents = parseJobDir(dirPath)
-      for (const agent of agents) {
-        if (seen.has(agent.id)) continue
-        seen.add(agent.id)
-        agent.repo = repo.name
-        allAgents.push(agent)
-      }
+    const jobsDir = path.join(repo.resolvedPath, '.dispatch', 'jobs')
+    const agents = parseJobDir(jobsDir)
+    for (const agent of agents) {
+      agent.repo = repo.name
+      allAgents.push(agent)
     }
   }
   const planLookup = buildPlanLookup(config)
@@ -1032,6 +1026,8 @@ const VALID_LOOP_TYPES = new Set(['linear-implementation', 'linear-review', 'par
 
 app.get('/api/loops', (req, res) => {
   const config = getConfig()
+  const activeLocks = getActiveLocks(DISPATCH_ROOT)
+  const schedules = loadSchedulesParsers(DISPATCH_ROOT)
   const loops = []
   for (const repo of config.repos) {
     for (const loopType of VALID_LOOP_TYPES) {
@@ -1041,11 +1037,20 @@ app.get('/api/loops', (req, res) => {
         const dirName = path.basename(run.runDir)
         const id = `${repo.name}/${loopType}/${dirName}`
         const sessionActive = run.session ? ptySessions.get(run.session)?.alive === true : false
+        // Check if a schedule lock is held for this loop type (means cron/schedule is running it)
+        const scheduleLockActive = activeLocks.some(l => {
+          const sched = schedules.find(s => s.id === l.scheduleId)
+          return sched && sched.type === 'loop' && sched.loopType === loopType && sched.repo === repo.name
+        })
         let status = 'unknown'
-        if (sessionActive) status = 'in_progress'
+        if (sessionActive || scheduleLockActive) status = 'in_progress'
         else if (run.loopStatus === 'completed' || run.complete) status = 'completed'
         else if (run.loopStatus === 'failed') status = 'failed'
         else if (run.loopStatus) status = run.loopStatus
+        else if (!run.session && !run.loopStatus && !run.complete) {
+          // No PTY session, no schedule lock, no explicit status — loop is dead
+          status = 'failed'
+        }
 
         let durationMinutes = null
         if (run.started) {
@@ -1290,24 +1295,22 @@ app.get(['/api/jobs/:id', '/api/swarm/:id'], (req, res) => {
   const config = getConfig()
   const planLookup = buildPlanLookup(config)
   for (const repo of config.repos) {
-    for (const dirName of ['jobs', 'swarm']) {
-      const jobsDir = path.join(repo.resolvedPath, 'notes', dirName)
-      const filePath = path.join(jobsDir, `${req.params.id}.md`)
-      const resolved = path.resolve(filePath)
-      if (!resolved.startsWith(path.resolve(jobsDir) + path.sep)) continue
-      if (fs.existsSync(filePath)) {
-        const agent = parseJobFile(filePath)
-        agent.repo = repo.name
-        const sessionId = agent.session
-        const session = sessionId ? ptySessions.get(sessionId) : null
-        const summary = session?.eventStore?.summary
-        if (summary?.lastError) {
-          agent.lastError = summary.lastError
-          agent.lastErrorSubKind = summary.lastErrorSubKind || null
-          agent.errorCount = summary.errorCount || 0
-        }
-        return res.json(enrichAgentWithPlanLink(agent, planLookup))
+    const jobsDir = path.join(repo.resolvedPath, '.dispatch', 'jobs')
+    const filePath = path.join(jobsDir, `${req.params.id}.md`)
+    const resolved = path.resolve(filePath)
+    if (!resolved.startsWith(path.resolve(jobsDir) + path.sep)) continue
+    if (fs.existsSync(filePath)) {
+      const agent = parseJobFile(filePath)
+      agent.repo = repo.name
+      const sessionId = agent.session
+      const session = sessionId ? ptySessions.get(sessionId) : null
+      const summary = session?.eventStore?.summary
+      if (summary?.lastError) {
+        agent.lastError = summary.lastError
+        agent.lastErrorSubKind = summary.lastErrorSubKind || null
+        agent.errorCount = summary.errorCount || 0
       }
+      return res.json(enrichAgentWithPlanLink(agent, planLookup))
     }
   }
   res.status(404).json({ error: `Job "${req.params.id}" not found` })
@@ -1519,6 +1522,65 @@ const FALLBACK_PI_MODELS = [
   { value: 'anthropic/claude-sonnet-4', label: 'Claude Sonnet 4' },
 ]
 
+/** Cursor IDE session token — same keychain entry as local-ai-hardware/agent-token-monitor (CursorProvider). */
+function readCursorAccessToken() {
+  try {
+    const raw = execFileSync(
+      'security', ['find-generic-password', '-s', 'cursor-access-token', '-a', 'cursor-user', '-w'],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }
+    )
+    if (!raw || !raw.trim()) return null
+    return raw.trim()
+  } catch {
+    return null
+  }
+}
+
+function labelFromCursorAvailableModel(m) {
+  const md = m.tooltipData?.markdownContent
+  if (typeof md === 'string') {
+    const match = md.match(/\*\*([\s\S]*?)\*\*/)
+    if (match) {
+      return match[1].replace(/<br\s*\/?>/gi, ' ').replace(/\s+/g, ' ').trim()
+    }
+  }
+  const id = m.serverModelName || m.name || ''
+  if (!id) return ''
+  return id.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+}
+
+async function readCursorModels() {
+  const token = readCursorAccessToken()
+  if (!token) return null
+  try {
+    const response = await fetch('https://api2.cursor.sh/aiserver.v1.AiService/AvailableModels', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'x-cursor-client-type': 'dispatch-dashboard',
+      },
+      body: '{}',
+    })
+    if (!response.ok) return null
+    const data = await response.json()
+    const raw = Array.isArray(data.models) ? data.models : []
+    if (raw.length === 0) return null
+    const seen = new Set()
+    const models = []
+    for (const m of raw) {
+      const value = m.serverModelName || m.name
+      if (!value || seen.has(value)) continue
+      seen.add(value)
+      const label = labelFromCursorAvailableModel(m)
+      models.push({ value, label: label || value })
+    }
+    return models.length > 0 ? models : null
+  } catch {
+    return null
+  }
+}
+
 function readCodexModelsCache() {
   const cachePath = path.join(os.homedir(), '.codex', 'models_cache.json')
   try {
@@ -1621,7 +1683,8 @@ async function getModelsForAgent(agent) {
       return { models: FALLBACK_CLAUDE_MODELS, source: 'fallback' }
     }
     if (a === 'cursor') {
-      return { models: FALLBACK_CURSOR_MODELS, source: 'fallback' }
+      const models = await readCursorModels()
+      return { models: models || FALLBACK_CURSOR_MODELS, source: models ? 'cursor-aiserver' : 'fallback' }
     }
     if (a === 'pi') {
       const models = readPiModels()
@@ -1757,10 +1820,10 @@ app.post(['/api/jobs/init', '/api/swarm/init'], (req, res) => {
     .slice(0, 50)
 
   const date = new Date().toISOString().slice(0, 10)
-  const jobsDir = path.join(repoConfig.resolvedPath, 'notes', 'jobs')
+  const jobsDir = path.join(repoConfig.resolvedPath, '.dispatch', 'jobs')
   const assignedSessionId = sessionId || makeSessionId()
 
-  // Ensure notes/jobs/ exists
+  // Ensure .dispatch/jobs/ exists
   fs.mkdirSync(jobsDir, { recursive: true })
 
   const { fileName, filePath } = allocateUniqueJobFile({ jobsDir, datePrefix: date, slug })
@@ -1797,7 +1860,7 @@ app.post(['/api/jobs/init', '/api/swarm/init'], (req, res) => {
   if (planSlug) lines.push(`Plan: ${singleLine(planSlug)}`)
   if (selectedSkillNames.length > 0) lines.push(`Skills: ${selectedSkillNames.map(singleLine).join(', ')}`)
 
-  const relativePath = `notes/jobs/${fileName}`
+  const relativePath = `.dispatch/jobs/${fileName}`
   const jobId = fileName.replace(/\.md$/, '')
   const piSessionPath = normalizedAgent === 'pi' ? getPiSessionFilePath({ repoName: repo, jobId }) : null
   if (piSessionPath) {
@@ -2081,15 +2144,13 @@ app.post('/api/tasks/move', (req, res) => {
 function findJobFileById(id, config = getConfig()) {
   if (!isValidJobId(id)) return null
   for (const repo of config.repos) {
-    for (const dirName of ['jobs', 'swarm']) {
-      const jobsDir = path.join(repo.resolvedPath, 'notes', dirName)
-      const filePath = path.join(jobsDir, `${id}.md`)
-      // Path containment: ensure the resolved path stays inside the expected directory
-      const resolved = path.resolve(filePath)
-      const resolvedDir = path.resolve(jobsDir)
-      if (!resolved.startsWith(resolvedDir + path.sep) && resolved !== resolvedDir) continue
-      if (fs.existsSync(filePath)) return { repo, filePath }
-    }
+    const jobsDir = path.join(repo.resolvedPath, '.dispatch', 'jobs')
+    const filePath = path.join(jobsDir, `${id}.md`)
+    // Path containment: ensure the resolved path stays inside the expected directory
+    const resolved = path.resolve(filePath)
+    const resolvedDir = path.resolve(jobsDir)
+    if (!resolved.startsWith(resolvedDir + path.sep) && resolved !== resolvedDir) continue
+    if (fs.existsSync(filePath)) return { repo, filePath }
   }
   return null
 }
@@ -2814,7 +2875,22 @@ app.get('/api/schedule-logs/:id', (req, res) => {
   if (!fs.existsSync(logPath)) return res.json({ log: '', exists: false })
   const tail = parseInt(req.query.tail, 10) || 200
   try {
-    const content = fs.readFileSync(logPath, 'utf8')
+    let content = fs.readFileSync(logPath, 'utf8')
+    // For loop-type schedules, the schedule log contains a "Loop log: <path>"
+    // pointer. Inline the referenced loop.log content for each pointer found.
+    content = content.replace(/^Loop log: (.+)$/gm, (match, loopLogPath) => {
+      try {
+        if (fs.existsSync(loopLogPath)) {
+          const loopContent = fs.readFileSync(loopLogPath, 'utf8')
+          const loopLines = loopContent.split('\n')
+          if (loopLines.length > tail) {
+            return match + `\n... (${loopLines.length - tail} lines skipped) ...\n` + loopLines.slice(-tail).join('\n')
+          }
+          return match + '\n' + loopContent
+        }
+      } catch { /* fall through */ }
+      return match + '\n(loop log not found)'
+    })
     const lines = content.split('\n')
     const sliced = lines.slice(Math.max(0, lines.length - tail)).join('\n')
     res.json({ log: sliced, exists: true, totalLines: lines.length })

@@ -9,9 +9,9 @@ function getFallback(agent) {
 }
 
 /**
- * Fetches available models for the given agent from the server, which queries
- * the Anthropic / OpenAI APIs. Falls back to hardcoded constants if the API
- * key isn't set or the request fails.
+ * Fetches available models for the given agent from the server (Anthropic API,
+ * Codex cache file, Cursor `api2` AvailableModels + keychain token, or Pi RPC).
+ * Falls back to hardcoded constants when credentials or upstream calls fail.
  */
 export function useAgentModels(agent) {
   const fallback = useMemo(() => getFallback(agent), [agent])

@@ -231,8 +231,8 @@ POST /api/jobs/init
 ```json
 {
   "fileName": "2026-03-30-fix-login-bug.md",
-  "relativePath": "notes/jobs/2026-03-30-fix-login-bug.md",
-  "absolutePath": "/abs/path/notes/jobs/2026-03-30-fix-login-bug.md",
+  "relativePath": ".dispatch/jobs/2026-03-30-fix-login-bug.md",
+  "absolutePath": "/abs/path/.dispatch/jobs/2026-03-30-fix-login-bug.md",
   "repo": "my-app",
   "sessionId": "session-<uuid>",
   "serverStarted": true,
@@ -367,16 +367,114 @@ Called by `.claude/hooks/hub-stop.js` when a Claude session ends. Marks the job 
 
 ## Schedules
 
+Schedules automate recurring or one-shot agent runs via system crontab. Each schedule targets a repo and runs as one of four types: `prompt` (claude --print), `job` (tracked job file + claude --print), `loop` (shell-based iterative loop script), or `shell` (arbitrary command).
+
+### List schedules
+```
+GET /api/schedules
+```
+Returns all schedules with cron descriptions, running status, and global concurrency info.
+
+```json
+{
+  "schedules": [
+    {
+      "id": "sched-1776172569453-vmoq",
+      "name": "linear-review loop",
+      "type": "loop",
+      "repo": "prompt-guard",
+      "cron": "17 8 14 4 *",
+      "prompt": null,
+      "model": "claude-opus-4-6",
+      "loopType": "linear-review",
+      "agentSpec": "codex:gpt-5.4",
+      "command": null,
+      "recurring": false,
+      "enabled": false,
+      "concurrency": "skip",
+      "description": "Apr 14 at 8:17 AM",
+      "running": false,
+      "lastRun": "2026-04-14T13:26:19.947Z",
+      "lastRunStatus": "failed"
+    }
+  ],
+  "activeCount": 0,
+  "maxConcurrent": 3
+}
+```
+
+### Create schedule
 ```
 POST /api/schedules
-Body: { "name": "Daily sync", "repo": "my-app", "cron": "0 9 * * *", "prompt": "...", "model": "claude-opus-4-6" }
+```
 
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | yes | Human-readable name |
+| `repo` | string | yes | Repo name (from config) |
+| `cron` | string | yes | Cron expression (5 fields) |
+| `type` | string | no | `prompt` (default), `job`, `loop`, or `shell` |
+| `prompt` | string | no | Prompt text (required for prompt/job types) |
+| `model` | string | no | Model ID (default `claude-opus-4-6`) |
+| `loopType` | string | no | Loop script name (required for loop type, e.g. `linear-review`) |
+| `agentSpec` | string | no | Agent spec for loop (e.g. `codex:gpt-5.4`) |
+| `command` | string | no | Shell command (required for shell type) |
+| `concurrency` | string | no | `skip` (default), `queue`, or `parallel` |
+| `recurring` | boolean | no | `false` = one-shot (auto-disables after run) |
+
+### Update schedule
+```
 PUT /api/schedules/:id
-Body: { "name": "...", "cron": "...", "prompt": "...", "model": "..." }
+Body: { field: value, ... }
+```
+Accepts any of the create fields plus `enabled`.
 
+### Delete schedule
+```
 DELETE /api/schedules/:id
+```
+Removes from `schedules.json` and syncs crontab. Does **not** clean up historical logs or events.
 
+### Toggle enabled/disabled
+```
 POST /api/schedules/:id/toggle
+```
+
+### Trigger immediate run
+```
+POST /api/schedules/:id/run
+```
+Spawns `cli.js schedule run <id>` as a detached background process. Returns immediately.
+
+### Schedule events (structured run history)
+```
+GET /api/schedule-events?scheduleId=<id>&type=<type>&limit=<n>
+```
+Returns structured events (started, completed, failed, skipped) from `schedule-events.json`.
+
+```
+DELETE /api/schedule-events?scheduleId=<id>
+```
+Purges events. Omit `scheduleId` to clear all.
+
+### Schedule logs (run output)
+```
+GET /api/schedule-logs/:id?tail=200
+```
+Returns the tail of the schedule's log file. For loop-type schedules, the log contains `Loop log: <path>` pointers; the server inlines the referenced loop.log content automatically.
+
+### Active schedules
+```
+GET /api/schedule-active
+```
+Returns currently-running schedules based on PID lock files.
+
+```json
+{
+  "active": [{ "scheduleId": "sched-...", "pid": 12345, "name": "...", "repo": "..." }],
+  "count": 1,
+  "maxConcurrent": 3
+}
 ```
 
 ---

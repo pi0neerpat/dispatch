@@ -30,10 +30,6 @@ dashboard/package-lock.json
 .dispatch/runtime/
 .hub-runtime/
 
-# Job progress files (runtime artifacts, project-specific)
-notes/jobs/
-notes/swarm/
-
 # Plans (project-specific work-in-progress)
 plans/
 

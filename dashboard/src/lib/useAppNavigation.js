@@ -22,11 +22,11 @@ export function useAppNavigation() {
     ? decodeURIComponent(segments[1])
     : null
 
-  // drillDownLoopId is derived from URL: /loops/:loopType/:timestamp or /loops/session/:sessionId
+  // drillDownLoopId is derived from URL: /loops/:repo/:loopType/:timestamp or /loops/session/:sessionId
   const drillDownLoopId = segments[0] === 'loops' && segments[1] === 'session' && segments[2]
     ? `session:${decodeURIComponent(segments[2])}`
-    : segments[0] === 'loops' && segments[1] && segments[2]
-      ? `${decodeURIComponent(segments[1])}/${decodeURIComponent(segments[2])}`
+    : segments[0] === 'loops' && segments[1] && segments[2] && segments[3]
+      ? `${decodeURIComponent(segments[1])}/${decodeURIComponent(segments[2])}/${decodeURIComponent(segments[3])}`
       : null
 
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
@@ -48,9 +48,13 @@ export function useAppNavigation() {
   }, [navigate])
 
   const openLoopDetail = useCallback((loopId) => {
-    // loopId is like "linear-review/2026-03-31T20:58:52"
+    // loopId is "repo/loopType/timestamp" e.g. "prompt-guard/linear-review/2026-04-14T15-30-00"
     const parts = loopId.split('/')
-    navigate(`/loops/${encodeURIComponent(parts[0])}/${encodeURIComponent(parts.slice(1).join('/'))}`)
+    if (parts.length >= 3) {
+      navigate(`/loops/${parts[0]}/${parts[1]}/${parts.slice(2).join('/')}`)
+    } else {
+      navigate(`/loops/${parts.join('/')}`)
+    }
   }, [navigate])
 
   const openLoopBySession = useCallback((sessionId) => {

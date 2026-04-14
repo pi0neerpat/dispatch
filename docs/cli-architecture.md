@@ -32,7 +32,7 @@ Primary naming has moved from "swarm" to "job". The parser exports the new `pars
 | `parseActivityLog(filePath)` | Path to `activity-log.md` | `{ stage, entries: [{ date, bullet }] }` | `**Current stage:**` line + `## YYYY-MM-DD` headers + first bullet per date |
 | `getGitInfo(repoPath)` | Repo directory path | `{ branch, dirtyCount }` | `git branch --show-current` + `git status --porcelain` |
 | `parseJobFile(filePath)` | Path to job `.md` file | `{ id, taskName, started, status, validation, originalPrompt, session, skipPermissions, resumeId, resumeCommand, ... }` | Job/swarm file header metadata + `## Progress`, `## Results`, `## Validation` sections |
-| `parseJobDir(dirPath)` | Path to `notes/jobs/` or legacy `notes/swarm/` dir | `[parseJobFile result, ...]` | All `.md` files in the directory |
+| `parseJobDir(dirPath)` | Path to `.dispatch/jobs/` dir | `[parseJobFile result, ...]` | All `.md` files in the directory |
 | `parseSwarmFile(filePath)` | Legacy alias of `parseJobFile` | Same as `parseJobFile` | Backward compatibility for older callers |
 | `parseSwarmDir(dirPath)` | Legacy alias of `parseJobDir` | Same as `parseJobDir` | Backward compatibility for older callers |
 
@@ -55,6 +55,28 @@ Primary naming has moved from "swarm" to "job". The parser exports the new `pars
 | `revertCheckpoint(repoPath, id)` | Restores working directory from checkpoint branch | Git (checkout + delete branch) |
 | `dismissCheckpoint(repoPath, id)` | Deletes checkpoint branch, keeps current state | Git (delete branch) |
 | `listCheckpoints(repoPath)` | Lists `checkpoint/*` branches with metadata | Git (read-only) |
+
+### Schedule Functions
+
+| Function | What It Does | File Modified |
+|----------|--------------|---------------|
+| `loadSchedules(dispatchRoot)` | Reads all schedules from `schedules.json` | — (read-only) |
+| `findSchedule(dispatchRoot, id)` | Finds a single schedule by ID | — (read-only) |
+| `createSchedule(dispatchRoot, fields)` | Creates a new schedule with auto-generated ID | `schedules.json` |
+| `updateSchedule(dispatchRoot, id, fields)` | Updates allowed fields on an existing schedule | `schedules.json` |
+| `deleteSchedule(dispatchRoot, id)` | Removes a schedule by ID | `schedules.json` |
+| `toggleSchedule(dispatchRoot, id)` | Flips the `enabled` flag | `schedules.json` |
+| `updateScheduleLastRun(dispatchRoot, id, ...)` | Records last run time, status, and job ID | `schedules.json` |
+| `getAdjacentSchedules(dispatchRoot, id, windowHours)` | Finds schedules within a time window for collision detection | — (read-only) |
+| `loadScheduleEvents(dispatchRoot, opts)` | Reads structured event log (start/complete/fail/skip) | — (read-only) |
+| `appendScheduleEvent(dispatchRoot, event)` | Appends an event to `schedule-events.json` | `schedule-events.json` |
+| `clearScheduleEvents(dispatchRoot, scheduleId)` | Purges events (all or per-schedule) | `schedule-events.json` |
+| `scheduleLogPath(dispatchRoot, scheduleId)` | Returns the path to a schedule's log file | — (path only) |
+| `acquireScheduleLock(dispatchRoot, scheduleId, jobId)` | PID-based lock for concurrency control | `schedule-locks/<id>.lock` |
+| `releaseScheduleLock(dispatchRoot, scheduleId)` | Removes lock file | `schedule-locks/<id>.lock` |
+| `getActiveLocks(dispatchRoot)` | Lists active locks with stale PID detection | — (read-only) |
+| `generateCrontabBlock(dispatchRoot)` | Builds crontab fenced block from enabled schedules | — (string only) |
+| `syncCrontab(dispatchRoot)` | Replaces fenced block in system crontab | System crontab |
 
 ### Task Numbering Convention
 
@@ -95,6 +117,18 @@ node cli.js <command> [subcommand] [positionals] [--flags]
 | `checkpoint` | `revert` | `checkpoint revert <repo> <id>` |
 | `checkpoint` | `dismiss` | `checkpoint dismiss <repo> <id>` |
 | `checkpoint` | `list` | `checkpoint list [--repo=name]` |
+| `schedule` | — / `list` | All schedules with cron descriptions, running status |
+| `schedule` | `show` | `schedule show <id>` — detail + recent events + adjacent schedules |
+| `schedule` | `add` | Create schedule. `--name`, `--repo`, `--cron` required. `--type` (prompt\|job\|loop\|shell), `--prompt`, `--model`, `--loop-type`, `--agent-spec`, `--command`, `--concurrency` |
+| `schedule` | `edit` | `schedule edit <id>` — update fields (same flags as `add`) |
+| `schedule` | `delete` | `schedule delete <id>` — remove + sync crontab |
+| `schedule` | `enable` | `schedule enable <id>` — enable + sync crontab |
+| `schedule` | `disable` | `schedule disable <id>` — disable + sync crontab |
+| `schedule` | `run` | `schedule run <id>` — execute immediately (this is what cron calls) |
+| `schedule` | `sync` | Rewrite system crontab from `schedules.json` |
+| `schedule` | `active` | Show currently-running schedules (via PID lock files) |
+| `schedule` | `events` | Event history. `--limit=N`, `--schedule-id=<id>`, `--type=<type>` |
+| `schedule` | `clear-events` | `schedule clear-events [<id>]` — purge events (all or per-schedule) |
 
 ### Output Contract
 
@@ -113,6 +147,9 @@ cli.js
 ├── Read commands (cmdStatus, cmdTasks, cmdSwarm, cmdRepos, cmdActivity, cmdConfig)
 ├── Write commands (cmdTasksDone, cmdTasksAdd, cmdSwarmValidate, cmdSwarmReject)
 ├── Checkpoint commands (cmdCheckpointCreate, cmdCheckpointRevert, cmdCheckpointDismiss, cmdCheckpointList)
+├── Schedule commands (cmdScheduleList, cmdScheduleShow, cmdScheduleAdd, cmdScheduleEdit,
+│   cmdScheduleDelete, cmdScheduleEnable, cmdScheduleDisable, cmdScheduleRun,
+│   cmdScheduleSync, cmdScheduleActive, cmdScheduleEvents, cmdScheduleClearEvents)
 └── Router (route function — maps command+subcommand to handler)
 ```
 
@@ -158,7 +195,7 @@ loadConfig(dispatchRootDir)
     ├──► parseTaskFile(todo.md)      ──► { sections, openCount, doneCount }
     ├──► parseActivityLog(activity-log.md) ──► { stage, entries }
     ├──► getGitInfo(repoPath)        ──► { branch, dirtyCount }
-    └──► parseJobDir(notes/jobs/ or notes/swarm/) ──► [{ id, status, progress, results, ... }]
+    └──► parseJobDir(.dispatch/jobs/) ──► [{ id, status, progress, results, ... }]
              │
              ├──► cli.js     → JSON stdout
              ├──► terminal.js → ANSI box art
@@ -167,4 +204,37 @@ loadConfig(dispatchRootDir)
 
 All write operations (`writeTaskDone`, `writeTaskAdd`, etc.) go through `parsers.js` and are consumed by both `cli.js` (write commands) and `dashboard/server.js` (POST endpoints).
 
-The CLI command surface still uses `swarm` for compatibility, but the dashboard/server side has standardized on jobs (`notes/jobs`, `/api/jobs`) while continuing to accept the older names as aliases.
+The CLI command surface still uses `swarm` for compatibility, but the dashboard/server side has standardized on jobs (`.dispatch/jobs`, `/api/jobs`).
+
+### Schedule Data Flow
+
+```
+schedules.json
+    │
+    ▼
+loadSchedules(dispatchRoot) ──► generateCrontabBlock() ──► syncCrontab()
+    │                                                         │
+    ▼                                                         ▼
+cli.js schedule run <id>  ◄──────────── system crontab (fenced block)
+    │
+    ├── acquireScheduleLock()  ──► .dispatch/runtime/schedule-locks/<id>.lock
+    ├── appendScheduleEvent()  ──► .dispatch/runtime/schedule-events.json
+    ├── scheduleLogPath()      ──► .dispatch/runtime/schedule-logs/<id>.log
+    │
+    ├── [type=job]    ──► execFileSync('claude') ──► output → schedule log
+    ├── [type=prompt] ──► execFileSync('claude') ──► output → schedule log
+    ├── [type=shell]  ──► execFileSync('bash')   ──► output → schedule log
+    └── [type=loop]   ──► spawnSync('bash', [script])
+                            │
+                            └──► <repo>/.dispatch/loops/<loopType>/<timestamp>/
+                                  ├── loop.log       (full output via tee)
+                                  ├── status.txt     (completion/failure status)
+                                  ├── prompt.md      (prompt snapshot)
+                                  ├── phase_iter*.txt   (per-iteration output)
+                                  └── review_iter*.txt  (per-iteration reviews)
+                                  │
+                                  └──► schedule log gets "Loop log: <path>" pointer
+                                       (dashboard inlines loop.log at read time)
+```
+
+Schedule logs for non-loop types contain the full captured output between run header/footer markers. For loop types, the schedule log contains only the header, a `Loop log:` pointer to the loop's own log file, and the footer — the dashboard API inlines the referenced content when serving `/api/schedule-logs/:id`.

@@ -26,8 +26,7 @@ function createTestHub() {
 
   const repoDir = path.join(tmpDir, 'testrepo');
   fs.mkdirSync(repoDir, { recursive: true });
-  fs.mkdirSync(path.join(repoDir, 'notes', 'jobs'), { recursive: true });
-  fs.mkdirSync(path.join(repoDir, 'notes', 'swarm'), { recursive: true });
+  fs.mkdirSync(path.join(repoDir, '.dispatch', 'jobs'), { recursive: true });
 
   // config.json
   fs.writeFileSync(path.join(tmpDir, 'config.json'), JSON.stringify({
@@ -98,7 +97,7 @@ function createJobFile(repoDir, jobId, opts = {}) {
     '## Results',
     'Test results here',
   ].join('\n');
-  const filePath = path.join(repoDir, 'notes', 'jobs', `${jobId}.md`);
+  const filePath = path.join(repoDir, '.dispatch', 'jobs', `${jobId}.md`);
   fs.writeFileSync(filePath, content);
   return filePath;
 }
@@ -312,11 +311,11 @@ describe('Dashboard POST write endpoints', () => {
 
     const childId = json.fileName.replace(/\.md$/, '');
     const childContent = fs.readFileSync(
-      path.join(repoDir, 'notes', 'jobs', `${childId}.md`),
+      path.join(repoDir, '.dispatch', 'jobs', `${childId}.md`),
       'utf8'
     );
     const parentContent = fs.readFileSync(
-      path.join(repoDir, 'notes', 'jobs', '2026-03-26-parent-job.md'),
+      path.join(repoDir, '.dispatch', 'jobs', '2026-03-26-parent-job.md'),
       'utf8'
     );
 
@@ -329,7 +328,7 @@ describe('Dashboard POST write endpoints', () => {
 
   it('POST /api/jobs/init rejects branching from a job that already has a next link', async () => {
     const repoDir = path.join(tmpDir, 'testrepo');
-    const filePath = path.join(repoDir, 'notes', 'jobs', '2026-03-26-linear-parent.md');
+    const filePath = path.join(repoDir, '.dispatch', 'jobs', '2026-03-26-linear-parent.md');
     fs.writeFileSync(filePath, [
       '# Job Task: Linear parent',
       'Started: 2026-03-26 12:00:00',
@@ -362,7 +361,7 @@ describe('Dashboard POST write endpoints', () => {
     assert.equal(status, 200);
 
     const content = fs.readFileSync(
-      path.join(repoDir, 'notes', 'jobs', '2026-03-26-validate-test.md'), 'utf8'
+      path.join(repoDir, '.dispatch', 'jobs', '2026-03-26-validate-test.md'), 'utf8'
     );
     assert.ok(content.includes('Validation: Validated'));
   });
@@ -375,7 +374,7 @@ describe('Dashboard POST write endpoints', () => {
     assert.equal(status, 200);
 
     const content = fs.readFileSync(
-      path.join(repoDir, 'notes', 'jobs', '2026-03-26-kill-test.md'), 'utf8'
+      path.join(repoDir, '.dispatch', 'jobs', '2026-03-26-kill-test.md'), 'utf8'
     );
     assert.ok(content.includes('Status: Stopped'));
     assert.ok(content.includes('Validation: Needs validation'));
@@ -395,7 +394,7 @@ describe('Dashboard critical write paths', () => {
     assert.equal(status, 200);
 
     const content = fs.readFileSync(
-      path.join(repoDir, 'notes', 'jobs', '2026-03-26-reject-api-test.md'), 'utf8'
+      path.join(repoDir, '.dispatch', 'jobs', '2026-03-26-reject-api-test.md'), 'utf8'
     );
     assert.ok(content.includes('Validation: Rejected'));
   });
@@ -953,8 +952,8 @@ describe('Hooks', () => {
 
   it('POST /api/hooks/stop-ready marks job awaiting_validation', async () => {
     const repoDir = path.join(tmpDir, 'testrepo');
-    // Recreate notes/jobs/ in case the checkpoint git checkout removed it
-    fs.mkdirSync(path.join(repoDir, 'notes', 'jobs'), { recursive: true });
+    // Recreate .dispatch/jobs/ in case the checkpoint git checkout removed it
+    fs.mkdirSync(path.join(repoDir, '.dispatch', 'jobs'), { recursive: true });
     const jobId = '2026-03-26-hook-stop-test';
     const content = [
       `# Job Task: Hook stop test`,
@@ -966,7 +965,7 @@ describe('Hooks', () => {
       '## Progress',
       '## Results',
     ].join('\n');
-    fs.writeFileSync(path.join(repoDir, 'notes', 'jobs', `${jobId}.md`), content);
+    fs.writeFileSync(path.join(repoDir, '.dispatch', 'jobs', `${jobId}.md`), content);
 
     const { status, json } = await api('POST', '/api/hooks/stop-ready', {
       sessionId: validSessionId,
@@ -992,7 +991,7 @@ describe('Hooks', () => {
 
   it('POST /api/hooks/stop-ready with non-matching sessionId returns 409', async () => {
     const repoDir = path.join(tmpDir, 'testrepo');
-    fs.mkdirSync(path.join(repoDir, 'notes', 'jobs'), { recursive: true });
+    fs.mkdirSync(path.join(repoDir, '.dispatch', 'jobs'), { recursive: true });
     const jobId = '2026-03-26-hook-mismatch-test';
     const content = [
       `# Job Task: Hook mismatch test`,
@@ -1004,7 +1003,7 @@ describe('Hooks', () => {
       '## Progress',
       '## Results',
     ].join('\n');
-    fs.writeFileSync(path.join(repoDir, 'notes', 'jobs', `${jobId}.md`), content);
+    fs.writeFileSync(path.join(repoDir, '.dispatch', 'jobs', `${jobId}.md`), content);
 
     // Different valid UUID session that doesn't match the job's session
     const wrongSession = 'session-c7f0a5b2-9e41-4b23-8c61-2a3b4d5e6f70';

@@ -36,6 +36,7 @@ export default function App() {
   const overview = usePolling('/api/overview', POLL_INTERVALS.overview)
   const jobs = usePolling('/api/jobs', POLL_INTERVALS.jobs)
   const loops = usePolling('/api/loops', POLL_INTERVALS.jobs)
+  const scheduleActive = usePolling('/api/schedule-active', POLL_INTERVALS.schedules)
   const {
     sessions,
     agentTerminals,
@@ -187,6 +188,7 @@ export default function App() {
   })
 
   const loopCount = (loops.data?.jobs || []).filter(j => j.status === 'in_progress').length
+  const scheduleActiveCount = scheduleActive.data?.count || 0
 
   if (location.pathname === '/loading') return <LoadingView />
 
@@ -241,6 +243,7 @@ export default function App() {
           jobCount={activeJobCount}
           reviewCount={reviewCount}
           loopCount={loopCount}
+          scheduleActiveCount={scheduleActiveCount}
           settingsOpen={settingsOpen}
           onToggleSettings={() => setSettingsOpen(v => !v)}
         />
@@ -277,7 +280,7 @@ export default function App() {
                 </ScrollableView>
               } />
               <Route path="/loops/session/:sessionId" element={loopDetailElement} />
-              <Route path="/loops/:loopType/:timestamp" element={loopDetailElement} />
+              <Route path="/loops/:repo/:loopType/:timestamp" element={loopDetailElement} />
               <Route path="/loops" element={
                 <ScrollableView>
                   <LoopsView
@@ -338,6 +341,8 @@ export default function App() {
                 <ScrollableView>
                   <SchedulesView
                     overview={overview.data}
+                    onSelectJob={openJobDetail}
+                    onSelectLoop={openLoopDetail}
                   />
                 </ScrollableView>
               } />

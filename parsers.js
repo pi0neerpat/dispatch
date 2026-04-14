@@ -2000,12 +2000,14 @@ function generateCrontabBlock(dispatchRoot) {
   const absRoot = path.resolve(dispatchRoot);
   const nodeCmd = process.execPath;
   const cliPath = path.join(absRoot, 'cli.js');
+  const userPath = process.env.PATH || '/usr/bin:/bin';
   const lines = [CRONTAB_FENCE_BEGIN];
+  lines.push(`PATH=${userPath}`);
   for (const s of schedules) {
     if (!s.enabled) continue;
-    const logPath = path.join(absRoot, '.dispatch', 'runtime', SCHEDULE_LOGS_DIR, `${s.id}.log`);
     lines.push(`# ${s.id} | ${s.name} | ${s.cron}`);
-    lines.push(`${s.cron} cd "${absRoot}" && "${nodeCmd}" "${cliPath}" schedule run ${s.id} >> "${logPath}" 2>&1`);
+    const cmd = `cd "${absRoot}" && "${nodeCmd}" "${cliPath}" schedule run ${s.id}`;
+    lines.push(`${s.cron} /bin/bash -c '${cmd.replace(/'/g, "'\\''")}'`);
   }
   lines.push(CRONTAB_FENCE_END);
   return lines.join('\n');

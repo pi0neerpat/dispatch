@@ -87,7 +87,7 @@ dashboard/
 
 ESM module. Bridges to `parsers.js` (CommonJS) via `createRequire`.
 
-The dashboard is the canonical job runtime. It reads both `notes/jobs/` and legacy `notes/swarm/`, stores run state in `.dispatch/runtime/job-runs.json`, stages prompt files in `.dispatch/runtime/prompts/`, and stores terminal event output in `.dispatch/runtime/events/`.
+The dashboard is the canonical job runtime. It reads `.dispatch/jobs/`, stores run state in `.dispatch/runtime/job-runs.json`, stages prompt files in `.dispatch/runtime/prompts/`, and stores terminal event output in `.dispatch/runtime/events/`.
 
 ### REST API Endpoints
 
@@ -105,7 +105,10 @@ The dashboard is the canonical job runtime. It reads both `notes/jobs/` and lega
 | `GET /api/sessions/:id/events` | `eventPipeline.getSessionEvents` (paginated, filterable by kind) |
 | `GET /api/sessions/:id/summary` | `eventPipeline.getSessionSummary` |
 | `GET /api/repos/:name/checkpoints` | `listCheckpoints` |
-| `GET /api/schedules` | Reads `schedules.json` |
+| `GET /api/schedules` | `loadSchedules`, `getActiveLocks` |
+| `GET /api/schedule-events` | `loadScheduleEvents` |
+| `GET /api/schedule-logs/:id` | `scheduleLogPath` (reads log file; inlines loop.log for loop-type) |
+| `GET /api/schedule-active` | `getActiveLocks`, `loadSchedules` |
 | `GET /api/events/search` | `eventPipeline.searchEvents` |
 | `GET /api/job-runs` | Reads `.dispatch/runtime/job-runs.json` |
 
@@ -130,10 +133,12 @@ The dashboard is the canonical job runtime. It reads both `notes/jobs/` and lega
 | `POST /api/repos/:name/checkpoint` | `createCheckpoint` |
 | `POST /api/repos/:name/checkpoint/:id/revert` | `revertCheckpoint` |
 | `DELETE /api/repos/:name/checkpoint/:id` | `dismissCheckpoint` |
-| `POST /api/schedules` | None (JSON file) | Create schedule |
-| `PUT /api/schedules/:id` | None (JSON file) | Update schedule |
-| `DELETE /api/schedules/:id` | None (JSON file) | Delete schedule |
-| `POST /api/schedules/:id/toggle` | None (JSON file) | Toggle schedule enabled/disabled |
+| `POST /api/schedules` | `createSchedule`, `syncCrontab` | Create schedule + sync crontab |
+| `PUT /api/schedules/:id` | `updateSchedule`, `syncCrontab` | Update schedule fields + sync crontab |
+| `DELETE /api/schedules/:id` | `deleteSchedule`, `syncCrontab` | Delete schedule + sync crontab |
+| `POST /api/schedules/:id/toggle` | `toggleSchedule`, `syncCrontab` | Toggle enabled/disabled + sync crontab |
+| `POST /api/schedules/:id/run` | `findSchedule` (spawns `cli.js schedule run`) | Trigger immediate background run |
+| `DELETE /api/schedule-events` | `clearScheduleEvents` | Purge event history |
 | `DELETE /api/sessions/:id` | None (soft kill) | Kill PTY process but retain scrollback/event history for review |
 | `DELETE /api/sessions/:id/purge` | None (hard delete) | Remove a retained session record entirely |
 | `POST /api/sessions/:id/chat` | `eventPipeline.answerFromEvents` | Ask questions about session history |
@@ -307,7 +312,7 @@ The `agentTerminals` Map bridges these: each entry stores `{ jobFile: { fileName
 ## Terminal Session Lifecycle
 
 1. User fills out DispatchView form (repo, task, model, turns) and clicks "Dispatch"
-2. `App.handleStartTask` → `POST /api/jobs/init` (legacy `/api/swarm/init` also works) → server writes a job file in `notes/jobs/`, stages a prompt file, creates a PTY, and adds the session to `agentTerminals`
+2. `App.handleStartTask` → `POST /api/jobs/init` (legacy `/api/swarm/init` also works) → server writes a job file in `.dispatch/jobs/`, stages a prompt file, creates a PTY, and adds the session to `agentTerminals`
 3. Navigation switches to Jobs view with drill-down to the new job
 4. `JobDetailView` renders `TerminalPanel` with a `TerminalInstance`
 5. `useTerminal` opens WebSocket to `/ws/terminal?repo=name&jobFile=path&session=sessionId`
